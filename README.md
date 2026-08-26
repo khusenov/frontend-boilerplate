@@ -22,19 +22,22 @@ npm run dev
 
 ## Stack
 
-| Concern       | Choice                                          |
-| ------------- | ----------------------------------------------- |
-| UI            | React 19                                        |
-| Language      | TypeScript 6.0 (strict, `verbatimModuleSyntax`) |
-| Build / dev   | Vite 8 with `@vitejs/plugin-react`              |
-| Linting       | ESLint 10 flat config + typescript-eslint 8     |
-| React / JSX   | `@eslint-react/eslint-plugin`                   |
-| Accessibility | oxlint, `jsx-a11y` rules only                   |
-| Import order  | `eslint-plugin-import-x`                        |
-| Formatting    | Prettier 3                                      |
-| Architecture  | steiger + `@feature-sliced/steiger-plugin`      |
-| Tests         | Vitest 4 + Testing Library + jsdom              |
-| Coverage      | `@vitest/coverage-v8`, 90% per-file thresholds  |
+| Concern             | Choice                                          |
+| ------------------- | ----------------------------------------------- |
+| UI                  | React 19                                        |
+| HTTP transport      | axios 1                                         |
+| Server state        | TanStack Query 5                                |
+| Language            | TypeScript 6.0 (strict, `verbatimModuleSyntax`) |
+| Build / dev         | Vite 8 with `@vitejs/plugin-react`              |
+| Linting             | ESLint 10 flat config + typescript-eslint 8     |
+| React / JSX         | `@eslint-react/eslint-plugin`                   |
+| Accessibility       | oxlint, `jsx-a11y` rules only                   |
+| Import order        | `eslint-plugin-import-x`                        |
+| Formatting          | Prettier 3                                      |
+| Architecture        | steiger + `@feature-sliced/steiger-plugin`      |
+| Tests               | Vitest 4 + Testing Library + jsdom              |
+| API mocking (tests) | MSW 2                                           |
+| Coverage            | `@vitest/coverage-v8`, 90% per-file thresholds  |
 
 ### Why TypeScript is pinned to `~6.0.x`
 
@@ -147,9 +150,13 @@ that every gate has something to bite. Replace them with the first real slice an
   `utils`, `helpers`, `components`, `services`, `schemas`, `validators`, `assets`, `modals`,
   `selectors`, `actions` and `reducers`. `BAD_NAMES` in
   `@feature-sliced/steiger-plugin/dist/index.js` is the source of truth. It checks directories
-  only, so these concepts are fine as files (`app/entrypoint/providers.tsx`).
+  only, so these concepts are fine as files (`shared/api/http-client-context.ts`).
 - **API data is mapped, never leaked.** The frontend owns its own models; responses arrive as DTOs
   and are converted by explicit mappers before crossing into `model`.
+- **Transport lives in `shared/api`,** which owns its own injection adapter (context + provider).
+  No axios type appears in its public API; every failure leaves it as an `HttpError`. Construct the
+  client only in `app` — `no-restricted-imports` blocks `createHttpClient` and `createQueryClient`
+  across all five non-`app` layers, `shared` included; everything else calls `useHttpClient()`.
 
 ## File naming
 
@@ -202,6 +209,65 @@ single module that reads `import.meta.env`, and `src/shared/config/app-config.te
 test file that pins it with `vi.stubEnv()` plus `vi.resetModules()` and a dynamic `import()`.
 Everything downstream takes the resolved values as props and is tested with plain literals.
 
+## Data layer
+
+`shared/api` is the only place that speaks HTTP. It exposes a transport port, a frontend-owned
+failure model, and a configured TanStack Query cache — and no axios type at all.
+
+```tsx
+const httpClient = useHttpClient();
+
+const things = useQuery({
+  queryKey: ['things'],
+  queryFn: ({ signal }) => httpClient.get<ThingDto[]>('/things', { signal }),
+});
+```
+
+Passing the `signal` TanStack Query hands the `queryFn` is what makes a superseded request abort
+rather than race; the transport turns that abort into an `HttpError` of kind `canceled`, which the
+retry policy then declines to retry.
+
+- **`createHttpClient` is a factory, never a module singleton.** Nothing outside `@/shared/config`
+  reads `import.meta.env`; the base URL arrives as a plain string, which is what keeps every
+  consumer testable with a literal.
+- **`app/entrypoint/AppProviders.tsx` owns both client lifetimes,** each held in a `useState` lazy
+  initializer so its identity is stable for the component's lifetime. `useMemo` would not do:
+  React may discard a memo result, and both clients own live state (an interceptor chain, a query
+  cache).
+- **`useHttpClient()` is the only sanctioned way to reach the transport.** Two gates hold it, and
+  neither is sufficient alone. `no-restricted-imports` blocks `createHttpClient` and
+  `createQueryClient` on the barrel route, from all five non-`app` layers. steiger's
+  `fsd/no-public-api-sidestep` blocks the deep route (`@/shared/api/http-client`) — but only from
+  another layer, because steiger skips same-layer imports, so a second `no-restricted-imports`
+  pattern bans `@/shared/api/*` to stop a `shared/lib` helper sidestepping into a module-level
+  singleton. Both gates match the import path, so they are drift protection, not a sandbox: a
+  `shared` module writing `../api/http-client` or importing `axios` directly is outside every gate,
+  exactly as it is today.
+- **Every failure is an `HttpError`** with a `kind` of `canceled`, `client`, `network`, `server`,
+  `timeout` or `unknown`. `message` is diagnostic, never display copy — user-facing text is the UI
+  layer's job, and putting it here would drag i18n into the transport. Narrow with `isHttpError`;
+  the query error type stays `Error`, deliberately un-augmented, because TanStack also throws its
+  own `CancelledError` and a `queryFn` can throw anything.
+- **Cache defaults:** 30 s `staleTime`, 5 min `gcTime`, and up to 2 retries — for `network`,
+  `timeout` and `server` failures plus HTTP 429 only. Mutations never retry, because they are not
+  assumed idempotent. `createQueryClient(overrides)` merges per group, so a test can set
+  `retry: false` without losing `gcTime`.
+- **`allowAbsoluteUrls: false`** forces every request under `baseURL`. Without it axios ignores
+  `baseURL` for an absolute URL while the auth interceptor still attaches credentials — one
+  `${userSuppliedUrl}` away from shipping a bearer token to a third-party host. A different host
+  needs a second client, deliberately.
+- **Credentials are redacted from serialized errors.** The original `AxiosError` is kept on
+  `HttpError.cause` for diagnostics, and `AxiosError.toJSON()` serializes `config` in full, so a
+  reporter that walks the cause chain would otherwise ship `Authorization: Bearer <jwt>` offsite.
+  `redact` builds a snapshot for serialization only and never touches the outgoing request.
+  `authorization`, `cookie` and `set-cookie` are redacted by default; a custom scheme names its own
+  secret through `redactedHeaders`.
+- **`getAuthHeaders` is an injected port with no implementation.** It returns a header map rather
+  than a token, so it serves a bearer scheme, an API key, a tenant id or a trace header without
+  committing to any. Pass nothing and the interceptor is never registered.
+- **`get<TResponse>()` is an unchecked assertion, not a guarantee.** Nothing validates that the
+  wire payload matches `TResponse`. Runtime validation arrives with the first DTO.
+
 ## Testing
 
 - Vitest runs in `jsdom` with `globals: false` — import `describe`, `it`, and `expect` from
@@ -209,7 +275,9 @@ Everything downstream takes the resolved values as props and is tested with plai
 - `vitest.setup.ts` registers `@testing-library/jest-dom` matchers and calls `cleanup()` after each
   test.
 - Query by accessible role and name (`getByRole('button', { name: 'Add one second' })`) rather than
-  by test id, so tests fail when accessibility regresses.
+  by test id, so tests fail when accessibility regresses. Provider components render no roles of
+  their own, so their assertions use `getByText`; the query-by-role rule is about the UI layer,
+  where roles exist.
 - Coverage thresholds are 90% for lines, functions, branches, and statements, applied **per file**
   (`thresholds.perFile`). A global threshold lets a well-covered codebase absorb one untested
   module; a per-file threshold names the file that fell short. Barrels (`src/**/index.ts`) and test
@@ -222,23 +290,35 @@ Everything downstream takes the resolved values as props and is tested with plai
 - `src/main.tsx` is covered by `src/main.test.ts`, which asserts both the `#root` fail-fast guard
   and that the app mounts. React 19 roots flush asynchronously, so the mount assertion wraps the
   import in `act()`.
+- `src/shared/api/http-client.test.ts` declares `// @vitest-environment node` on its first line.
+  In jsdom axios picks its `xhr` adapter, and MSW's XHR interceptor ignores `xhr.timeout`, so the
+  timeout test would silently _resolve_. The cost is that the file exercises axios's Node adapter
+  rather than the browser's; the code-to-kind mapping is unit-tested for both `ECONNABORTED` and
+  `ETIMEDOUT` in `axios-error-mapper.test.ts`, which is environment-independent.
+- MSW is a dev dependency and is used in Node test mode only. The browser service worker is not
+  installed — `npx msw init public/` lands with the first mocked dev-server slice.
 - A committed `it.skip(...)` fails `npm run lint`: `vitest/no-disabled-tests` is a warning and the
   lint gate runs with `--max-warnings 0`.
 
-Current suite: **5 files, 19 tests, 100% coverage** against the 90% per-file threshold — 30/30
-statements, 12/12 branches, 6/6 functions, 29/29 lines.
+Current suite: **11 files, 70 tests, 100% coverage** against the 90% per-file threshold — 107/107
+statements, 60/60 branches, 34/34 functions, 104/104 lines.
 
 ## Bundle size baseline
 
 Recorded from `npm run build` on the scaffold as committed, with no `.env` present (Vite 8.2.2,
-production, 24 modules transformed):
+production, 139 modules transformed):
 
 | Asset        | Raw       | Gzip     |
 | ------------ | --------- | -------- |
-| `index.js`   | 191.41 kB | 60.43 kB |
+| `index.js`   | 266.79 kB | 86.06 kB |
 | `index.css`  | 0.61 kB   | 0.35 kB  |
 | `index.html` | 0.47 kB   | 0.30 kB  |
 
-The JS figure is essentially React 19 plus the scaffold's few components. A `.env` shifts it by a
-few bytes because Vite inlines the value, so record baselines without one. Treat a jump against
-this baseline as a review item, not a build failure — the number is here to make growth visible.
+The JS figure is React 19, axios and TanStack Query plus the scaffold's few components — up
++75.38 kB raw / +25.63 kB gzip from the 191.41 kB / 60.43 kB React-only baseline. CSS and HTML
+are unchanged. `@tanstack/react-query-devtools` contributes ~0.02 kB gzipped: its production
+entry is `process.env.NODE_ENV !== 'development' ? () => null : Real`, which the bundler
+eliminates — no lazy-loading ceremony and no `import.meta.env.DEV` guard needed. A `.env` shifts
+the total by a few bytes because Vite inlines the value, so record baselines without one. Treat a
+jump against this baseline as a review item, not a build failure — the number is here to make
+growth visible.

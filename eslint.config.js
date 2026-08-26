@@ -1,5 +1,6 @@
 import js from '@eslint/js';
 import eslintReact from '@eslint-react/eslint-plugin';
+import pluginQuery from '@tanstack/eslint-plugin-query';
 import vitest from '@vitest/eslint-plugin';
 import prettier from 'eslint-config-prettier';
 import importX from 'eslint-plugin-import-x';
@@ -73,6 +74,10 @@ export default tseslint.config(
     extends: [vitest.configs.recommended],
   },
   {
+    files: ['src/**/*.{ts,tsx}'],
+    extends: [...pluginQuery.configs['flat/recommended']],
+  },
+  {
     files: ['eslint.config.js', 'vite.config.ts', 'steiger.config.ts', 'scripts/**/*.mjs'],
     languageOptions: {
       globals: globals.node,
@@ -96,6 +101,35 @@ export default tseslint.config(
             {
               regex: '^@/shared/(lib|ui)$',
               message: 'Import the group, not the segment: @/shared/lib/<group>.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ['src/{entities,features,widgets,pages,shared}/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@/shared/api',
+              importNames: ['createHttpClient', 'createQueryClient'],
+              message:
+                'Construct the transport only in the app layer. Reach it with useHttpClient().',
+            },
+          ],
+          patterns: [
+            {
+              regex: '^@/shared/(lib|ui)$',
+              message: 'Import the group, not the segment: @/shared/lib/<group>.',
+            },
+            {
+              regex: '^@/shared/api/',
+              message:
+                'Import the segment public API: @/shared/api. steiger skips same-layer imports, so this is the only gate on a shared-to-shared sidestep.',
             },
           ],
         },
