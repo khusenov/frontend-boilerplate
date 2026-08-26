@@ -47,4 +47,28 @@ describe('HomePage', () => {
 
     expect(screen.getByRole('status')).toHaveTextContent('00:01');
   });
+
+  it('names the elapsed status region', () => {
+    render(<HomePage name="frontend-boilerplate" mode="test" apiBaseUrl="/api" />);
+
+    expect(screen.getByRole('status', { name: 'Elapsed time' })).toBeInTheDocument();
+  });
+
+  it('pluralises the added seconds against the count', async () => {
+    const user = userEvent.setup();
+    render(<HomePage name="frontend-boilerplate" mode="test" apiBaseUrl="/api" />);
+
+    expect(screen.getByText('0 seconds added')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Add one second' }));
+
+    expect(screen.getByText('1 second added')).toBeInTheDocument();
+  });
+
+  it('renders the markup carried by the environment copy as real elements', () => {
+    render(<HomePage name="frontend-boilerplate" mode="test" apiBaseUrl="/api" />);
+
+    expect(screen.getByText('test', { selector: 'code' })).toBeInTheDocument();
+    expect(screen.getByText('/api', { selector: 'code' })).toBeInTheDocument();
+  });
 });

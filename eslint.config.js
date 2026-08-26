@@ -10,6 +10,56 @@ import reactRefresh from 'eslint-plugin-react-refresh';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
+const LOWER_LAYER_IMPORT_PATHS = [
+  {
+    name: '@/shared/api',
+    importNames: ['createHttpClient', 'createQueryClient'],
+    message: 'Construct the transport only in the app layer. Reach it with useHttpClient().',
+  },
+  {
+    name: '@tanstack/react-router',
+    allowImportNames: ['Link'],
+    message:
+      'Route state stays in src/app/routes. Below app, take props and callbacks; only <Link> is importable here.',
+  },
+  {
+    name: '@/shared/i18n',
+    importNames: ['createI18n'],
+    message:
+      'Construct the i18n instance only in the app layer. Reach it with useTranslation() or useLocale().',
+  },
+];
+
+const LOWER_LAYER_IMPORT_PATTERNS = [
+  {
+    regex: '^@/shared/(lib|ui)$',
+    message: 'Import the group, not the segment: @/shared/lib/<group>.',
+  },
+  {
+    regex: '^@/shared/api/',
+    message:
+      'Import the segment public API: @/shared/api. steiger skips same-layer imports, so this is the only gate on a shared-to-shared sidestep.',
+  },
+  {
+    regex: '^@tanstack/(react-)?router-core',
+    message: 'Route state stays in src/app/routes.',
+  },
+  {
+    regex: '^@tanstack/react-router/',
+    message: 'Import the package root. Route state stays in src/app/routes.',
+  },
+];
+
+const I18N_VENDOR_IMPORT_PATHS = [
+  {
+    name: 'react-i18next',
+    message: 'Reach i18n through @/shared/i18n, which re-exports Trans and useTranslation.',
+  },
+  { name: 'i18next', allowTypeImports: true, message: 'Only shared/i18n knows about i18next.' },
+  { name: 'i18next-browser-languagedetector', message: 'Only shared/i18n knows about i18next.' },
+  { name: 'i18next-resources-to-backend', message: 'Only shared/i18n knows about i18next.' },
+];
+
 export default tseslint.config(
   {
     ignores: ['dist', 'coverage', 'node_modules', 'src/app/router/route-tree.gen.ts'],
@@ -124,40 +174,18 @@ export default tseslint.config(
       'no-restricted-imports': [
         'error',
         {
-          paths: [
-            {
-              name: '@/shared/api',
-              importNames: ['createHttpClient', 'createQueryClient'],
-              message:
-                'Construct the transport only in the app layer. Reach it with useHttpClient().',
-            },
-            {
-              name: '@tanstack/react-router',
-              allowImportNames: ['Link'],
-              message:
-                'Route state stays in src/app/routes. Below app, take props and callbacks; only <Link> is importable here.',
-            },
-          ],
-          patterns: [
-            {
-              regex: '^@/shared/(lib|ui)$',
-              message: 'Import the group, not the segment: @/shared/lib/<group>.',
-            },
-            {
-              regex: '^@/shared/api/',
-              message:
-                'Import the segment public API: @/shared/api. steiger skips same-layer imports, so this is the only gate on a shared-to-shared sidestep.',
-            },
-            {
-              regex: '^@tanstack/(react-)?router-core',
-              message: 'Route state stays in src/app/routes.',
-            },
-            {
-              regex: '^@tanstack/react-router/',
-              message: 'Import the package root. Route state stays in src/app/routes.',
-            },
-          ],
+          paths: [...LOWER_LAYER_IMPORT_PATHS, ...I18N_VENDOR_IMPORT_PATHS],
+          patterns: LOWER_LAYER_IMPORT_PATTERNS,
         },
+      ],
+    },
+  },
+  {
+    files: ['src/shared/i18n/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        { paths: LOWER_LAYER_IMPORT_PATHS, patterns: LOWER_LAYER_IMPORT_PATTERNS },
       ],
     },
   },
@@ -196,6 +224,13 @@ export default tseslint.config(
               message:
                 'Only shared/api knows about axios. Route and router modules use the HttpClient port.',
             },
+            {
+              name: '@/shared/i18n',
+              importNames: ['createI18n'],
+              message:
+                'Route and router modules receive i18n through the provider tree. Only app/entrypoint constructs instances.',
+            },
+            ...I18N_VENDOR_IMPORT_PATHS,
           ],
           patterns: [
             {

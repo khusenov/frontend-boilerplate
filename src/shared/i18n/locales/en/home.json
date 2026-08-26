@@ -1,0 +1,10 @@
+{
+  "environment": {
+    "mode": "mode: <code>{{mode}}</code>",
+    "api": "api: <code>{{apiBaseUrl}}</code>"
+  },
+  "elapsedLabel": "Elapsed time",
+  "addOneSecond": "Add one second",
+  "secondsAdded_one": "{{count}} second added",
+  "secondsAdded_other": "{{count}} seconds added"
+}

@@ -22,25 +22,26 @@ npm run dev
 
 ## Stack
 
-| Concern             | Choice                                                            |
-| ------------------- | ----------------------------------------------------------------- |
-| UI                  | React 19                                                          |
-| Routing             | TanStack Router 1, file-based route generation                    |
-| HTTP transport      | axios 1                                                           |
-| Server state        | TanStack Query 5                                                  |
-| Devtools            | TanStack Query + TanStack Router devtools                         |
-| Language            | TypeScript 6.0 (strict, `verbatimModuleSyntax`)                   |
-| Build / dev         | Vite 8, `@vitejs/plugin-react`, `@tanstack/router-plugin`         |
-| Linting             | ESLint 10 flat config + typescript-eslint 8                       |
-| React / JSX         | `@eslint-react/eslint-plugin`                                     |
-| Router / Query lint | `@tanstack/eslint-plugin-router`, `@tanstack/eslint-plugin-query` |
-| Accessibility       | oxlint, `jsx-a11y` rules only                                     |
-| Import order        | `eslint-plugin-import-x`                                          |
-| Formatting          | Prettier 3                                                        |
-| Architecture        | steiger + `@feature-sliced/steiger-plugin`                        |
-| Tests               | Vitest 4 + Testing Library + jsdom                                |
-| API mocking (tests) | MSW 2                                                             |
-| Coverage            | `@vitest/coverage-v8`, 90% per-file thresholds                    |
+| Concern             | Choice                                                                         |
+| ------------------- | ------------------------------------------------------------------------------ |
+| UI                  | React 19                                                                       |
+| Routing             | TanStack Router 1, file-based route generation                                 |
+| HTTP transport      | axios 1                                                                        |
+| Server state        | TanStack Query 5                                                               |
+| i18n                | i18next 26 + react-i18next 17, browser language detector, resources-to-backend |
+| Devtools            | TanStack Query + TanStack Router devtools                                      |
+| Language            | TypeScript 6.0 (strict, `verbatimModuleSyntax`)                                |
+| Build / dev         | Vite 8, `@vitejs/plugin-react`, `@tanstack/router-plugin`                      |
+| Linting             | ESLint 10 flat config + typescript-eslint 8                                    |
+| React / JSX         | `@eslint-react/eslint-plugin`                                                  |
+| Router / Query lint | `@tanstack/eslint-plugin-router`, `@tanstack/eslint-plugin-query`              |
+| Accessibility       | oxlint, `jsx-a11y` rules only                                                  |
+| Import order        | `eslint-plugin-import-x`                                                       |
+| Formatting          | Prettier 3                                                                     |
+| Architecture        | steiger + `@feature-sliced/steiger-plugin`                                     |
+| Tests               | Vitest 4 + Testing Library + jsdom                                             |
+| API mocking (tests) | MSW 2                                                                          |
+| Coverage            | `@vitest/coverage-v8`, 90% per-file thresholds                                 |
 
 ### Why TypeScript is pinned to `~6.0.x`
 
@@ -99,14 +100,14 @@ about 11 seconds warm. Every gate in it runs offline; a vulnerability scan
 
 Layers, from lowest to highest. A module may only import from layers **below** it.
 
-| Layer      | Purpose                                                                |
-| ---------- | ---------------------------------------------------------------------- |
-| `shared`   | Framework-agnostic building blocks: `ui`, `lib`, `api`, `config`.      |
-| `entities` | Business nouns and their models, DTO mappers, and presentation.        |
-| `features` | Single user actions that change state.                                 |
-| `widgets`  | Compositions of entities and features into self-contained page blocks. |
-| `pages`    | Route-level screens assembled from widgets, features, and entities.    |
-| `app`      | Composition root: providers, routing, global styles, the shell.        |
+| Layer      | Purpose                                                                   |
+| ---------- | ------------------------------------------------------------------------- |
+| `shared`   | Framework-agnostic building blocks: `ui`, `lib`, `api`, `config`, `i18n`. |
+| `entities` | Business nouns and their models, DTO mappers, and presentation.           |
+| `features` | Single user actions that change state.                                    |
+| `widgets`  | Compositions of entities and features into self-contained page blocks.    |
+| `pages`    | Route-level screens assembled from widgets, features, and entities.       |
+| `app`      | Composition root: providers, routing, global styles, the shell.           |
 
 Present today: `app`, `pages`, `shared`. `entities`, `features` and `widgets` arrive with their
 first real slice.
@@ -165,6 +166,16 @@ router's 404 screen and stays.
   `createQueryClient` across all five non-`app` layers, `shared` included, **and from `app/routes`
   and `app/router`**, which additionally may not import `axios` by name. Everything else calls
   `useHttpClient()`; route and router modules receive the transport through the router context.
+- **Display copy lives in `shared/i18n`, and the instance is constructed in `app/entrypoint`.**
+  No component below `app` holds a user-facing string literal; it calls `t()` or renders `<Trans>`,
+  both re-exported from `@/shared/i18n`. `no-restricted-imports` bans `i18next`, `react-i18next`,
+  `i18next-browser-languagedetector` and `i18next-resources-to-backend` outright across the five
+  non-`app` layers **and** from `app/routes` and `app/router`, with a carve-out for
+  `src/shared/i18n/**` — the segment that has to import them. A ban rather than an allow-list of
+  blessed export names, because an allow-list leaves the barrel a convention rather than a
+  boundary: `allowImportNames: ['Trans', 'useTranslation']` lets a page import `useTranslation`
+  from `react-i18next` with no error at all. `createI18n` is additionally blocked on the
+  `@/shared/i18n` barrel route everywhere except `app/entrypoint`.
 - **Routing lives in `app`, and route modules are thin adapters.** URL→component wiring sits in
   `app/routes` (file-based: the file name is the URL), router construction and policy in
   `app/router`. A route module reads route state and config, then hands plain props to a page.
@@ -288,8 +299,11 @@ retry policy then declines to retry.
   pattern bans `@/shared/api/*` to stop a `shared/lib` helper sidestepping into a module-level
   singleton. Both gates match the import path, so they are drift protection, not a sandbox: a
   `shared` module writing `../api/http-client` or importing `axios` directly is outside every gate,
-  exactly as it is today. `app/routes` and `app/router` do additionally ban `axios` by name, which
-  the five lower layers cannot have blanket-applied without breaking `shared/api` itself.
+  exactly as it is today. `app/routes` and `app/router` do additionally ban `axios` by name. The five
+  lower layers could now have that ban blanket-applied too — the `src/shared/i18n/**` carve-out
+  added for the i18n vendor ban is the pattern that makes it possible, since a per-segment config
+  object can restate the rules for the one segment that must import the library. Doing that for
+  axios is deferred, not impossible.
 - **Every failure is an `HttpError`** with a `kind` of `canceled`, `client`, `network`, `server`,
   `timeout` or `unknown`. `message` is diagnostic, never display copy — user-facing text is the UI
   layer's job, and putting it here would drag i18n into the transport. Narrow with `isHttpError`;
@@ -315,15 +329,117 @@ retry policy then declines to retry.
 - **`get<TResponse>()` is an unchecked assertion, not a guarantee.** Nothing validates that the
   wire payload matches `TResponse`. Runtime validation arrives with the first DTO.
 
+## Internationalization
+
+`shared/i18n` owns every user-facing string the frontend authors. `createI18n()` is a factory in the
+shape of `createHttpClient` / `createQueryClient` / `createAppRouter`: `app/entrypoint` composes one
+instance, each test builds an isolated one.
+
+```tsx
+const { t } = useTranslation('home');
+
+<output aria-label={t('elapsedLabel')}>{formatDuration(elapsed)}</output>
+<p>{t('secondsAdded', { count: seconds })}</p>
+<Trans i18nKey="environment.mode" t={t} values={{ mode }} components={{ code: <code /> }} />
+```
+
+- **Keys are compile-checked.** `src/shared/i18n/i18next.d.ts` augments i18next's
+  `CustomTypeOptions` with the English JSON as the resource type, so `t('notFound.titel')` and
+  `useTranslation('hoem')` are `tsc` errors, and plural-suffixed keys (`secondsAdded_one` /
+  `secondsAdded_other`) collapse to one typed `secondsAdded`. **English is the type authority** — a
+  key that exists only in another locale is not a valid key. That file's `import type` statements
+  are load-bearing: they are what make it a module, which is what makes `declare module 'i18next'`
+  an augmentation rather than a wholesale replacement. `moduleDetection: "force"` does not help,
+  because it does not apply to declaration files.
+- **The default locale ships whole; every other locale ships its `common` namespace and streams the
+  rest.** `resources` holds all English namespaces plus `ru/common` inline,
+  `partialBundledLanguages: true` lets a backend coexist with them, and `resourcesToBackend`
+  resolves everything else through a dynamic `import()` that Vite code-splits per
+  locale-and-namespace. An English visitor pays no extra request and never suspends.
+- **Bundling every locale's `common` is a correctness guarantee, not an optimization.** The lazy
+  glob deliberately excludes it, so a locale registered without a bundled `common` has _no_
+  reachable shell copy: i18next abandons the language and the user gets a fully English UI — with
+  every gate still green. `BUNDLED_RESOURCES` is therefore constrained with
+  `satisfies Record<Locale, … & Record<typeof DEFAULT_NAMESPACE, ResourceKey>>`, which turns that
+  into a `TS1360` compile error. Do not remove the constraint.
+- **Adding a locale touches four places, three of them compile-enforced:** the code in
+  `SUPPORTED_LOCALES`, a descriptor in `LOCALES`, its JSON under `locales/<code>/`, and its `common`
+  entry in `BUNDLED_RESOURCES`. Adding a namespace costs a JSON file per locale, an entry in
+  `NAMESPACES`, an import plus a `BUNDLED_RESOURCES` entry for the default locale, and an
+  `import type` plus a `resources` entry in `i18next.d.ts`.
+- **`registry.ts` is named that, not `locales.ts`,** because a sibling `locales/` directory holds
+  the JSON. A file and a directory sharing a name would make `from './locales'` and
+  `from './locales/en/common.json'` resolve correctly only by file-before-directory precedence, and
+  silently flip the day someone adds `locales/index.ts`.
+- **The lazy glob excludes what is statically imported.** `'!./locales/en/*.json'` and
+  `'!./locales/*/common.json'` keep the dynamic and static sets disjoint; without them every build
+  prints Rollup's `INEFFECTIVE_DYNAMIC_IMPORT`. The exclusion repeats the default locale as a
+  literal because glob patterns must be statically analysable and cannot interpolate
+  `DEFAULT_LOCALE` — `lazy-locale-loader.test.ts` carries the drift guard that fails if the two
+  disagree.
+- **Copy carries its own markup; it is never concatenated.** `"mode: <code>{{mode}}</code>"` is one
+  complete sentence rendered through `<Trans components={{ code: <code /> }}>`. Handing a
+  translator a bare `"mode:"` fragment to reassemble in JSX hardcodes English word order and is the
+  same string-concatenation anti-pattern this segment exists to remove.
+- **`escapeValue: false` is required here and is not an XSS relaxation.** React escapes every
+  interpolated child before it reaches the DOM; leaving i18next's own escaping on double-escapes
+  (`O'Brien` → `O&#39;Brien`). react-i18next uses no `dangerouslySetInnerHTML`.
+- **`<html lang>` and `dir` are driven from the registry.** `index.html` hardcodes `lang="en"`;
+  `DocumentLocaleSync` inside `I18nProvider` makes it truthful, which is a WCAG 3.1.1 requirement —
+  otherwise a screen reader announces Russian text with English pronunciation rules. It writes a
+  process-global with no injection seam, so two `I18nProvider`s would fight over the same
+  attributes; that is acceptable for a single-root app, and the fix if it stops being true is to
+  export `DocumentLocaleSync` and mount it at the composition root, not to add a `syncDocument`
+  prop.
+- **`useSuspense: false` in `useLocale` bounds the blast radius; it is not what prevents the blank
+  page.** Bundled `common` is what prevents the blank page. What the option buys is the degraded
+  case: when a namespace is genuinely unreachable — a failed chunk fetch, a bad deploy, a locale
+  registered without its `common` — the app renders in English instead of rendering nothing.
+  `i18n-provider.test.tsx` has the test that discriminates between the two.
+- **Untrusted locale input is filtered before anything loads.** `supportedLngs` runs before any
+  dynamic import and Vite's dynamic-import-vars restricts the glob to a known file set, so
+  `?lng=de`, `?lng=../../../etc/passwd` and `?lng=en-GB` all resolve safely — the first two to
+  English with nothing written to storage, the last to `en` via `load: 'languageOnly'`.
+- **Detection order is querystring → `localStorage` → navigator, cached to `localStorage` under
+  `app.locale`.** `?lng=ru` is what makes the whole thing verifiable in a browser without a
+  locale-switcher UI, which is deliberately deferred to the step that brings `shared/ui`. Note that
+  i18next caches the _detected_ tag (`en-US`), not the resolved locale (`en`); both round-trip to
+  the same language.
+- **Translation JSON is a local build-time asset, not a wire payload.** It crosses no trust
+  boundary and needs no runtime schema validation. Server-supplied display strings are DTO fields
+  and get mapped into the domain model like any other field — they do not belong in these
+  namespaces, which are for copy the frontend owns. When the active locale needs to reach the
+  backend it goes as an `Accept-Language` header through `createHttpClient`'s injected header hook,
+  never by importing i18next inside a mapper.
+- **The re-export of `useTranslation` and `Trans` adopts i18next's API as this project's own, and
+  that is a deliberate departure from `shared/api`.** The transport hides axios entirely behind a
+  hand-written port; i18n does not, because a wrapper would sever the `CustomTypeOptions` type
+  inference that is the reason for choosing i18next 26. What the import gate buys is a single point
+  at which to patch import paths — not implementation independence.
+
 ## Testing
 
 - Vitest runs in `jsdom` with `globals: false` — import `describe`, `it`, and `expect` from
   `vitest` explicitly.
-- `vitest.setup.ts` has three responsibilities, all applying to every test file: it registers
-  `@testing-library/jest-dom` matchers, calls `cleanup()` after each test, and stubs a global
-  `scrollTo`. The stub is there because `scrollRestoration` makes router-core call a bare
-  `scrollTo`, which jsdom does not implement — without it every run prints seven
-  `Not implemented: Window's scrollTo()` lines that read like a regression.
+- `vitest.setup.ts` has six responsibilities, all applying to every test file: it registers
+  `@testing-library/jest-dom` matchers, calls `cleanup()` after each test, stubs a global
+  `scrollTo`, builds a fresh English i18n instance before each test and registers it with
+  `setI18n`, clears `localStorage` before each test, and removes `lang`/`dir` from
+  `<html>` after each test. The `scrollTo` stub is there because `scrollRestoration` makes
+  router-core call a bare `scrollTo`, which jsdom does not implement — without it every run prints
+  seven `Not implemented: Window's scrollTo()` lines that read like a regression.
+- **The last three of those are guarded by `typeof window !== 'undefined'`, and the guard is
+  mandatory.** Setup files run for every test file regardless of its environment, and
+  `src/shared/api/http-client.test.ts` declares `// @vitest-environment node`, where `localStorage`
+  does not exist — without the guard all 16 tests in that file die on
+  `ReferenceError: localStorage is not defined`.
+- **The globally-registered i18n instance is a test convenience, not the app's wiring.** The
+  application receives its instance by explicit injection through `I18nProvider`; the global exists
+  so a page test can render `<HomePage />` with no provider and still get real English copy, which
+  is what lets assertions be written against the copy a user reads. It is constructed in
+  `beforeEach` rather than at module scope so a test that changes the language cannot leak into the
+  next one, and detection and caching are both disabled on it so the persistence assertions in
+  `create-i18n.test.ts` stay meaningful rather than vacuously true.
 - Query by accessible role and name (`getByRole('button', { name: 'Add one second' })`) rather than
   by test id, so tests fail when accessibility regresses. Provider components render no roles of
   their own, so their assertions use `getByText`; the query-by-role rule is about the UI layer,
@@ -363,8 +479,8 @@ retry policy then declines to retry.
 - A committed `it.skip(...)` fails `npm run lint`: `vitest/no-disabled-tests` is a warning and the
   lint gate runs with `--max-warnings 0`.
 
-Current suite: **13 files, 77 tests, 100% coverage** against the 90% per-file threshold — 118/118
-statements, 60/60 branches, 39/39 functions, 114/114 lines.
+Current suite: **18 files, 106 tests, 100% coverage** against the 90% per-file threshold — 157/157
+statements, 69/69 branches, 49/49 functions, 151/151 lines.
 
 ## Bundle size baseline
 
@@ -373,14 +489,25 @@ production, 242 modules transformed):
 
 | Asset          | Raw       | Gzip      |
 | -------------- | --------- | --------- |
-| `index.js`     | 344.60 kB | 112.44 kB |
-| `routes-*.js`  | 1.02 kB   | 0.56 kB   |
+| `index.js`     | 402.27 kB | 130.81 kB |
+| `routes-*.js`  | 11.86 kB  | 5.00 kB   |
 | `index.css`    | 0.36 kB   | 0.22 kB   |
-| `routes-*.css` | 0.25 kB   | 0.19 kB   |
+| `routes-*.css` | 0.30 kB   | 0.20 kB   |
+| `home-*.js`    | 0.63 kB   | 0.31 kB   |
 | `index.html`   | 0.47 kB   | 0.30 kB   |
 
-Five assets, not three, because `autoCodeSplitting` puts each route's component **and its CSS** in a
+Six assets, not three, because `autoCodeSplitting` puts each route's component **and its CSS** in a
 chunk of its own. The hashed `routes-*` pair is the `/` route; a second route adds a second pair.
+`home-*.js` is the Russian `home` namespace, code-split by the i18n backend's dynamic `import()`;
+it is fetched only by a non-English visitor to `/` and is absent from the entry chunk.
+
+**i18n cost, measured against the pre-i18n scaffold:** the entry chunk grew 344.60 → 402.27 kB raw
+and 112.44 → 130.81 kB gzip (+18.37 kB gzip), and the shared `routes-*.js` chunk — which every page
+view loads — grew 1.02 → 11.86 kB raw and 0.56 → 5.00 kB gzip (+4.44 kB gzip), because `<Trans>`
+and its `html-parse-stringify` dependency land there. **Real added cost to render `/` is
++22.81 kB gzip.** Every locale's `common` namespace is bundled into the entry rather than lazily
+loaded, at about 0.22 kB gzip each; that is a correctness guarantee, not an oversight — see
+[Internationalization](#internationalization).
 
 The entry JS is React 19, axios, TanStack Query and TanStack Router plus the scaffold's few
 components — +153.19 kB raw / +52.01 kB gzip over the 191.41 kB / 60.43 kB React-only baseline, of

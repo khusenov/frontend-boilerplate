@@ -1,0 +1,12 @@
+{
+  "environment": {
+    "mode": "режим: <code>{{mode}}</code>",
+    "api": "api: <code>{{apiBaseUrl}}</code>"
+  },
+  "elapsedLabel": "Прошло времени",
+  "addOneSecond": "Добавить секунду",
+  "secondsAdded_one": "Добавлена {{count}} секунда",
+  "secondsAdded_few": "Добавлено {{count}} секунды",
+  "secondsAdded_many": "Добавлено {{count}} секунд",
+  "secondsAdded_other": "Добавлено {{count}} секунды"
+}
