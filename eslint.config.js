@@ -1,6 +1,7 @@
 import js from '@eslint/js';
 import eslintReact from '@eslint-react/eslint-plugin';
 import pluginQuery from '@tanstack/eslint-plugin-query';
+import pluginRouter from '@tanstack/eslint-plugin-router';
 import vitest from '@vitest/eslint-plugin';
 import prettier from 'eslint-config-prettier';
 import importX from 'eslint-plugin-import-x';
@@ -11,7 +12,7 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['dist', 'coverage', 'node_modules'],
+    ignores: ['dist', 'coverage', 'node_modules', 'src/app/router/routeTree.gen.ts'],
   },
   {
     linterOptions: {
@@ -78,6 +79,16 @@ export default tseslint.config(
     extends: [...pluginQuery.configs['flat/recommended']],
   },
   {
+    files: ['src/**/*.{ts,tsx}'],
+    extends: [...pluginRouter.configs['flat/recommended']],
+  },
+  {
+    files: ['src/app/routes/**/*.tsx'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
+  {
     files: ['eslint.config.js', 'vite.config.ts', 'steiger.config.ts', 'scripts/**/*.mjs'],
     languageOptions: {
       globals: globals.node,
@@ -120,6 +131,12 @@ export default tseslint.config(
               message:
                 'Construct the transport only in the app layer. Reach it with useHttpClient().',
             },
+            {
+              name: '@tanstack/react-router',
+              allowImportNames: ['Link'],
+              message:
+                'Route state stays in src/app/routes. Below app, take props and callbacks; only <Link> is importable here.',
+            },
           ],
           patterns: [
             {
@@ -130,6 +147,14 @@ export default tseslint.config(
               regex: '^@/shared/api/',
               message:
                 'Import the segment public API: @/shared/api. steiger skips same-layer imports, so this is the only gate on a shared-to-shared sidestep.',
+            },
+            {
+              regex: '^@tanstack/(react-)?router-core',
+              message: 'Route state stays in src/app/routes.',
+            },
+            {
+              regex: '^@tanstack/react-router/',
+              message: 'Import the package root. Route state stays in src/app/routes.',
             },
           ],
         },
@@ -147,6 +172,39 @@ export default tseslint.config(
               group: ['@/**', '!@/app', './*/**', '../**'],
               message:
                 'src/main.tsx sits outside the FSD layer system and steiger cannot analyse it. Import only the app layer public API: @/app.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ['src/app/{routes,router}/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@/shared/api',
+              importNames: ['createHttpClient', 'createQueryClient'],
+              message:
+                'Route and router modules receive the transport through the router context. Only app/entrypoint constructs clients.',
+            },
+            {
+              name: 'axios',
+              message:
+                'Only shared/api knows about axios. Route and router modules use the HttpClient port.',
+            },
+          ],
+          patterns: [
+            {
+              regex: '^@/shared/(lib|ui)$',
+              message: 'Import the group, not the segment: @/shared/lib/<group>.',
+            },
+            {
+              regex: '^@/shared/api/',
+              message: 'Import the segment public API: @/shared/api.',
             },
           ],
         },

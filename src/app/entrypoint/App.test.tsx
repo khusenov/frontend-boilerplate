@@ -4,9 +4,11 @@ import { describe, expect, it } from 'vitest';
 import { App } from './App';
 
 describe('App', () => {
-  it('renders the home page', () => {
+  it('renders the home page', async () => {
     render(<App />);
 
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('frontend-boilerplate');
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'frontend-boilerplate' }),
+    ).toBeInTheDocument();
   });
 });

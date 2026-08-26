@@ -1,8 +1,19 @@
+import { tanstackRouter } from '@tanstack/router-plugin/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
-export default defineConfig({
-  plugins: [react()],
+const routerPlugin = tanstackRouter({
+  target: 'react',
+  routesDirectory: './src/app/routes',
+  generatedRouteTree: './src/app/router/routeTree.gen.ts',
+  routeFileIgnorePattern: '\\.test\\.tsx?$',
+  autoCodeSplitting: true,
+  quoteStyle: 'single',
+  semicolons: true,
+});
+
+export default defineConfig(({ mode }) => ({
+  plugins: [...(mode === 'test' ? [] : [routerPlugin]), react()],
   resolve: {
     tsconfigPaths: true,
   },
@@ -15,7 +26,7 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'lcov'],
       include: ['src/**/*.{ts,tsx}'],
-      exclude: ['src/**/*.test.{ts,tsx}', 'src/**/index.ts'],
+      exclude: ['src/**/*.test.{ts,tsx}', 'src/**/index.ts', 'src/app/router/routeTree.gen.ts'],
       thresholds: {
         perFile: true,
         lines: 90,
@@ -25,4 +36,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

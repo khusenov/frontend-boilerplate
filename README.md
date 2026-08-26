@@ -22,22 +22,25 @@ npm run dev
 
 ## Stack
 
-| Concern             | Choice                                          |
-| ------------------- | ----------------------------------------------- |
-| UI                  | React 19                                        |
-| HTTP transport      | axios 1                                         |
-| Server state        | TanStack Query 5                                |
-| Language            | TypeScript 6.0 (strict, `verbatimModuleSyntax`) |
-| Build / dev         | Vite 8 with `@vitejs/plugin-react`              |
-| Linting             | ESLint 10 flat config + typescript-eslint 8     |
-| React / JSX         | `@eslint-react/eslint-plugin`                   |
-| Accessibility       | oxlint, `jsx-a11y` rules only                   |
-| Import order        | `eslint-plugin-import-x`                        |
-| Formatting          | Prettier 3                                      |
-| Architecture        | steiger + `@feature-sliced/steiger-plugin`      |
-| Tests               | Vitest 4 + Testing Library + jsdom              |
-| API mocking (tests) | MSW 2                                           |
-| Coverage            | `@vitest/coverage-v8`, 90% per-file thresholds  |
+| Concern             | Choice                                                            |
+| ------------------- | ----------------------------------------------------------------- |
+| UI                  | React 19                                                          |
+| Routing             | TanStack Router 1, file-based route generation                    |
+| HTTP transport      | axios 1                                                           |
+| Server state        | TanStack Query 5                                                  |
+| Devtools            | TanStack Query + TanStack Router devtools                         |
+| Language            | TypeScript 6.0 (strict, `verbatimModuleSyntax`)                   |
+| Build / dev         | Vite 8, `@vitejs/plugin-react`, `@tanstack/router-plugin`         |
+| Linting             | ESLint 10 flat config + typescript-eslint 8                       |
+| React / JSX         | `@eslint-react/eslint-plugin`                                     |
+| Router / Query lint | `@tanstack/eslint-plugin-router`, `@tanstack/eslint-plugin-query` |
+| Accessibility       | oxlint, `jsx-a11y` rules only                                     |
+| Import order        | `eslint-plugin-import-x`                                          |
+| Formatting          | Prettier 3                                                        |
+| Architecture        | steiger + `@feature-sliced/steiger-plugin`                        |
+| Tests               | Vitest 4 + Testing Library + jsdom                                |
+| API mocking (tests) | MSW 2                                                             |
+| Coverage            | `@vitest/coverage-v8`, 90% per-file thresholds                    |
 
 ### Why TypeScript is pinned to `~6.0.x`
 
@@ -89,7 +92,7 @@ lint:a11y:fix` regenerates the file.
 | `npm run audit`         | All eight gates, in order: verify:lock, format:check, lint, lint:a11y, typecheck, arch, build, coverage. |
 
 `npm run audit` is the gate that must be green before anything is committed or merged. It takes
-about 6 seconds warm. Every gate in it runs offline; a vulnerability scan
+about 11 seconds warm. Every gate in it runs offline; a vulnerability scan
 (`npm audit --omit=dev --audit-level=high`) needs the network and therefore belongs to CI.
 
 ## Architecture — Feature-Sliced Design
@@ -110,6 +113,8 @@ first real slice.
 
 `pages/home` and `shared/lib/format-duration` are worked examples, not product code. They exist so
 that every gate has something to bite. Replace them with the first real slice and helper.
+`pages/not-found` is a second `pages` slice and, unlike `home`, is **not** a throwaway — it is the
+router's 404 screen and stays.
 
 ### Rules
 
@@ -126,10 +131,11 @@ that every gate has something to bite. Replace them with the first real slice an
   every helper would grow a line per helper and would give each symbol two sanctioned import paths.
   steiger does not require an index on these two segments, so `no-restricted-imports` bans the bare
   segment path instead.
-- **Configuration is read at the composition seam, not at the leaf.** `app/entrypoint/App.tsx` is
-  the only component that imports `@/shared/config`; it passes flat scalars down as props. A page or
-  widget that reads `appConfig` itself becomes untestable without `vi.stubEnv()` and unusable with a
-  different value, so keep the read at the top and the props narrow.
+- **Configuration is read at the composition seam, not at the leaf.** `app/entrypoint/App.tsx` and
+  the route modules under `app/routes` are the composition seam; no module outside `app` reads
+  `@/shared/config`. They pass flat scalars down as props. A page or widget that reads `appConfig`
+  itself becomes untestable without `vi.stubEnv()` and unusable with a different value, so keep the
+  read at the top and the props narrow. This one is a convention — nothing lints it.
 - **Barrels re-export, they do not execute.** A barrel contains `export` statements and nothing
   else. `no-restricted-syntax` on `src/**/index.ts` rejects any other statement and any
   declaration-carrying export, because barrels are excluded from coverage and logic placed in one
@@ -155,8 +161,39 @@ that every gate has something to bite. Replace them with the first real slice an
   and are converted by explicit mappers before crossing into `model`.
 - **Transport lives in `shared/api`,** which owns its own injection adapter (context + provider).
   No axios type appears in its public API; every failure leaves it as an `HttpError`. Construct the
-  client only in `app` — `no-restricted-imports` blocks `createHttpClient` and `createQueryClient`
-  across all five non-`app` layers, `shared` included; everything else calls `useHttpClient()`.
+  client only in `app/entrypoint` — `no-restricted-imports` blocks `createHttpClient` and
+  `createQueryClient` across all five non-`app` layers, `shared` included, **and from `app/routes`
+  and `app/router`**, which additionally may not import `axios` by name. Everything else calls
+  `useHttpClient()`; route and router modules receive the transport through the router context.
+- **Routing lives in `app`, and route modules are thin adapters.** URL→component wiring sits in
+  `app/routes` (file-based: the file name is the URL), router construction and policy in
+  `app/router`. A route module reads route state and config, then hands plain props to a page.
+  Below `app` the only importable router API is `<Link>` — anything that reads route state
+  (`useParams`, `useSearch`, `useNavigate`, `getRouteApi`, …) stays in `app/routes`.
+  `no-restricted-imports` enforces this as an allow-list, so a router export added in a future
+  minor is banned by default rather than silently permitted. A `shared/ui` link wrapper that needs
+  a router _type_ widens the entry with `allowTypeImports: true`, not with a new allowed name.
+- **The router context carries only app-wide ports.** `AppRouterContext` holds the `HttpClient`
+  port and the `QueryClient` — things a loader needs injected because they vary by environment or
+  must be swappable in a test. A dependency only one subtree needs arrives through that subtree's
+  `beforeLoad` return value, which the router merges into the child context. Module singletons such
+  as `appConfig` are imported directly rather than threaded through. Every route inherits the root
+  context, so a member added there is a dependency forced on routes that will never use it.
+- **The route tree is generated and committed.** `src/app/router/routeTree.gen.ts` is written by
+  `@tanstack/router-plugin`; it is linted, formatted and coverage-excluded, but it is **not**
+  gitignored — `npm run typecheck` runs `tsc -b` with no Vite in the process, so an ignored tree is
+  an immediate failure on a fresh clone. Only `npm run dev` and `npx vite build` regenerate it;
+  `npm run build` and `npm run audit` cannot, because `tsc -b` runs first and aborts. So adding a
+  route is two steps: write `src/app/routes/<path>.tsx`, then run `npx vite build` (or leave the
+  dev server running) and commit the regenerated tree. A stale tree is a hard `typecheck` failure,
+  never a silent one.
+- **A page renders exactly one `<main>` and exactly one `<h1>`.** `HomePage.test.tsx` queries
+  `heading, { level: 1 }` with no name and would throw on a second `<h1>`; a second `<main>` is a
+  landmark ambiguity that no gate catches.
+- **The app is an SPA, so the host must rewrite unmatched paths to `/index.html`** (nginx
+  `try_files`, Netlify `_redirects`, an S3 error document, a GitHub Pages `404.html`). Vite's dev
+  server and `vite preview` both do this automatically, which is exactly why forgetting it is
+  invisible until production, where every deep link 404s.
 
 ## File naming
 
@@ -168,6 +205,10 @@ that every gate has something to bite. Replace them with the first real slice an
 | Barrel / public API  | `index.ts`                | `src/shared/lib/format-duration/index.ts`                |
 | Global stylesheet    | `index.css`               | `src/app/styles/index.css`                               |
 | Test                 | Co-located `*.test.ts(x)` | `src/shared/lib/format-duration/format-duration.test.ts` |
+
+Three files under `src/app` do not follow the table, by convention rather than by oversight:
+`routes/__root.tsx` and `routes/index.tsx` follow TanStack's file-name-is-the-URL rule, and
+`router/routeTree.gen.ts` is generated.
 
 - A component's stylesheet takes the component's name so the pair moves and renames together.
 - Tests sit next to the code they cover, never in a parallel `__tests__` tree.
@@ -207,7 +248,10 @@ Vite loads `.env` files in **test** and **build** runs too, so a developer's loc
 otherwise change what the suite asserts and what ends up in the bundle. `src/shared/config` is the
 single module that reads `import.meta.env`, and `src/shared/config/app-config.test.ts` is the single
 test file that pins it with `vi.stubEnv()` plus `vi.resetModules()` and a dynamic `import()`.
-Everything downstream takes the resolved values as props and is tested with plain literals.
+Everything downstream takes the resolved values as props and is tested with plain literals, with
+one sanctioned exception: `src/app/routes/index.tsx` reads `appConfig` directly, because a route
+module is a composition seam, and it is exercised against real config values through the router
+tests.
 
 ## Data layer
 
@@ -236,13 +280,15 @@ retry policy then declines to retry.
   cache).
 - **`useHttpClient()` is the only sanctioned way to reach the transport.** Two gates hold it, and
   neither is sufficient alone. `no-restricted-imports` blocks `createHttpClient` and
-  `createQueryClient` on the barrel route, from all five non-`app` layers. steiger's
+  `createQueryClient` on the barrel route, from all five non-`app` layers **and from `app/routes`
+  and `app/router`** — only `app/entrypoint` constructs clients. steiger's
   `fsd/no-public-api-sidestep` blocks the deep route (`@/shared/api/http-client`) — but only from
   another layer, because steiger skips same-layer imports, so a second `no-restricted-imports`
   pattern bans `@/shared/api/*` to stop a `shared/lib` helper sidestepping into a module-level
   singleton. Both gates match the import path, so they are drift protection, not a sandbox: a
   `shared` module writing `../api/http-client` or importing `axios` directly is outside every gate,
-  exactly as it is today.
+  exactly as it is today. `app/routes` and `app/router` do additionally ban `axios` by name, which
+  the five lower layers cannot have blanket-applied without breaking `shared/api` itself.
 - **Every failure is an `HttpError`** with a `kind` of `canceled`, `client`, `network`, `server`,
   `timeout` or `unknown`. `message` is diagnostic, never display copy — user-facing text is the UI
   layer's job, and putting it here would drag i18n into the transport. Narrow with `isHttpError`;
@@ -272,8 +318,11 @@ retry policy then declines to retry.
 
 - Vitest runs in `jsdom` with `globals: false` — import `describe`, `it`, and `expect` from
   `vitest` explicitly.
-- `vitest.setup.ts` registers `@testing-library/jest-dom` matchers and calls `cleanup()` after each
-  test.
+- `vitest.setup.ts` has three responsibilities, all applying to every test file: it registers
+  `@testing-library/jest-dom` matchers, calls `cleanup()` after each test, and stubs a global
+  `scrollTo`. The stub is there because `scrollRestoration` makes router-core call a bare
+  `scrollTo`, which jsdom does not implement — without it every run prints seven
+  `Not implemented: Window's scrollTo()` lines that read like a regression.
 - Query by accessible role and name (`getByRole('button', { name: 'Add one second' })`) rather than
   by test id, so tests fail when accessibility regresses. Provider components render no roles of
   their own, so their assertions use `getByText`; the query-by-role rule is about the UI layer,
@@ -281,15 +330,17 @@ retry policy then declines to retry.
 - Coverage thresholds are 90% for lines, functions, branches, and statements, applied **per file**
   (`thresholds.perFile`). A global threshold lets a well-covered codebase absorb one untested
   module; a per-file threshold names the file that fell short. Barrels (`src/**/index.ts`) and test
-  files are excluded because they contain no logic.
+  files are excluded because they contain no logic; `src/app/router/routeTree.gen.ts` is excluded
+  because it is _generated_, not because it is logic-free.
 - The `text` coverage reporter prints only files below 100%; an empty table means everything
   measured is fully covered.
 - Any module that reads `import.meta.env` must be tested with `vi.stubEnv()` plus
   `vi.resetModules()` and a dynamic `import()`. Only `src/shared/config/app-config.ts` reads it;
   keep it that way and no other test needs the pattern.
 - `src/main.tsx` is covered by `src/main.test.ts`, which asserts both the `#root` fail-fast guard
-  and that the app mounts. React 19 roots flush asynchronously, so the mount assertion wraps the
-  import in `act()`.
+  and that the app mounts. React 19 roots flush asynchronously, and mounting the router makes the
+  first route match asynchronous too, so the mount assertion wraps the import in `act()` **and**
+  the assertion itself in `waitFor`.
 - `src/shared/api/http-client.test.ts` declares `// @vitest-environment node` on its first line.
   In jsdom axios picks its `xhr` adapter, and MSW's XHR interceptor ignores `xhr.timeout`, so the
   timeout test would silently _resolve_. The cost is that the file exercises axios's Node adapter
@@ -297,28 +348,55 @@ retry policy then declines to retry.
   `ETIMEDOUT` in `axios-error-mapper.test.ts`, which is environment-independent.
 - MSW is a dev dependency and is used in Node test mode only. The browser service worker is not
   installed — `npx msw init public/` lands with the first mocked dev-server slice.
+- **`src/pages/home/ui/HomePage.test.tsx` stands up no router, deliberately.** It is the
+  executable proof that a page below `app` reads no route state; keep it that way. `Link` is the
+  one exception to router-free pages — it needs a `RouterProvider` ancestor — which makes
+  `pages/not-found` the single slice with no co-located test: a standalone one would have to stand
+  up a router and would then be testing the router twice. It is covered from
+  `src/app/router/create-app-router.test.tsx` instead.
+- **Router policy a constant cannot explain is asserted.** `defaultPreloadStaleTime: 0` stops the
+  router keeping a 30 s cache of loader results alongside Query's; without the assertion in
+  `create-app-router.test.tsx`, deleting the line would pass every gate. The last case in that file
+  is the type-safety gate: a `@ts-expect-error` on `<Link to="/definitely-not-a-route">`, which
+  fails with `TS2578` the moment the `Register` augmentation stops working.
 - A committed `it.skip(...)` fails `npm run lint`: `vitest/no-disabled-tests` is a warning and the
   lint gate runs with `--max-warnings 0`.
 
-Current suite: **11 files, 70 tests, 100% coverage** against the 90% per-file threshold — 107/107
-statements, 60/60 branches, 34/34 functions, 104/104 lines.
+Current suite: **13 files, 77 tests, 100% coverage** against the 90% per-file threshold — 118/118
+statements, 60/60 branches, 39/39 functions, 114/114 lines.
 
 ## Bundle size baseline
 
 Recorded from `npm run build` on the scaffold as committed, with no `.env` present (Vite 8.2.2,
-production, 139 modules transformed):
+production, 242 modules transformed):
 
-| Asset        | Raw       | Gzip     |
-| ------------ | --------- | -------- |
-| `index.js`   | 266.79 kB | 86.06 kB |
-| `index.css`  | 0.61 kB   | 0.35 kB  |
-| `index.html` | 0.47 kB   | 0.30 kB  |
+| Asset          | Raw       | Gzip      |
+| -------------- | --------- | --------- |
+| `index.js`     | 344.60 kB | 112.44 kB |
+| `routes-*.js`  | 1.02 kB   | 0.56 kB   |
+| `index.css`    | 0.36 kB   | 0.22 kB   |
+| `routes-*.css` | 0.25 kB   | 0.19 kB   |
+| `index.html`   | 0.47 kB   | 0.30 kB   |
 
-The JS figure is React 19, axios and TanStack Query plus the scaffold's few components — up
-+75.38 kB raw / +25.63 kB gzip from the 191.41 kB / 60.43 kB React-only baseline. CSS and HTML
-are unchanged. `@tanstack/react-query-devtools` contributes ~0.02 kB gzipped: its production
-entry is `process.env.NODE_ENV !== 'development' ? () => null : Real`, which the bundler
-eliminates — no lazy-loading ceremony and no `import.meta.env.DEV` guard needed. A `.env` shifts
-the total by a few bytes because Vite inlines the value, so record baselines without one. Treat a
-jump against this baseline as a review item, not a build failure — the number is here to make
-growth visible.
+Five assets, not three, because `autoCodeSplitting` puts each route's component **and its CSS** in a
+chunk of its own. The hashed `routes-*` pair is the `/` route; a second route adds a second pair.
+
+The entry JS is React 19, axios, TanStack Query and TanStack Router plus the scaffold's few
+components — +153.19 kB raw / +52.01 kB gzip over the 191.41 kB / 60.43 kB React-only baseline, of
+which routing is +77.81 kB raw / +26.38 kB gzip against the pre-router 266.79 kB / 86.06 kB figure.
+That is the price of typed links, typed route context and per-route code-splitting; weigh it against
+a 1.5 kB router before assuming it is free.
+
+Both devtools packages are in `dependencies` and cost ~0.02 kB gzipped each:
+`@tanstack/react-query-devtools` and `@tanstack/react-router-devtools` both have a production entry
+of `process.env.NODE_ENV !== 'development' ? () => null : Real`, which the bundler eliminates — no
+lazy-loading ceremony and no `import.meta.env.DEV` guard needed. The production bundle contains zero
+matches for `router-devtools-core`.
+
+Note what the split does **not** buy on a first visit: `dist/index.html` preloads only the entry
+chunk, so the landing route costs one extra round trip for its own chunk. `defaultPreload: 'intent'`
+covers every subsequent route by starting the fetch on link hover, but it cannot help the first one.
+
+A `.env` shifts the total by a few bytes because Vite inlines the value, so record baselines without
+one. Treat a jump against this baseline as a review item, not a build failure — the number is here to
+make growth visible.

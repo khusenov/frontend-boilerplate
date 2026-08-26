@@ -29,6 +29,8 @@
   "dependencies": {
     "@tanstack/react-query": "^5.102.4",
     "@tanstack/react-query-devtools": "^5.102.4",
+    "@tanstack/react-router": "^1.170.32",
+    "@tanstack/react-router-devtools": "^1.167.1",
     "axios": "^1.19.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
@@ -38,6 +40,8 @@
     "@eslint/js": "^10.0.1",
     "@feature-sliced/steiger-plugin": "^0.7.0",
     "@tanstack/eslint-plugin-query": "^5.102.4",
+    "@tanstack/eslint-plugin-router": "^1.162.0",
+    "@tanstack/router-plugin": "^1.168.35",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.6",

@@ -2,6 +2,7 @@ dist
 coverage
 node_modules
 package-lock.json
+src/app/router/routeTree.gen.ts
 
 docs
 .claude

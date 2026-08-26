@@ -1,4 +1,4 @@
-import { act } from '@testing-library/react';
+import { act, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 afterEach(() => {
@@ -22,6 +22,8 @@ describe('main entrypoint guard', () => {
       await import('./main');
     });
 
-    expect(root.querySelector('h1')?.textContent).toBe('frontend-boilerplate');
+    await waitFor(() => {
+      expect(root.querySelector('h1')?.textContent).toBe('frontend-boilerplate');
+    });
   });
 });
