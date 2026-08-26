@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { createHttpClient } from './http-client';
 import { useHttpClient } from './http-client-context';
-import { HttpClientProvider } from './HttpClientProvider';
+import { HttpClientProvider } from './http-client-provider';
 
 const client = createHttpClient({ baseUrl: '/api' });
 

@@ -2,7 +2,7 @@ import { createRouter } from '@tanstack/react-router';
 import type { RouterHistory } from '@tanstack/react-router';
 
 import type { AppRouterContext } from './app-router-context';
-import { routeTree } from './routeTree.gen';
+import { routeTree } from './route-tree.gen';
 
 const ROUTER_PRELOAD_STALE_TIME_MILLISECONDS = 0;
 

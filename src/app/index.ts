@@ -1,1 +1,1 @@
-export { App } from './entrypoint/App';
+export { App } from './entrypoint/app';

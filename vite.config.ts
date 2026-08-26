@@ -5,7 +5,7 @@ import { defineConfig } from 'vitest/config';
 const routerPlugin = tanstackRouter({
   target: 'react',
   routesDirectory: './src/app/routes',
-  generatedRouteTree: './src/app/router/routeTree.gen.ts',
+  generatedRouteTree: './src/app/router/route-tree.gen.ts',
   routeFileIgnorePattern: '\\.test\\.tsx?$',
   autoCodeSplitting: true,
   quoteStyle: 'single',
@@ -26,7 +26,7 @@ export default defineConfig(({ mode }) => ({
       provider: 'v8',
       reporter: ['text', 'lcov'],
       include: ['src/**/*.{ts,tsx}'],
-      exclude: ['src/**/*.test.{ts,tsx}', 'src/**/index.ts', 'src/app/router/routeTree.gen.ts'],
+      exclude: ['src/**/*.test.{ts,tsx}', 'src/**/index.ts', 'src/app/router/route-tree.gen.ts'],
       thresholds: {
         perFile: true,
         lines: 90,

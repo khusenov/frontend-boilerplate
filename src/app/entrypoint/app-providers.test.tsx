@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { HttpClient } from '@/shared/api';
 import { useHttpClient } from '@/shared/api';
 
-import { AppProviders } from './AppProviders';
+import { AppProviders } from './app-providers';
 
 describe('AppProviders', () => {
   it('renders its children', () => {

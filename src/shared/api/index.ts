@@ -8,7 +8,7 @@ export type {
   HttpRequestOptions,
 } from './http-client';
 export { useHttpClient } from './http-client-context';
-export { HttpClientProvider } from './HttpClientProvider';
+export { HttpClientProvider } from './http-client-provider';
 export { HttpError, isHttpError, toHttpError } from './http-error';
 export type { HttpErrorDetails, HttpErrorKind } from './http-error';
 export { createQueryClient } from './query-client';

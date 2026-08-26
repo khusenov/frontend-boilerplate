@@ -1,8 +1,8 @@
 import { appConfig } from '@/shared/config';
 
-import { AppRouterProvider } from '../router/AppRouterProvider';
+import { AppRouterProvider } from '../router/app-router-provider';
 
-import { AppProviders } from './AppProviders';
+import { AppProviders } from './app-providers';
 
 import '../styles/index.css';
 

@@ -2,7 +2,7 @@ import { useState } from 'react';
 
 import { formatDuration } from '@/shared/lib/format-duration';
 
-import './HomePage.css';
+import './home-page.css';
 
 const TICK_MILLISECONDS = 1_000;
 

@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { HttpClientProvider, toHttpError } from '@/shared/api';
 import type { HttpClient } from '@/shared/api';
 
-import { AppRouterProvider } from './AppRouterProvider';
+import { AppRouterProvider } from './app-router-provider';
 import { createAppRouter } from './create-app-router';
 
 vi.mock(import('./create-app-router'), async (importOriginal) => {

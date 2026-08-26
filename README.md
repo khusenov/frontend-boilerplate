@@ -121,7 +121,7 @@ router's 404 screen and stays.
 - **Downward imports only.** `features` may use `entities` and `shared`; `entities` may not reach
   into `features`. steiger's `fsd/forbidden-imports` enforces this.
 - **Public API only.** Import a slice through its `index.ts` barrel (`@/pages/home`), never through
-  an inner file (`@/pages/home/ui/HomePage`). steiger's `fsd/no-public-api-sidestep` enforces this
+  an inner file (`@/pages/home/ui/home-page`). steiger's `fsd/no-public-api-sidestep` enforces this
   for files inside a layer.
 - **Group `shared/lib` and `shared/ui` helpers into folders.** `shared/lib/format-duration/` with
   its own `index.ts`, not a flat `shared/lib/format-duration.ts`. steiger only enforces the public
@@ -131,7 +131,7 @@ router's 404 screen and stays.
   every helper would grow a line per helper and would give each symbol two sanctioned import paths.
   steiger does not require an index on these two segments, so `no-restricted-imports` bans the bare
   segment path instead.
-- **Configuration is read at the composition seam, not at the leaf.** `app/entrypoint/App.tsx` and
+- **Configuration is read at the composition seam, not at the leaf.** `app/entrypoint/app.tsx` and
   the route modules under `app/routes` are the composition seam; no module outside `app` reads
   `@/shared/config`. They pass flat scalars down as props. A page or widget that reads `appConfig`
   itself becomes untestable without `vi.stubEnv()` and unusable with a different value, so keep the
@@ -140,7 +140,7 @@ router's 404 screen and stays.
   else. `no-restricted-syntax` on `src/**/index.ts` rejects any other statement and any
   declaration-carrying export, because barrels are excluded from coverage and logic placed in one
   escapes measurement. Side effects such as `import './styles/index.css'` belong in the module that
-  owns them — the global stylesheet is imported by `app/entrypoint/App.tsx`, not by the `app` barrel
+  owns them — the global stylesheet is imported by `app/entrypoint/app.tsx`, not by the `app` barrel
   and not by `src/main.tsx`.
 - **`src/main.tsx` is outside the layer system.** steiger does not analyse it, so a
   `no-restricted-imports` block stands in: `@/app` is the only `@/` path it may import, and relative
@@ -179,7 +179,7 @@ router's 404 screen and stays.
   `beforeLoad` return value, which the router merges into the child context. Module singletons such
   as `appConfig` are imported directly rather than threaded through. Every route inherits the root
   context, so a member added there is a dependency forced on routes that will never use it.
-- **The route tree is generated and committed.** `src/app/router/routeTree.gen.ts` is written by
+- **The route tree is generated and committed.** `src/app/router/route-tree.gen.ts` is written by
   `@tanstack/router-plugin`; it is linted, formatted and coverage-excluded, but it is **not**
   gitignored — `npm run typecheck` runs `tsc -b` with no Vite in the process, so an ignored tree is
   an immediate failure on a fresh clone. Only `npm run dev` and `npx vite build` regenerate it;
@@ -187,7 +187,7 @@ router's 404 screen and stays.
   route is two steps: write `src/app/routes/<path>.tsx`, then run `npx vite build` (or leave the
   dev server running) and commit the regenerated tree. A stale tree is a hard `typecheck` failure,
   never a silent one.
-- **A page renders exactly one `<main>` and exactly one `<h1>`.** `HomePage.test.tsx` queries
+- **A page renders exactly one `<main>` and exactly one `<h1>`.** `home-page.test.tsx` queries
   `heading, { level: 1 }` with no name and would throw on a second `<h1>`; a second `<main>` is a
   landmark ambiguity that no gate catches.
 - **The app is an SPA, so the host must rewrite unmatched paths to `/index.html`** (nginx
@@ -197,20 +197,21 @@ router's 404 screen and stays.
 
 ## File naming
 
-| Kind                 | Convention                | Example                                                  |
-| -------------------- | ------------------------- | -------------------------------------------------------- |
-| React component file | `PascalCase.tsx`          | `src/pages/home/ui/HomePage.tsx`                         |
-| Component stylesheet | Component's name, `.css`  | `src/pages/home/ui/HomePage.css`                         |
-| Everything else      | `kebab-case.ts`           | `src/shared/lib/format-duration/format-duration.ts`      |
-| Barrel / public API  | `index.ts`                | `src/shared/lib/format-duration/index.ts`                |
-| Global stylesheet    | `index.css`               | `src/app/styles/index.css`                               |
-| Test                 | Co-located `*.test.ts(x)` | `src/shared/lib/format-duration/format-duration.test.ts` |
+| Kind                 | Convention                                               | Example                                                  |
+| -------------------- | -------------------------------------------------------- | -------------------------------------------------------- |
+| Every file           | `kebab-case`                                             | `src/shared/lib/format-duration/format-duration.ts`      |
+| React component file | `kebab-case.tsx`, one `PascalCase` export named after it | `src/pages/home/ui/home-page.tsx` exports `HomePage`     |
+| Component stylesheet | Component file's name, `.css`                            | `src/pages/home/ui/home-page.css`                        |
+| Barrel / public API  | `index.ts`                                               | `src/shared/lib/format-duration/index.ts`                |
+| Global stylesheet    | `index.css`                                              | `src/app/styles/index.css`                               |
+| Test                 | Co-located `*.test.ts(x)`                                | `src/shared/lib/format-duration/format-duration.test.ts` |
 
-Three files under `src/app` do not follow the table, by convention rather than by oversight:
-`routes/__root.tsx` and `routes/index.tsx` follow TanStack's file-name-is-the-URL rule, and
-`router/routeTree.gen.ts` is generated.
+Two files under `src/app` do not follow the table, by convention rather than by oversight:
+`routes/__root.tsx` and `routes/index.tsx` follow TanStack's file-name-is-the-URL rule.
+`router/route-tree.gen.ts` is generated, and `generatedRouteTree` in `vite.config.ts` is what keeps
+its name on the table.
 
-- A component's stylesheet takes the component's name so the pair moves and renames together.
+- A component's stylesheet takes the component file's name so the pair moves and renames together.
 - Tests sit next to the code they cover, never in a parallel `__tests__` tree.
 - CSS class names use BEM-ish block/element pairs scoped to the component: `.home`, `.home__env`.
 
@@ -274,7 +275,7 @@ retry policy then declines to retry.
 - **`createHttpClient` is a factory, never a module singleton.** Nothing outside `@/shared/config`
   reads `import.meta.env`; the base URL arrives as a plain string, which is what keeps every
   consumer testable with a literal.
-- **`app/entrypoint/AppProviders.tsx` owns both client lifetimes,** each held in a `useState` lazy
+- **`app/entrypoint/app-providers.tsx` owns both client lifetimes,** each held in a `useState` lazy
   initializer so its identity is stable for the component's lifetime. `useMemo` would not do:
   React may discard a memo result, and both clients own live state (an interceptor chain, a query
   cache).
@@ -330,7 +331,7 @@ retry policy then declines to retry.
 - Coverage thresholds are 90% for lines, functions, branches, and statements, applied **per file**
   (`thresholds.perFile`). A global threshold lets a well-covered codebase absorb one untested
   module; a per-file threshold names the file that fell short. Barrels (`src/**/index.ts`) and test
-  files are excluded because they contain no logic; `src/app/router/routeTree.gen.ts` is excluded
+  files are excluded because they contain no logic; `src/app/router/route-tree.gen.ts` is excluded
   because it is _generated_, not because it is logic-free.
 - The `text` coverage reporter prints only files below 100%; an empty table means everything
   measured is fully covered.
@@ -348,7 +349,7 @@ retry policy then declines to retry.
   `ETIMEDOUT` in `axios-error-mapper.test.ts`, which is environment-independent.
 - MSW is a dev dependency and is used in Node test mode only. The browser service worker is not
   installed — `npx msw init public/` lands with the first mocked dev-server slice.
-- **`src/pages/home/ui/HomePage.test.tsx` stands up no router, deliberately.** It is the
+- **`src/pages/home/ui/home-page.test.tsx` stands up no router, deliberately.** It is the
   executable proof that a page below `app` reads no route state; keep it that way. `Link` is the
   one exception to router-free pages — it needs a `RouterProvider` ancestor — which makes
   `pages/not-found` the single slice with no co-located test: a standalone one would have to stand
