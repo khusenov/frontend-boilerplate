@@ -75,28 +75,54 @@ lint:a11y:fix` regenerates the file.
 
 ## Scripts
 
-| Script                  | What it does                                                                                             |
-| ----------------------- | -------------------------------------------------------------------------------------------------------- |
-| `npm run verify:lock`   | `npm ci --dry-run --ignore-scripts` — fails if `package-lock.json` is out of sync. Works offline.        |
-| `npm run dev`           | Vite dev server with HMR.                                                                                |
-| `npm run build`         | `tsc -b` (project references) then `vite build` into `dist/`.                                            |
-| `npm run preview`       | Serves the built `dist/` locally.                                                                        |
-| `npm run typecheck`     | `tsc -b --pretty` — types only, no emit.                                                                 |
-| `npm run lint`          | ESLint over the repo with `--max-warnings 0`; warnings fail the run.                                     |
-| `npm run lint:fix`      | ESLint with `--fix`.                                                                                     |
-| `npm run lint:a11y`     | a11y rule-list drift check, then oxlint accessibility rules over `src`.                                  |
-| `npm run lint:a11y:fix` | Regenerates `.oxlintrc.json` from oxlint's schema and formats it.                                        |
-| `npm run format`        | Prettier `--write` over the repo.                                                                        |
-| `npm run format:check`  | Prettier `--check`; fails on any unformatted file.                                                       |
-| `npm run test`          | Vitest, single run.                                                                                      |
-| `npm run test:watch`    | Vitest in watch mode.                                                                                    |
-| `npm run test:coverage` | Vitest with v8 coverage and the 90% per-file thresholds enforced.                                        |
-| `npm run arch`          | steiger over `./src` — Feature-Sliced Design rules.                                                      |
-| `npm run audit`         | All eight gates, in order: verify:lock, format:check, lint, lint:a11y, typecheck, arch, build, coverage. |
+| Script                          | What it does                                                                                         |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `npm run verify:lock`           | `npm ci --dry-run --ignore-scripts` — fails if `package-lock.json` is out of sync. Works offline.    |
+| `npm run dev`                   | Vite dev server with HMR.                                                                            |
+| `npm run build`                 | `tsc -b` (project references) then `vite build` into `dist/`.                                        |
+| `npm run preview`               | Serves the built `dist/` locally.                                                                    |
+| `npm run typecheck`             | `tsc -b --pretty` — types only, no emit.                                                             |
+| `npm run lint`                  | ESLint over the repo with `--max-warnings 0`; warnings fail the run.                                 |
+| `npm run lint:fix`              | ESLint with `--fix`.                                                                                 |
+| `npm run lint:a11y`             | a11y rule-list drift check, then oxlint accessibility rules over `src`.                              |
+| `npm run lint:a11y:fix`         | Regenerates `.oxlintrc.json` from oxlint's schema and formats it.                                    |
+| `npm run format`                | Prettier `--write` over the repo.                                                                    |
+| `npm run format:check`          | Prettier `--check`; fails on any unformatted file.                                                   |
+| `npm run test`                  | Vitest, single run.                                                                                  |
+| `npm run test:watch`            | Vitest in watch mode.                                                                                |
+| `npm run test:coverage`         | Vitest with v8 coverage and the 90% per-file thresholds enforced.                                    |
+| `npm run arch`                  | steiger over `./src` — Feature-Sliced Design rules.                                                  |
+| `npm run audit`                 | Runs every gate in sequence. The list lives in the `audit` script in `package.json` — read it there. |
+| `npm run verify:coverage-scope` | Fails if any source file escaped coverage measurement. Runs last in `audit`.                         |
+| `npm run audit:deps`            | `npm audit --omit=dev --audit-level=high`. Needs the network; runs in CI, not in `audit`.            |
 
 `npm run audit` is the gate that must be green before anything is committed or merged. It takes
 about 11 seconds warm. Every gate in it runs offline; a vulnerability scan
 (`npm audit --omit=dev --audit-level=high`) needs the network and therefore belongs to CI.
+
+## Automated enforcement
+
+Every gate in `npm run audit` runs at three points:
+
+| When                          | What runs                                                                 | Scope                            |
+| ----------------------------- | ------------------------------------------------------------------------- | -------------------------------- |
+| `pre-commit`                  | prettier, eslint, oxlint, plus glob-gated a11y-config and lockfile checks | staged files only                |
+| `pre-push`                    | `npm run audit`                                                           | whole repository                 |
+| pull request / push to `main` | `npm run audit` (blocking) and `npm run audit:deps` (advisory)            | whole repository, clean checkout |
+
+Hooks are managed by [lefthook](https://github.com/evilmartians/lefthook). They install themselves on
+`npm install` via the package's own postinstall, which skips when `CI` is set. To reinstall by hand:
+`npx lefthook install -f`.
+
+CI runs the same `npm run audit` you run locally, so the gate list lives in `package.json` only.
+
+Hooks can be bypassed with `git commit --no-verify` / `git push --no-verify`, so `pre-push` is a
+strong default rather than a guarantee.
+
+CI always runs and cannot be skipped, but it only _blocks_ a merge once `Quality gates` and
+`Dependency audit` are set as required status checks on `main`. That requires a public repository or
+GitHub Pro; while this repo is private on the free plan, CI is advisory and `pre-push` is the real
+gate.
 
 ## Architecture — Feature-Sliced Design
 
@@ -141,8 +167,8 @@ router's 404 screen and stays.
   read at the top and the props narrow. This one is a convention — nothing lints it.
 - **Barrels re-export, they do not execute.** A barrel contains `export` statements and nothing
   else. `no-restricted-syntax` on `src/**/index.ts` rejects any other statement and any
-  declaration-carrying export, because barrels are excluded from coverage and logic placed in one
-  escapes measurement. Side effects such as `import './styles/index.css'` belong in the module that
+  declaration-carrying export, because the barrel is the slice public API — logic placed here is
+  unreachable through the slice contract and untestable in isolation. Side effects such as `import './styles/index.css'` belong in the module that
   owns them — the global stylesheet is imported by `app/entrypoint/app.tsx`, not by the `app` barrel
   and not by `src/main.tsx`.
 - **`src/main.tsx` is outside the layer system.** steiger does not analyse it, so a
@@ -611,9 +637,10 @@ context, so exporting them as values would advertise a way to render them broken
   where roles exist.
 - Coverage thresholds are 90% for lines, functions, branches, and statements, applied **per file**
   (`thresholds.perFile`). A global threshold lets a well-covered codebase absorb one untested
-  module; a per-file threshold names the file that fell short. Barrels (`src/**/index.ts`) and test
-  files are excluded because they contain no logic; `src/app/router/route-tree.gen.ts` is excluded
-  because it is _generated_, not because it is logic-free.
+  module; a per-file threshold names the file that fell short. Only test files, `.d.ts` declarations,
+  and the generated `src/app/router/route-tree.gen.ts` are excluded. Barrels _are_ measured: they
+  re-export and nothing else, so they carry zero coverable statements and score 100% — and if logic
+  ever lands in one, it is measured rather than exempt.
 - The `text` coverage reporter prints only files below 100%; an empty table means everything
   measured is fully covered.
 - Any module that reads `import.meta.env` must be tested with `vi.stubEnv()` plus
@@ -644,8 +671,9 @@ context, so exporting them as values would advertise a way to render them broken
 - A committed `it.skip(...)` fails `npm run lint`: `vitest/no-disabled-tests` is a warning and the
   lint gate runs with `--max-warnings 0`.
 
-Current suite: **27 files, 168 tests, 100% coverage** against the 90% per-file threshold — 225/225
-statements, 125/125 branches, 71/71 functions, 218/218 lines.
+Current suite: **27 files, 168 tests, 100% coverage** against the 90% per-file threshold — 227/227
+statements, 125/125 branches, 72/72 functions, 220/220 lines across 49 measured files (13 of which —
+the barrels and one type-only module — carry no coverable statements).
 
 ## Bundle size baseline
 

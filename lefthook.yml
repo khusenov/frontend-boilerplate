@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=./node_modules/lefthook/schema.json
+min_version: 2.1.0
+assert_lefthook_installed: true
+
+pre-commit:
+  jobs:
+    - name: format
+      run: npx --no-install prettier --write --ignore-unknown {staged_files}
+      stage_fixed: true
+
+    - name: lint
+      glob: '*.{ts,tsx,js,mjs}'
+      run: npx --no-install eslint --max-warnings 0 --no-warn-ignored {staged_files}
+
+    - name: a11y
+      glob: 'src/*.{ts,tsx}'
+      run: npx --no-install oxlint --deny-warnings {staged_files}
+
+    - name: a11y-rules-drift
+      glob: '{.oxlintrc.json,scripts/a11y-rules.mjs}'
+      run: node scripts/a11y-rules.mjs --check
+
+    - name: lockfile
+      glob: '{package.json,package-lock.json}'
+      run: npm run verify:lock
+
+pre-push:
+  jobs:
+    - name: audit
+      run: npm run audit

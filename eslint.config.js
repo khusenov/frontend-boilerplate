@@ -316,7 +316,7 @@ export default tseslint.config(
           selector:
             'Program > :not(ImportDeclaration, ExportNamedDeclaration, ExportAllDeclaration)',
           message:
-            'A public API barrel may contain only import and export declarations. src/**/index.ts is excluded from coverage, so logic placed here escapes measurement.',
+            'A public API barrel may contain only import and re-export declarations — no export default, no statements. The barrel is the slice public API; logic placed here is unreachable through the slice contract and untestable in isolation.',
         },
         {
           selector: 'ExportNamedDeclaration[declaration]',
