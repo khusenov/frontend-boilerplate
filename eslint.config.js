@@ -64,6 +64,31 @@ const I18N_VENDOR_IMPORT_PATHS = [
   { name: 'i18next-resources-to-backend', message: 'Only shared/i18n knows about i18next.' },
 ];
 
+const FORM_VENDOR_IMPORT_PATHS = [
+  {
+    name: '@tanstack/react-form',
+    allowTypeImports: true,
+    message:
+      'Only shared/ui/form knows about TanStack Form. Build forms with useAppForm from @/shared/ui/form.',
+  },
+];
+
+const FORM_VENDOR_IMPORT_PATTERNS = [
+  {
+    regex: '^@tanstack/(form-core|react-store)',
+    message:
+      'Only shared/ui/form knows about TanStack Form. Reaching its internals sidesteps the accessible field components.',
+  },
+];
+
+const VALIDATOR_IMPORT_PATTERNS = [
+  {
+    regex: '^(zod|valibot|arktype|yup|joi|superstruct)(/|$)',
+    message:
+      'The form seam validates through Standard Schema, never a concrete validator. Schemas belong to the consuming slice.',
+  },
+];
+
 export default tseslint.config(
   {
     ignores: ['dist', 'coverage', 'node_modules', 'src/app/router/route-tree.gen.ts'],
@@ -182,8 +207,12 @@ export default tseslint.config(
       'no-restricted-imports': [
         'error',
         {
-          paths: [...LOWER_LAYER_IMPORT_PATHS, ...I18N_VENDOR_IMPORT_PATHS],
-          patterns: LOWER_LAYER_IMPORT_PATTERNS,
+          paths: [
+            ...LOWER_LAYER_IMPORT_PATHS,
+            ...I18N_VENDOR_IMPORT_PATHS,
+            ...FORM_VENDOR_IMPORT_PATHS,
+          ],
+          patterns: [...LOWER_LAYER_IMPORT_PATTERNS, ...FORM_VENDOR_IMPORT_PATTERNS],
         },
       ],
     },
@@ -193,7 +222,26 @@ export default tseslint.config(
     rules: {
       'no-restricted-imports': [
         'error',
-        { paths: LOWER_LAYER_IMPORT_PATHS, patterns: LOWER_LAYER_IMPORT_PATTERNS },
+        {
+          paths: [...LOWER_LAYER_IMPORT_PATHS, ...FORM_VENDOR_IMPORT_PATHS],
+          patterns: [...LOWER_LAYER_IMPORT_PATTERNS, ...FORM_VENDOR_IMPORT_PATTERNS],
+        },
+      ],
+    },
+  },
+  // Flat config replaces rather than merges no-restricted-imports options, so this exemption only
+  // works while it is the last block matching src/shared/ui/form/**. A src/shared/** block appended
+  // below would silently kill it, and nothing tests the flat config.
+  {
+    files: ['src/shared/ui/form/**/*.{ts,tsx}'],
+    ignores: ['src/shared/ui/form/**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [...LOWER_LAYER_IMPORT_PATHS, ...I18N_VENDOR_IMPORT_PATHS],
+          patterns: [...LOWER_LAYER_IMPORT_PATTERNS, ...VALIDATOR_IMPORT_PATTERNS],
+        },
       ],
     },
   },
@@ -239,6 +287,7 @@ export default tseslint.config(
                 'Route and router modules receive i18n through the provider tree. Only app/entrypoint constructs instances.',
             },
             ...I18N_VENDOR_IMPORT_PATHS,
+            ...FORM_VENDOR_IMPORT_PATHS,
           ],
           patterns: [
             {

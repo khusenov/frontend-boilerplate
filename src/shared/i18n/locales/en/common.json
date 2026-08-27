@@ -3,5 +3,8 @@
     "title": "Page not found",
     "description": "The page you requested does not exist.",
     "backToHome": "Back to home"
+  },
+  "validation": {
+    "invalid": "This value is invalid."
   }
 }
