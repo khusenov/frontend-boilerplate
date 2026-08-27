@@ -36,6 +36,10 @@ const LOWER_LAYER_IMPORT_PATTERNS = [
     message: 'Import the group, not the segment: @/shared/lib/<group>.',
   },
   {
+    regex: '^@/shared/(lib|ui)/[^/]+/.+',
+    message: 'Import the group public API: @/shared/lib/<group>, not a file inside it.',
+  },
+  {
     regex: '^@/shared/api/',
     message:
       'Import the segment public API: @/shared/api. steiger skips same-layer imports, so this is the only gate on a shared-to-shared sidestep.',
@@ -163,6 +167,10 @@ export default tseslint.config(
               regex: '^@/shared/(lib|ui)$',
               message: 'Import the group, not the segment: @/shared/lib/<group>.',
             },
+            {
+              regex: '^@/shared/(lib|ui)/[^/]+/.+',
+              message: 'Import the group public API: @/shared/lib/<group>, not a file inside it.',
+            },
           ],
         },
       ],
@@ -238,6 +246,10 @@ export default tseslint.config(
               message: 'Import the group, not the segment: @/shared/lib/<group>.',
             },
             {
+              regex: '^@/shared/(lib|ui)/[^/]+/.+',
+              message: 'Import the group public API: @/shared/lib/<group>, not a file inside it.',
+            },
+            {
               regex: '^@/shared/api/',
               message: 'Import the segment public API: @/shared/api.',
             },
@@ -263,6 +275,12 @@ export default tseslint.config(
             'A public API barrel re-exports, it does not declare. Move the declaration into a module and re-export it from here.',
         },
       ],
+    },
+  },
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    rules: {
+      '@typescript-eslint/no-unused-vars': ['error', { ignoreRestSiblings: true }],
     },
   },
   prettier,

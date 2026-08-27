@@ -1,3 +1,4 @@
+import tailwindcss from '@tailwindcss/vite';
 import { tanstackRouter } from '@tanstack/router-plugin/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
@@ -13,7 +14,7 @@ const routerPlugin = tanstackRouter({
 });
 
 export default defineConfig(({ mode }) => ({
-  plugins: [...(mode === 'test' ? [] : [routerPlugin]), react()],
+  plugins: [...(mode === 'test' ? [] : [routerPlugin]), react(), tailwindcss()],
   resolve: {
     tsconfigPaths: true,
   },

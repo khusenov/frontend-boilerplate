@@ -212,7 +212,6 @@ router's 404 screen and stays.
 | -------------------- | -------------------------------------------------------- | -------------------------------------------------------- |
 | Every file           | `kebab-case`                                             | `src/shared/lib/format-duration/format-duration.ts`      |
 | React component file | `kebab-case.tsx`, one `PascalCase` export named after it | `src/pages/home/ui/home-page.tsx` exports `HomePage`     |
-| Component stylesheet | Component file's name, `.css`                            | `src/pages/home/ui/home-page.css`                        |
 | Barrel / public API  | `index.ts`                                               | `src/shared/lib/format-duration/index.ts`                |
 | Global stylesheet    | `index.css`                                              | `src/app/styles/index.css`                               |
 | Test                 | Co-located `*.test.ts(x)`                                | `src/shared/lib/format-duration/format-duration.test.ts` |
@@ -222,9 +221,10 @@ Two files under `src/app` do not follow the table, by convention rather than by 
 `router/route-tree.gen.ts` is generated, and `generatedRouteTree` in `vite.config.ts` is what keeps
 its name on the table.
 
-- A component's stylesheet takes the component file's name so the pair moves and renames together.
 - Tests sit next to the code they cover, never in a parallel `__tests__` tree.
-- CSS class names use BEM-ish block/element pairs scoped to the component: `.home`, `.home__env`.
+- Components are styled with Tailwind utilities against the semantic tokens declared in
+  `src/shared/ui/theme.css` — `bg-primary`, `text-muted-foreground` — never literal palette values.
+  A `shared/ui` primitive owns its variants in a sibling `*-variants.ts` through `cva`.
 
 ## Import order
 
@@ -487,17 +487,18 @@ statements, 69/69 branches, 49/49 functions, 151/151 lines.
 Recorded from `npm run build` on the scaffold as committed, with no `.env` present (Vite 8.2.2,
 production, 242 modules transformed):
 
-| Asset          | Raw       | Gzip      |
-| -------------- | --------- | --------- |
-| `index.js`     | 402.27 kB | 130.81 kB |
-| `routes-*.js`  | 11.86 kB  | 5.00 kB   |
-| `index.css`    | 0.36 kB   | 0.22 kB   |
-| `routes-*.css` | 0.30 kB   | 0.20 kB   |
-| `home-*.js`    | 0.63 kB   | 0.31 kB   |
-| `index.html`   | 0.47 kB   | 0.30 kB   |
+| Asset         | Raw       | Gzip      |
+| ------------- | --------- | --------- |
+| `index.js`    | 402.27 kB | 130.81 kB |
+| `routes-*.js` | 11.86 kB  | 5.00 kB   |
+| `index.css`   | 0.36 kB   | 0.22 kB   |
+| `home-*.js`   | 0.63 kB   | 0.31 kB   |
+| `index.html`  | 0.47 kB   | 0.30 kB   |
 
-Six assets, not three, because `autoCodeSplitting` puts each route's component **and its CSS** in a
-chunk of its own. The hashed `routes-*` pair is the `/` route; a second route adds a second pair.
+Five assets, not three, because `autoCodeSplitting` puts each route's component in a chunk of its
+own. The hashed `routes-*.js` chunk is the `/` route; a second route adds another. Styling is a
+single `index.css`: components carry Tailwind utilities rather than their own stylesheets, so no
+route chunk emits CSS of its own.
 `home-*.js` is the Russian `home` namespace, code-split by the i18n backend's dynamic `import()`;
 it is fetched only by a non-English visitor to `/` and is absent from the entry chunk.
 
