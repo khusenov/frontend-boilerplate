@@ -5,7 +5,7 @@ import { HttpError } from './http-error';
 import { createQueryClient } from './query-client';
 
 function createHttpError(kind: HttpErrorKind, status: number | null = null): HttpError {
-  const details = { kind, status, method: 'GET', url: '/things', payload: null };
+  const details = { kind, status, method: 'GET', url: '/things', payload: null, issues: [] };
 
   return new HttpError('failed', details, null);
 }

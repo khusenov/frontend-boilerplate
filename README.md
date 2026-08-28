@@ -192,7 +192,8 @@ router's 404 screen and stays.
   No axios type appears in its public API; every failure leaves it as an `HttpError`. Construct the
   client only in `app/entrypoint` — `no-restricted-imports` blocks `createHttpClient` and
   `createQueryClient` across all five non-`app` layers, `shared` included, **and from `app/routes`
-  and `app/router`**, which additionally may not import `axios` by name. Everything else calls
+  and `app/router`**. Importing `axios` by name is banned across those same layers too, with a
+  carve-out for `src/shared/api/**`, the one segment that must import it. Everything else calls
   `useHttpClient()`; route and router modules receive the transport through the router context.
 - **Display copy lives in `shared/i18n`, and the instance is constructed in `app/entrypoint`.**
   No component below `app` holds a user-facing string literal; it calls `t()` or renders `<Trans>`,
@@ -214,12 +215,13 @@ router's 404 screen and stays.
   is exempt, and its exemption block must stay the **last** block matching those files: flat config
   replaces rather than merges `no-restricted-imports` options, so a `src/shared/**` block appended
   below would silently kill it and nothing tests the flat config.
-- **No concrete validator inside `shared/ui/form`.** The seam validates through
+- **No concrete validator inside `shared/ui/form` or `shared/api`.** Both seams validate through
   [Standard Schema](https://standardschema.dev), never against `zod` by name, and a `patterns`
   regex on `^(zod|valibot|arktype|yup|joi|superstruct)(/|$)` makes that a lint error rather than an
   intention. It is a pattern rather than a `paths` entry because an exact-name ban on `zod` would
-  still let `zod/mini` — the recommended bundle-size escape hatch — straight through. The seam's own
-  test files are exempt, because they prove the real Standard Schema path with a real Zod schema.
+  still let `zod/mini` straight through — and `zod/mini` is not a loophole but a supported choice:
+  the escape hatch for the form seam, and the default for DTO schemas. Both seams' own test files
+  are exempt: they prove the real Standard Schema path with a real Zod schema.
 - **Every `form.Subscribe` / `useSelector` selector returns a scalar.** TanStack Store compares
   selector results referentially (`defaultCompare` is `a === b`) and `form.Subscribe` exposes no
   `compare` option, so a selector returning `{ canSubmit, isSubmitting }` allocates a fresh object
@@ -329,15 +331,16 @@ tests.
 
 ## Data layer
 
-`shared/api` is the only place that speaks HTTP. It exposes a transport port, a frontend-owned
-failure model, and a configured TanStack Query cache — and no axios type at all.
+`shared/api` is the only place that speaks HTTP. It exposes a transport port, a response-schema
+port, a frontend-owned failure model, and a configured TanStack Query cache — and no axios type at
+all.
 
 ```tsx
 const httpClient = useHttpClient();
 
 const things = useQuery({
   queryKey: ['things'],
-  queryFn: ({ signal }) => httpClient.get<ThingDto[]>('/things', { signal }),
+  queryFn: ({ signal }) => httpClient.get('/things', { signal, schema: thingDtoListSchema }),
 });
 ```
 
@@ -352,25 +355,27 @@ retry policy then declines to retry.
   initializer so its identity is stable for the component's lifetime. `useMemo` would not do:
   React may discard a memo result, and both clients own live state (an interceptor chain, a query
   cache).
-- **`useHttpClient()` is the only sanctioned way to reach the transport.** Two gates hold it, and
-  neither is sufficient alone. `no-restricted-imports` blocks `createHttpClient` and
+- **`useHttpClient()` is the only sanctioned way to reach the transport.** Three gates hold it, and
+  none is sufficient alone. `no-restricted-imports` blocks `createHttpClient` and
   `createQueryClient` on the barrel route, from all five non-`app` layers **and from `app/routes`
   and `app/router`** — only `app/entrypoint` constructs clients. steiger's
   `fsd/no-public-api-sidestep` blocks the deep route (`@/shared/api/http-client`) — but only from
   another layer, because steiger skips same-layer imports, so a second `no-restricted-imports`
   pattern bans `@/shared/api/*` to stop a `shared/lib` helper sidestepping into a module-level
-  singleton. Both gates match the import path, so they are drift protection, not a sandbox: a
-  `shared` module writing `../api/http-client` or importing `axios` directly is outside every gate,
-  exactly as it is today. `app/routes` and `app/router` do additionally ban `axios` by name. The five
-  lower layers could now have that ban blanket-applied too — the `src/shared/i18n/**` carve-out
-  added for the i18n vendor ban is the pattern that makes it possible, since a per-segment config
-  object can restate the rules for the one segment that must import the library. Doing that for
-  axios is deferred, not impossible.
+  singleton. All three of those match the import path, so they are drift protection, not a
+  sandbox: a `shared` module writing `../api/http-client` is outside every gate. Importing `axios`
+  by name, however, is now banned from all five lower layers as well as from `app/routes` and
+  `app/router`. The `src/shared/i18n/**` carve-out is the pattern that made it possible: a
+  per-segment config object restates the rules for `src/shared/api/**`, the one segment that must
+  import the library, and a second block after it re-exempts that segment's own tests from the
+  validator ban. Two honest gaps remain — the `app` layer outside `routes`/`router`
+  (`app/entrypoint`, the `app` barrel) and `src/main.tsx` are covered by no axios ban, and no
+  import rule can stop `fetch` or `XMLHttpRequest`. Drift protection, still not a sandbox.
 - **Every failure is an `HttpError`** with a `kind` of `canceled`, `client`, `network`, `server`,
-  `timeout` or `unknown`. `message` is diagnostic, never display copy — user-facing text is the UI
-  layer's job, and putting it here would drag i18n into the transport. Narrow with `isHttpError`;
-  the query error type stays `Error`, deliberately un-augmented, because TanStack also throws its
-  own `CancelledError` and a `queryFn` can throw anything.
+  `timeout`, `unknown` or `validation`. `message` is diagnostic, never display copy — user-facing
+  text is the UI layer's job, and putting it here would drag i18n into the transport. Narrow with
+  `isHttpError`; the query error type stays `Error`, deliberately un-augmented, because TanStack
+  also throws its own `CancelledError` and a `queryFn` can throw anything.
 - **Cache defaults:** 30 s `staleTime`, 5 min `gcTime`, and up to 2 retries — for `network`,
   `timeout` and `server` failures plus HTTP 429 only. Mutations never retry, because they are not
   assumed idempotent. `createQueryClient(overrides)` merges per group, so a test can set
@@ -388,8 +393,28 @@ retry policy then declines to retry.
 - **`getAuthHeaders` is an injected port with no implementation.** It returns a header map rather
   than a token, so it serves a bearer scheme, an API key, a tenant id or a trace header without
   committing to any. Pass nothing and the interceptor is never registered.
-- **`get<TResponse>()` is an unchecked assertion, not a guarantee.** Nothing validates that the
-  wire payload matches `TResponse`. Runtime validation arrives with the first DTO.
+- **Every request carries a response schema.** All five verbs take a required `schema` in their
+  config — a `ResponseSchema<T>`, which is the Standard Schema interface, so each slice picks its own
+  validator and `shared/api` never imports one. The body is validated before it leaves the transport,
+  so a `TResponse` assertion is no longer expressible. A mismatch rejects as an `HttpError` of kind
+  `validation` carrying `issues` of `{ path, message }`; `payload` is `null` there, deliberately, so
+  an unmodelled body is never copied into an error that gets logged. Validation failures are never
+  retried. `noContentSchema` covers a `204`. A schema that itself throws or rejects is a bug on our
+  side, not contract drift, so it normalizes to kind `unknown` with the original error on `cause` —
+  which keeps the rule that `issues` is non-empty only when the response body is at fault.
+- **DTO schemas use `zod/mini`; form schemas use full `zod`.** Measured on this repo, the same
+  object schema costs ≈17 kB gzip with classic `zod` against ≈3.2 kB with `zod/mini` — about 5×,
+  on a ~2.2 kB floor for any mini schema. That ratio holds wherever the schema lands, and unlike a
+  form — which `autoCodeSplitting` confines to one route's chunk — an entity's DTO schema is
+  reached by every route touching that entity, so it tends toward the shared `routes-*.js` chunk
+  every page view loads. Response-validation messages are developer-facing diagnostics, never
+  display copy, so mini costs nothing that matters here; forms keep full `zod`, whose chainable
+  wrappers are nicer for long refined validators. `zod/mini` composes functionally:
+  `zm.nullable(zm.string())`, never `zm.string().nullable()`. A field-level schema shared with a
+  DTO must therefore be authored in `zod/mini` — mini fields compose into classic objects, so the
+  form seam loses nothing, whereas a classic shared field pulls all ≈17 kB back with it. (The
+  table under **Bundle size baseline** reports 18.24 / 4.49 kB for the same packages: it measures
+  each schema bundled in isolation with React external, not a marginal delta.)
 
 ## Internationalization
 
@@ -565,7 +590,8 @@ export function SignInForm({ onSubmit }: SignInFormProps) {
   `{ email: string; password: string }` from `<input>` values; the DTO is snake-cased server JSON;
   the domain model carries parsed/branded types and no password at all. What may be shared is
   **field-level** refinement — a reusable `emailSchema` composed into all three — never the
-  top-level object.
+  top-level object. A field schema shared with a DTO must be authored in `zod/mini`; see the
+  DTO-schema convention under [Data layer](#data-layer).
 - **Errors reveal on blur, or after the first submit attempt — never on `isTouched`.**
   `FormApi.setFieldValue` sets `isTouched` on the **first keystroke**, so an `isTouched` gate
   announces "Enter a valid email address" mid-word and re-fires assertively as the user types.
@@ -622,7 +648,7 @@ context, so exporting them as values would advertise a way to render them broken
 - **The last three of those are guarded by `typeof window !== 'undefined'`, and the guard is
   mandatory.** Setup files run for every test file regardless of its environment, and
   `src/shared/api/http-client.test.ts` declares `// @vitest-environment node`, where `localStorage`
-  does not exist — without the guard all 16 tests in that file die on
+  does not exist — without the guard all 18 tests in that file die on
   `ReferenceError: localStorage is not defined`.
 - **The globally-registered i18n instance is a test convenience, not the app's wiring.** The
   application receives its instance by explicit injection through `I18nProvider`; the global exists
@@ -671,20 +697,20 @@ context, so exporting them as values would advertise a way to render them broken
 - A committed `it.skip(...)` fails `npm run lint`: `vitest/no-disabled-tests` is a warning and the
   lint gate runs with `--max-warnings 0`.
 
-Current suite: **27 files, 168 tests, 100% coverage** against the 90% per-file threshold — 227/227
-statements, 125/125 branches, 72/72 functions, 220/220 lines across 49 measured files (13 of which —
+Current suite: **28 files, 187 tests, 100% coverage** against the 90% per-file threshold — 254/254
+statements, 134/134 branches, 82/82 functions, 247/247 lines across 51 measured files (13 of which —
 the barrels and one type-only module — carry no coverable statements).
 
 ## Bundle size baseline
 
 Recorded from `npm run build` on the scaffold as committed, with no `.env` present (Vite 8.2.2,
-production, 386 modules transformed):
+production, 388 modules transformed):
 
 | Asset         | Raw       | Gzip      |
 | ------------- | --------- | --------- |
-| `index.js`    | 402.23 kB | 130.76 kB |
+| `index.js`    | 403.10 kB | 131.03 kB |
 | `routes-*.js` | 44.63 kB  | 15.57 kB  |
-| `index.css`   | 20.15 kB  | 4.39 kB   |
+| `index.css`   | 20.18 kB  | 4.40 kB   |
 | `home-*.js`   | 0.63 kB   | 0.31 kB   |
 | `index.html`  | 0.47 kB   | 0.30 kB   |
 
@@ -734,7 +760,18 @@ graph, so the utilities on `Input`, `Label` and `TextField` are emitted the mome
 project, so the `className` strings in the code samples above are extracted as real candidates.
 Recording a CSS baseline here is therefore self-referential — edit the prose around the number and
 the number moves. Treat that as a documented quirk, not a leak; suppressing it would mean narrowing
-`@source`, which would then need maintaining.
+`@source`, which would then need maintaining. (The table above now records 20.18 / 4.40 kB. The
+`index.css` figures here and in the paragraph above are the delta measured when the form seam
+landed, and are left as they are.)
+
+**Validation seam cost, measured against the pre-validation tree:** the entry chunk grew
+402.23 → 403.10 kB raw and 130.76 → 131.03 kB gzip (+0.27 kB gzip). `index.css`, `routes-*.js` and
+`home-*.js` did not move in size, and `index.css` additionally keeps its content hash, so the CSS
+is byte-identical before and after; the `routes-*.js` hash does change, as a cascade from the entry
+chunk's. Unlike the form seam this one **does** ship: `app-providers.tsx` constructs the client, so
+`response-schema.ts` and `validation-error-mapper.ts` sit in the entry graph.
+`@standard-schema/spec` contributes nothing — it is types-only, its `dist/index.js` is 0 bytes, and
+`verbatimModuleSyntax` erases the import.
 
 What the first Zod-validated form route will actually cost, bundled with this repo's own toolchain
 (Vite 8 / Rolldown, minified, React external, each measured in isolation):

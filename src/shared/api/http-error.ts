@@ -1,4 +1,16 @@
-export type HttpErrorKind = 'canceled' | 'client' | 'network' | 'server' | 'timeout' | 'unknown';
+export type HttpErrorKind =
+  'canceled' | 'client' | 'network' | 'server' | 'timeout' | 'unknown' | 'validation';
+
+export interface ExchangeContext {
+  readonly method: string;
+  readonly url: string;
+  readonly status: number;
+}
+
+export interface ResponseValidationIssue {
+  readonly path: string;
+  readonly message: string;
+}
 
 export interface HttpErrorDetails {
   readonly kind: HttpErrorKind;
@@ -6,6 +18,7 @@ export interface HttpErrorDetails {
   readonly method: string | null;
   readonly url: string | null;
   readonly payload: unknown;
+  readonly issues: readonly ResponseValidationIssue[];
 }
 
 const UNKNOWN_ERROR_DETAILS: HttpErrorDetails = {
@@ -14,6 +27,7 @@ const UNKNOWN_ERROR_DETAILS: HttpErrorDetails = {
   method: null,
   url: null,
   payload: null,
+  issues: [],
 };
 
 export class HttpError extends Error implements HttpErrorDetails {
@@ -22,6 +36,7 @@ export class HttpError extends Error implements HttpErrorDetails {
   readonly method: string | null;
   readonly url: string | null;
   readonly payload: unknown;
+  readonly issues: readonly ResponseValidationIssue[];
 
   constructor(message: string, details: HttpErrorDetails, cause: unknown) {
     super(message, { cause });
@@ -31,6 +46,7 @@ export class HttpError extends Error implements HttpErrorDetails {
     this.method = details.method;
     this.url = details.url;
     this.payload = details.payload;
+    this.issues = details.issues;
   }
 }
 

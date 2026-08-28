@@ -2,6 +2,9 @@ import axios from 'axios';
 import type { AxiosInstance, AxiosRequestConfig } from 'axios';
 
 import { toHttpErrorFromAxios } from './axios-error-mapper';
+import type { ExchangeContext } from './http-error';
+import type { ResponseSchema } from './response-schema';
+import { parseResponse } from './response-schema';
 
 const DEFAULT_TIMEOUT_MILLISECONDS = 15_000;
 const JSON_MEDIA_TYPE = 'application/json';
@@ -24,24 +27,22 @@ export interface HttpRequestOptions {
   readonly signal?: AbortSignal;
 }
 
+interface HttpBodyOptions extends HttpRequestOptions {
+  readonly body?: unknown;
+}
+
+export interface HttpRequestConfig<TValue> extends HttpRequestOptions {
+  readonly schema: ResponseSchema<TValue>;
+}
+
+export type HttpBodyRequestConfig<TValue> = HttpRequestConfig<TValue> & HttpBodyOptions;
+
 export interface HttpClient {
-  readonly get: <TResponse>(url: string, options?: HttpRequestOptions) => Promise<TResponse>;
-  readonly post: <TResponse>(
-    url: string,
-    body?: unknown,
-    options?: HttpRequestOptions,
-  ) => Promise<TResponse>;
-  readonly put: <TResponse>(
-    url: string,
-    body?: unknown,
-    options?: HttpRequestOptions,
-  ) => Promise<TResponse>;
-  readonly patch: <TResponse>(
-    url: string,
-    body?: unknown,
-    options?: HttpRequestOptions,
-  ) => Promise<TResponse>;
-  readonly delete: <TResponse>(url: string, options?: HttpRequestOptions) => Promise<TResponse>;
+  readonly get: <TValue>(url: string, config: HttpRequestConfig<TValue>) => Promise<TValue>;
+  readonly post: <TValue>(url: string, config: HttpBodyRequestConfig<TValue>) => Promise<TValue>;
+  readonly put: <TValue>(url: string, config: HttpBodyRequestConfig<TValue>) => Promise<TValue>;
+  readonly patch: <TValue>(url: string, config: HttpBodyRequestConfig<TValue>) => Promise<TValue>;
+  readonly delete: <TValue>(url: string, config: HttpRequestConfig<TValue>) => Promise<TValue>;
 }
 
 export interface CreateHttpClientOptions {
@@ -88,38 +89,49 @@ function createInstance(options: CreateHttpClientOptions): AxiosInstance {
   return instance;
 }
 
-async function sendRequest<TResponse>(
+function toAxiosRequestConfig(
+  method: HttpMethod,
+  url: string,
+  requestConfig: HttpBodyOptions,
+): AxiosRequestConfig {
+  const { body, params, headers, signal } = requestConfig;
+
+  return {
+    method,
+    url,
+    ...(params === undefined ? {} : { params }),
+    ...(headers === undefined ? {} : { headers }),
+    ...(signal === undefined ? {} : { signal }),
+    ...(body === undefined ? {} : { data: body }),
+  };
+}
+
+async function sendRequest<TValue>(
   instance: AxiosInstance,
   method: HttpMethod,
   url: string,
-  options: HttpRequestOptions,
-  body?: unknown,
-): Promise<TResponse> {
-  const config: AxiosRequestConfig = {
-    ...options,
-    method,
-    url,
-    ...(body === undefined ? {} : { data: body }),
-  };
+  requestConfig: HttpBodyRequestConfig<TValue>,
+): Promise<TValue> {
+  const config = toAxiosRequestConfig(method, url, requestConfig);
+  const response = await instance.request<unknown>(config);
+  const context: ExchangeContext = { method, url, status: response.status };
 
-  const response = await instance.request<TResponse>(config);
-
-  return response.data;
+  return parseResponse(requestConfig.schema, response.data, context);
 }
 
 export function createHttpClient(options: CreateHttpClientOptions): HttpClient {
   const instance = createInstance(options);
 
   return {
-    get: <TResponse>(url: string, requestOptions: HttpRequestOptions = {}) =>
-      sendRequest<TResponse>(instance, 'GET', url, requestOptions),
-    post: <TResponse>(url: string, body?: unknown, requestOptions: HttpRequestOptions = {}) =>
-      sendRequest<TResponse>(instance, 'POST', url, requestOptions, body),
-    put: <TResponse>(url: string, body?: unknown, requestOptions: HttpRequestOptions = {}) =>
-      sendRequest<TResponse>(instance, 'PUT', url, requestOptions, body),
-    patch: <TResponse>(url: string, body?: unknown, requestOptions: HttpRequestOptions = {}) =>
-      sendRequest<TResponse>(instance, 'PATCH', url, requestOptions, body),
-    delete: <TResponse>(url: string, requestOptions: HttpRequestOptions = {}) =>
-      sendRequest<TResponse>(instance, 'DELETE', url, requestOptions),
+    get: <TValue>(url: string, config: HttpRequestConfig<TValue>) =>
+      sendRequest<TValue>(instance, 'GET', url, config),
+    post: <TValue>(url: string, config: HttpBodyRequestConfig<TValue>) =>
+      sendRequest<TValue>(instance, 'POST', url, config),
+    put: <TValue>(url: string, config: HttpBodyRequestConfig<TValue>) =>
+      sendRequest<TValue>(instance, 'PUT', url, config),
+    patch: <TValue>(url: string, config: HttpBodyRequestConfig<TValue>) =>
+      sendRequest<TValue>(instance, 'PATCH', url, config),
+    delete: <TValue>(url: string, config: HttpRequestConfig<TValue>) =>
+      sendRequest<TValue>(instance, 'DELETE', url, config),
   };
 }

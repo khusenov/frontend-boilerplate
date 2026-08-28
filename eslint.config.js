@@ -81,11 +81,19 @@ const FORM_VENDOR_IMPORT_PATTERNS = [
   },
 ];
 
+const TRANSPORT_VENDOR_IMPORT_PATHS = [
+  {
+    name: 'axios',
+    message:
+      'Only shared/api knows about axios. Reach the network through the HttpClient port, which validates every response against a schema.',
+  },
+];
+
 const VALIDATOR_IMPORT_PATTERNS = [
   {
     regex: '^(zod|valibot|arktype|yup|joi|superstruct)(/|$)',
     message:
-      'The form seam validates through Standard Schema, never a concrete validator. Schemas belong to the consuming slice.',
+      'This seam validates through Standard Schema, never a concrete validator. Schemas belong to the consuming slice.',
   },
 ];
 
@@ -211,6 +219,7 @@ export default tseslint.config(
             ...LOWER_LAYER_IMPORT_PATHS,
             ...I18N_VENDOR_IMPORT_PATHS,
             ...FORM_VENDOR_IMPORT_PATHS,
+            ...TRANSPORT_VENDOR_IMPORT_PATHS,
           ],
           patterns: [...LOWER_LAYER_IMPORT_PATTERNS, ...FORM_VENDOR_IMPORT_PATTERNS],
         },
@@ -223,15 +232,58 @@ export default tseslint.config(
       'no-restricted-imports': [
         'error',
         {
-          paths: [...LOWER_LAYER_IMPORT_PATHS, ...FORM_VENDOR_IMPORT_PATHS],
+          paths: [
+            ...LOWER_LAYER_IMPORT_PATHS,
+            ...FORM_VENDOR_IMPORT_PATHS,
+            ...TRANSPORT_VENDOR_IMPORT_PATHS,
+          ],
           patterns: [...LOWER_LAYER_IMPORT_PATTERNS, ...FORM_VENDOR_IMPORT_PATTERNS],
         },
       ],
     },
   },
-  // Flat config replaces rather than merges no-restricted-imports options, so this exemption only
-  // works while it is the last block matching src/shared/ui/form/**. A src/shared/** block appended
-  // below would silently kill it, and nothing tests the flat config.
+  // Flat config replaces rather than merges no-restricted-imports options, so the three blocks
+  // below are order-sensitive. src/shared/api/** must follow the src/{...,shared}/** block to
+  // lift the axios ban for the one segment that owns axios; its *.test.* twin must follow that
+  // to lift the validator ban for tests; and the form block must stay last among blocks matching
+  // src/shared/ui/form/**. A src/shared/** block appended below would silently kill that form
+  // exemption, and nothing tests the flat config.
+  {
+    files: ['src/shared/api/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            ...LOWER_LAYER_IMPORT_PATHS,
+            ...I18N_VENDOR_IMPORT_PATHS,
+            ...FORM_VENDOR_IMPORT_PATHS,
+          ],
+          patterns: [
+            ...LOWER_LAYER_IMPORT_PATTERNS,
+            ...FORM_VENDOR_IMPORT_PATTERNS,
+            ...VALIDATOR_IMPORT_PATTERNS,
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ['src/shared/api/**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            ...LOWER_LAYER_IMPORT_PATHS,
+            ...I18N_VENDOR_IMPORT_PATHS,
+            ...FORM_VENDOR_IMPORT_PATHS,
+          ],
+          patterns: [...LOWER_LAYER_IMPORT_PATTERNS, ...FORM_VENDOR_IMPORT_PATTERNS],
+        },
+      ],
+    },
+  },
   {
     files: ['src/shared/ui/form/**/*.{ts,tsx}'],
     ignores: ['src/shared/ui/form/**/*.test.{ts,tsx}'],
@@ -239,7 +291,11 @@ export default tseslint.config(
       'no-restricted-imports': [
         'error',
         {
-          paths: [...LOWER_LAYER_IMPORT_PATHS, ...I18N_VENDOR_IMPORT_PATHS],
+          paths: [
+            ...LOWER_LAYER_IMPORT_PATHS,
+            ...I18N_VENDOR_IMPORT_PATHS,
+            ...TRANSPORT_VENDOR_IMPORT_PATHS,
+          ],
           patterns: [...LOWER_LAYER_IMPORT_PATTERNS, ...VALIDATOR_IMPORT_PATTERNS],
         },
       ],

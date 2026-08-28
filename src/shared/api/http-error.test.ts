@@ -47,6 +47,7 @@ describe('HttpError', () => {
       method: 'GET',
       url: '/things',
       payload: { detail: 'gone' },
+      issues: [],
     } as const;
 
     expect(new HttpError('failed', details, null)).toMatchObject(details);

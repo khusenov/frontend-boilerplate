@@ -2,11 +2,19 @@
 import { delay, http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { z } from 'zod';
 
 import { createHttpClient } from './http-client';
 import { isHttpError } from './http-error';
+import { noContentSchema } from './response-schema';
 
 const BASE_URL = 'https://api.test';
+
+const idSchema = z.object({ id: z.string() });
+const headerValueSchema = z.object({ value: z.string().nullable() });
+const pageSchema = z.object({ page: z.string().nullable() });
+const nameSchema = z.object({ name: z.string() });
+const verbSchema = z.object({ verb: z.string() });
 
 const server = setupServer();
 
@@ -29,18 +37,20 @@ function respondWithRequestHeader(path: string, header: string) {
 }
 
 describe('createHttpClient', () => {
-  it('resolves the parsed body of a successful request', async () => {
+  it('resolves the validated body of a successful request', async () => {
     server.use(http.get(`${BASE_URL}/things`, () => HttpResponse.json({ id: 'a' })));
     const client = createHttpClient({ baseUrl: BASE_URL });
 
-    await expect(client.get('/things')).resolves.toStrictEqual({ id: 'a' });
+    await expect(client.get('/things', { schema: idSchema })).resolves.toStrictEqual({ id: 'a' });
   });
 
   it('asks for json by default', async () => {
     server.use(respondWithRequestHeader('/things', 'accept'));
     const client = createHttpClient({ baseUrl: BASE_URL });
 
-    await expect(client.get('/things')).resolves.toStrictEqual({ value: 'application/json' });
+    await expect(client.get('/things', { schema: headerValueSchema })).resolves.toStrictEqual({
+      value: 'application/json',
+    });
   });
 
   it('sends query parameters', async () => {
@@ -51,9 +61,9 @@ describe('createHttpClient', () => {
     );
     const client = createHttpClient({ baseUrl: BASE_URL });
 
-    await expect(client.get('/things', { params: { page: 2 } })).resolves.toStrictEqual({
-      page: '2',
-    });
+    await expect(
+      client.get('/things', { params: { page: 2 }, schema: pageSchema }),
+    ).resolves.toStrictEqual({ page: '2' });
   });
 
   it('sends caller supplied headers', async () => {
@@ -61,7 +71,7 @@ describe('createHttpClient', () => {
     const client = createHttpClient({ baseUrl: BASE_URL });
 
     await expect(
-      client.get('/things', { headers: { 'X-Locale': 'en-GB' } }),
+      client.get('/things', { headers: { 'X-Locale': 'en-GB' }, schema: headerValueSchema }),
     ).resolves.toStrictEqual({ value: 'en-GB' });
   });
 
@@ -73,9 +83,9 @@ describe('createHttpClient', () => {
     );
     const client = createHttpClient({ baseUrl: BASE_URL });
 
-    await expect(client.post('/things', { name: 'kettle' })).resolves.toStrictEqual({
-      name: 'kettle',
-    });
+    await expect(
+      client.post('/things', { body: { name: 'kettle' }, schema: nameSchema }),
+    ).resolves.toStrictEqual({ name: 'kettle' });
   });
 
   it('supports put, patch and delete', async () => {
@@ -86,9 +96,35 @@ describe('createHttpClient', () => {
     );
     const client = createHttpClient({ baseUrl: BASE_URL });
 
-    await expect(client.put('/things/1', {})).resolves.toStrictEqual({ verb: 'put' });
-    await expect(client.patch('/things/1', {})).resolves.toStrictEqual({ verb: 'patch' });
-    await expect(client.delete('/things/1')).resolves.toStrictEqual({ verb: 'delete' });
+    await expect(client.put('/things/1', { body: {}, schema: verbSchema })).resolves.toStrictEqual({
+      verb: 'put',
+    });
+    await expect(
+      client.patch('/things/1', { body: {}, schema: verbSchema }),
+    ).resolves.toStrictEqual({ verb: 'patch' });
+    await expect(client.delete('/things/1', { schema: verbSchema })).resolves.toStrictEqual({
+      verb: 'delete',
+    });
+  });
+
+  it('resolves a 204 with no body through the no content schema', async () => {
+    server.use(http.delete(`${BASE_URL}/things/1`, () => new HttpResponse(null, { status: 204 })));
+    const client = createHttpClient({ baseUrl: BASE_URL });
+
+    await expect(client.delete('/things/1', { schema: noContentSchema })).resolves.toBeNull();
+  });
+
+  it('rejects a 200 whose body does not match the schema', async () => {
+    server.use(http.get(`${BASE_URL}/things`, () => HttpResponse.json({ id: 42 })));
+    const client = createHttpClient({ baseUrl: BASE_URL });
+
+    await expect(client.get('/things', { schema: idSchema })).rejects.toMatchObject({
+      kind: 'validation',
+      status: 200,
+      method: 'GET',
+      url: '/things',
+      issues: [{ path: 'id' }],
+    });
   });
 
   it('attaches the headers the auth reader supplies', async () => {
@@ -98,24 +134,30 @@ describe('createHttpClient', () => {
       getAuthHeaders: () => ({ Authorization: 'Bearer token-123' }),
     });
 
-    await expect(client.get('/me')).resolves.toStrictEqual({ value: 'Bearer token-123' });
+    await expect(client.get('/me', { schema: headerValueSchema })).resolves.toStrictEqual({
+      value: 'Bearer token-123',
+    });
   });
 
   it('sends no auth header when the reader supplies none', async () => {
     server.use(respondWithRequestHeader('/me', 'authorization'));
     const client = createHttpClient({ baseUrl: BASE_URL, getAuthHeaders: () => ({}) });
 
-    await expect(client.get('/me')).resolves.toStrictEqual({ value: null });
+    await expect(client.get('/me', { schema: headerValueSchema })).resolves.toStrictEqual({
+      value: null,
+    });
   });
 
   it('sends no auth header when no reader is configured', async () => {
     server.use(respondWithRequestHeader('/me', 'authorization'));
     const client = createHttpClient({ baseUrl: BASE_URL });
 
-    await expect(client.get('/me')).resolves.toStrictEqual({ value: null });
+    await expect(client.get('/me', { schema: headerValueSchema })).resolves.toStrictEqual({
+      value: null,
+    });
   });
 
-  it('keeps redacted headers out of a serialized failure', async () => {
+  it('keeps redacted headers and the schema out of a serialized failure', async () => {
     server.use(http.get(`${BASE_URL}/things`, () => new HttpResponse(null, { status: 500 })));
     const client = createHttpClient({
       baseUrl: BASE_URL,
@@ -123,10 +165,13 @@ describe('createHttpClient', () => {
       redactedHeaders: ['x-api-key'],
     });
 
-    const failure = await client.get('/things').catch((error: unknown) => error);
+    const failure = await client
+      .get('/things', { schema: idSchema })
+      .catch((error: unknown) => error);
     const serialized = JSON.stringify(isHttpError(failure) ? failure.cause : null);
 
     expect(serialized).not.toContain('super-secret');
+    expect(serialized).not.toContain('"schema"');
   });
 
   it('rejects a 4xx as a client HttpError carrying the payload', async () => {
@@ -135,7 +180,7 @@ describe('createHttpClient', () => {
     );
     const client = createHttpClient({ baseUrl: BASE_URL });
 
-    await expect(client.get('/things')).rejects.toMatchObject({
+    await expect(client.get('/things', { schema: idSchema })).rejects.toMatchObject({
       kind: 'client',
       status: 422,
       payload: { detail: 'nope' },
@@ -146,14 +191,19 @@ describe('createHttpClient', () => {
     server.use(http.get(`${BASE_URL}/things`, () => new HttpResponse(null, { status: 500 })));
     const client = createHttpClient({ baseUrl: BASE_URL });
 
-    await expect(client.get('/things')).rejects.toMatchObject({ kind: 'server', status: 500 });
+    await expect(client.get('/things', { schema: idSchema })).rejects.toMatchObject({
+      kind: 'server',
+      status: 500,
+    });
   });
 
   it('rejects an unreachable server as a network HttpError', async () => {
     server.use(http.get(`${BASE_URL}/things`, () => HttpResponse.error()));
     const client = createHttpClient({ baseUrl: BASE_URL });
 
-    await expect(client.get('/things')).rejects.toMatchObject({ kind: 'network' });
+    await expect(client.get('/things', { schema: idSchema })).rejects.toMatchObject({
+      kind: 'network',
+    });
   });
 
   it('rejects a slow response as a timeout HttpError', async () => {
@@ -165,7 +215,9 @@ describe('createHttpClient', () => {
     );
     const client = createHttpClient({ baseUrl: BASE_URL, timeoutMilliseconds: 20 });
 
-    await expect(client.get('/things')).rejects.toMatchObject({ kind: 'timeout' });
+    await expect(client.get('/things', { schema: idSchema })).rejects.toMatchObject({
+      kind: 'timeout',
+    });
   });
 
   it('rejects an aborted request as a canceled HttpError', async () => {
@@ -177,7 +229,7 @@ describe('createHttpClient', () => {
     );
     const client = createHttpClient({ baseUrl: BASE_URL });
     const controller = new AbortController();
-    const pending = client.get('/things', { signal: controller.signal });
+    const pending = client.get('/things', { signal: controller.signal, schema: idSchema });
     controller.abort();
 
     await expect(pending).rejects.toMatchObject({ kind: 'canceled' });
@@ -187,8 +239,8 @@ describe('createHttpClient', () => {
     server.use(http.get(`${BASE_URL}/things`, () => new HttpResponse(null, { status: 500 })));
     const client = createHttpClient({ baseUrl: BASE_URL });
 
-    await expect(client.get('/things').catch((error: unknown) => isHttpError(error))).resolves.toBe(
-      true,
-    );
+    await expect(
+      client.get('/things', { schema: idSchema }).catch((error: unknown) => isHttpError(error)),
+    ).resolves.toBe(true);
   });
 });

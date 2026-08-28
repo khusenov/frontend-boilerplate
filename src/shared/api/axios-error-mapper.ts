@@ -30,6 +30,7 @@ function toErrorDetails(error: AxiosError): HttpErrorDetails {
     method: error.config?.method?.toUpperCase() ?? null,
     url: error.config?.url ?? null,
     payload: response?.data ?? null,
+    issues: [],
   };
 }
 
