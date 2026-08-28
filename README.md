@@ -20,6 +20,10 @@ cp .env.example .env
 npm run dev
 ```
 
+`/users/:id` is a live demo route and the reference `entities` slice. It renders its alert state
+until `VITE_API_BASE_URL` points at an API serving `GET /users/:id`; the shape it expects is
+`src/entities/user/api/user-dto.ts`.
+
 ## Stack
 
 | Concern             | Choice                                                                         |
@@ -137,7 +141,7 @@ Layers, from lowest to highest. A module may only import from layers **below** i
 | `pages`    | Route-level screens assembled from widgets, features, and entities.       |
 | `app`      | Composition root: providers, routing, global styles, the shell.           |
 
-Present today: `app`, `pages`, `shared`. `entities`, `features` and `widgets` arrive with their
+Present today: `app`, `pages`, `entities`, `shared`. `features` and `widgets` arrive with their
 first real slice.
 
 `pages/home` and `shared/lib/format-duration` are worked examples, not product code. They exist so
@@ -278,8 +282,9 @@ router's 404 screen and stays.
 | Global stylesheet    | `index.css`                                              | `src/app/styles/index.css`                               |
 | Test                 | Co-located `*.test.ts(x)`                                | `src/shared/lib/format-duration/format-duration.test.ts` |
 
-Two files under `src/app` do not follow the table, by convention rather than by oversight:
-`routes/__root.tsx` and `routes/index.tsx` follow TanStack's file-name-is-the-URL rule.
+Four files under `src/app` do not follow the table, by convention rather than by oversight:
+`routes/__root.tsx`, `routes/index.tsx`, `routes/users.$userId.tsx` and its co-located
+`routes/users.$userId.test.tsx` follow TanStack's file-name-is-the-URL rule.
 `router/route-tree.gen.ts` is generated, and `generatedRouteTree` in `vite.config.ts` is what keeps
 its name on the table.
 
@@ -406,15 +411,28 @@ retry policy then declines to retry.
   object schema costs ≈17 kB gzip with classic `zod` against ≈3.2 kB with `zod/mini` — about 5×,
   on a ~2.2 kB floor for any mini schema. That ratio holds wherever the schema lands, and unlike a
   form — which `autoCodeSplitting` confines to one route's chunk — an entity's DTO schema is
-  reached by every route touching that entity, so it tends toward the shared `routes-*.js` chunk
-  every page view loads. Response-validation messages are developer-facing diagnostics, never
-  display copy, so mini costs nothing that matters here; forms keep full `zod`, whose chainable
+  reached by every route touching that entity **through its `loader`**, which is the half
+  `autoCodeSplitting` cannot split — so it lands in the entry chunk every page view loads.
+  Measured on `entities/user`, `routes-*.js` did not change size at all. Response-validation
+  messages are developer-facing diagnostics, never display copy, so mini costs nothing that matters
+  here; forms keep full `zod`, whose chainable
   wrappers are nicer for long refined validators. `zod/mini` composes functionally:
   `zm.nullable(zm.string())`, never `zm.string().nullable()`. A field-level schema shared with a
   DTO must therefore be authored in `zod/mini` — mini fields compose into classic objects, so the
   form seam loses nothing, whereas a classic shared field pulls all ≈17 kB back with it. (The
   table under **Bundle size baseline** reports 18.24 / 4.49 kB for the same packages: it measures
   each schema bundled in isolation with React external, not a marginal delta.)
+- **`src/entities/user` is the reference implementation.** It is the canonical DTO → mapper →
+  domain example: `api/user-dto.ts` holds the wire shape the server owns (`snake_case` keys, a
+  split name, uppercase role constants, a timestamp as a string), `model/user.ts` holds the shape
+  the frontend owns (`camelCase`, one `displayName`, a lowercase role union, a real `Date`, a
+  branded `UserId`, and no dependency on any library), and `api/user-mapper.ts` is the pure
+  function between them — no I/O, no clock, no i18n. `api/user-queries.ts` gives the cache key and
+  the fetcher one home through `queryOptions()`, and depends on `Pick<HttpClient, 'get'>` rather
+  than the whole five-verb port, because the entity reads and never writes. **An entity's
+  `index.ts` exports the domain model and the query options, never the DTO type or its schema**:
+  `UserDto`, `userDtoSchema` and `toUser` are absent from the barrel by design, so no module
+  outside `entities/user/api/` can name the wire shape. Copy this slice for the next entity.
 
 ## Internationalization
 
@@ -697,24 +715,25 @@ context, so exporting them as values would advertise a way to render them broken
 - A committed `it.skip(...)` fails `npm run lint`: `vitest/no-disabled-tests` is a warning and the
   lint gate runs with `--max-warnings 0`.
 
-Current suite: **28 files, 187 tests, 100% coverage** against the 90% per-file threshold — 254/254
-statements, 134/134 branches, 82/82 functions, 247/247 lines across 51 measured files (13 of which —
+Current suite: **33 files, 209 tests, 100% coverage** against the 90% per-file threshold — 297/297
+statements, 143/143 branches, 97/97 functions, 290/290 lines across 61 measured files (15 of which —
 the barrels and one type-only module — carry no coverable statements).
 
 ## Bundle size baseline
 
 Recorded from `npm run build` on the scaffold as committed, with no `.env` present (Vite 8.2.2,
-production, 388 modules transformed):
+production, 475 modules transformed):
 
-| Asset         | Raw       | Gzip      |
-| ------------- | --------- | --------- |
-| `index.js`    | 403.10 kB | 131.03 kB |
-| `routes-*.js` | 44.63 kB  | 15.57 kB  |
-| `index.css`   | 20.18 kB  | 4.40 kB   |
-| `home-*.js`   | 0.63 kB   | 0.31 kB   |
-| `index.html`  | 0.47 kB   | 0.30 kB   |
+| Asset                | Raw       | Gzip      |
+| -------------------- | --------- | --------- |
+| `index.js`           | 416.41 kB | 135.82 kB |
+| `routes-*.js`        | 44.63 kB  | 15.57 kB  |
+| `index.css`          | 20.61 kB  | 4.50 kB   |
+| `users._userId-*.js` | 9.80 kB   | 3.60 kB   |
+| `home-*.js`          | 0.63 kB   | 0.31 kB   |
+| `index.html`         | 0.47 kB   | 0.30 kB   |
 
-Five assets, not three, because `autoCodeSplitting` puts each route's component in a chunk of its
+Six assets, not three, because `autoCodeSplitting` puts each route's component in a chunk of its
 own. The hashed `routes-*.js` chunk is the `/` route; a second route adds another. Styling is a
 single `index.css`: components carry Tailwind utilities rather than their own stylesheets, so no
 route chunk emits CSS of its own.
@@ -760,7 +779,7 @@ graph, so the utilities on `Input`, `Label` and `TextField` are emitted the mome
 project, so the `className` strings in the code samples above are extracted as real candidates.
 Recording a CSS baseline here is therefore self-referential — edit the prose around the number and
 the number moves. Treat that as a documented quirk, not a leak; suppressing it would mean narrowing
-`@source`, which would then need maintaining. (The table above now records 20.18 / 4.40 kB. The
+`@source`, which would then need maintaining. (The table above now records 20.61 / 4.50 kB. The
 `index.css` figures here and in the paragraph above are the delta measured when the form seam
 landed, and are left as they are.)
 
@@ -772,6 +791,17 @@ chunk's. Unlike the form seam this one **does** ship: `app-providers.tsx` constr
 `response-schema.ts` and `validation-error-mapper.ts` sit in the entry graph.
 `@standard-schema/spec` contributes nothing — it is types-only, its `dist/index.js` is 0 bytes, and
 `verbatimModuleSyntax` erases the import.
+
+**Reference entity slice cost, measured against the pre-`entities` tree:** the entry chunk grew
+403.10 → 416.41 kB raw and 131.03 → 135.82 kB gzip — **≈ +4.8 kB gzip**, which is `zod/mini`
+plus the `entities/user` modules. `routes-*.js` did not move at all (44.63 / 15.57 kB), which is the
+measurement that corrects the [Data layer](#data-layer) prediction: the DTO schema reaches the
+entry chunk through the route `loader`, the half `autoCodeSplitting` cannot split, not through the
+shared routes chunk. The new `users._userId-*.js` chunk (9.80 / 3.60 kB) is the route's component
+half, fetched only by a visitor to `/users/:id`. `index.css` grew 20.18 → 20.61 kB raw and
+4.40 → 4.50 kB gzip: Tailwind v4 scans source, so `max-w-2xl`, `tracking-tight`,
+`text-muted-foreground` and `text-destructive` on the two new components are emitted the moment the
+files exist.
 
 What the first Zod-validated form route will actually cost, bundled with this repo's own toolchain
 (Vite 8 / Rolldown, minified, React external, each measured in isolation):

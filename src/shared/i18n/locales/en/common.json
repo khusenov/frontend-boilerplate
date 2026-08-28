@@ -4,6 +4,20 @@
     "description": "The page you requested does not exist.",
     "backToHome": "Back to home"
   },
+  "user": {
+    "email": "Email",
+    "role": "Role",
+    "joinedAt": "Joined",
+    "roles": {
+      "admin": "Administrator",
+      "member": "Member",
+      "viewer": "Viewer"
+    }
+  },
+  "userProfile": {
+    "loading": "Loading profile…",
+    "unavailable": "This profile could not be loaded."
+  },
   "validation": {
     "invalid": "This value is invalid."
   }

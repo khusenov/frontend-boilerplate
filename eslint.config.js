@@ -227,6 +227,31 @@ export default tseslint.config(
     },
   },
   {
+    files: ['src/{entities,features,widgets,pages}/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            ...LOWER_LAYER_IMPORT_PATHS,
+            ...I18N_VENDOR_IMPORT_PATHS,
+            ...FORM_VENDOR_IMPORT_PATHS,
+            ...TRANSPORT_VENDOR_IMPORT_PATHS,
+          ],
+          patterns: [
+            ...LOWER_LAYER_IMPORT_PATTERNS,
+            ...FORM_VENDOR_IMPORT_PATTERNS,
+            {
+              regex: '^@/(entities|features|widgets|pages)/[^/]+/(?!@x/).+',
+              message:
+                'Import the slice public API: @/<layer>/<slice> — or a relative path within your own slice. Cross-slice imports go through @x.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ['src/shared/i18n/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': [
