@@ -226,6 +226,16 @@ router's 404 screen and stays.
   still let `zod/mini` straight through — and `zod/mini` is not a loophole but a supported choice:
   the escape hatch for the form seam, and the default for DTO schemas. Both seams' own test files
   are exempt: they prove the real Standard Schema path with a real Zod schema.
+- **Error boundaries are built through `shared/ui/error-boundary`, the only module that knows
+  `react-error-boundary`.** `no-restricted-imports` bans the package across every block that fences
+  a vendor — the five non-`app` layers, `app/routes`, `app/router`, and `src/main.tsx` — plus the
+  generic `src/**` block, which is what covers `app/entrypoint`. `src/shared/ui/error-boundary` is
+  exempt, and like the form block its exemption must stay after the `src/{...,shared}/**` block for
+  the same replace-not-merge reason; its glob does not overlap `src/shared/ui/form/**`, so the two
+  exemptions coexist. The seam forwards only `FallbackComponent`, never `fallbackRender`: the
+  vendor calls a `fallbackRender` function directly inside its own class `render()`, so the
+  fallback gets no fiber and any hook it calls throws _Invalid hook call_ from a position no
+  boundary can catch.
 - **Every `form.Subscribe` / `useSelector` selector returns a scalar.** TanStack Store compares
   selector results referentially (`defaultCompare` is `a === b`) and `form.Subscribe` exposes no
   `compare` option, so a selector returning `{ canSubmit, isSubmitting }` allocates a fresh object
@@ -715,21 +725,21 @@ context, so exporting them as values would advertise a way to render them broken
 - A committed `it.skip(...)` fails `npm run lint`: `vitest/no-disabled-tests` is a warning and the
   lint gate runs with `--max-warnings 0`.
 
-Current suite: **33 files, 209 tests, 100% coverage** against the 90% per-file threshold — 297/297
-statements, 143/143 branches, 97/97 functions, 290/290 lines across 61 measured files (15 of which —
+Current suite: **35 files, 219 tests, 100% coverage** against the 90% per-file threshold — 302/302
+statements, 145/145 branches, 100/100 functions, 295/295 lines across 64 measured files (16 of which —
 the barrels and one type-only module — carry no coverable statements).
 
 ## Bundle size baseline
 
 Recorded from `npm run build` on the scaffold as committed, with no `.env` present (Vite 8.2.2,
-production, 475 modules transformed):
+production, 479 modules transformed):
 
 | Asset                | Raw       | Gzip      |
 | -------------------- | --------- | --------- |
-| `index.js`           | 416.41 kB | 135.82 kB |
-| `routes-*.js`        | 44.63 kB  | 15.57 kB  |
-| `index.css`          | 20.61 kB  | 4.50 kB   |
-| `users._userId-*.js` | 9.80 kB   | 3.60 kB   |
+| `index.js`           | 451.07 kB | 146.94 kB |
+| `routes-*.js`        | 12.01 kB  | 5.08 kB   |
+| `index.css`          | 21.00 kB  | 4.56 kB   |
+| `users._userId-*.js` | 9.80 kB   | 3.59 kB   |
 | `home-*.js`          | 0.63 kB   | 0.31 kB   |
 | `index.html`         | 0.47 kB   | 0.30 kB   |
 

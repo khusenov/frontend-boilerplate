@@ -89,6 +89,14 @@ const TRANSPORT_VENDOR_IMPORT_PATHS = [
   },
 ];
 
+const ERROR_BOUNDARY_VENDOR_IMPORT_PATHS = [
+  {
+    name: 'react-error-boundary',
+    message:
+      'Only shared/ui/error-boundary knows about react-error-boundary. Wrap a subtree with ErrorBoundary from @/shared/ui/error-boundary.',
+  },
+];
+
 const VALIDATOR_IMPORT_PATTERNS = [
   {
     regex: '^(zod|valibot|arktype|yup|joi|superstruct)(/|$)',
@@ -195,6 +203,7 @@ export default tseslint.config(
       'no-restricted-imports': [
         'error',
         {
+          paths: [...ERROR_BOUNDARY_VENDOR_IMPORT_PATHS],
           patterns: [
             {
               regex: '^@/shared/(lib|ui)$',
@@ -220,6 +229,7 @@ export default tseslint.config(
             ...I18N_VENDOR_IMPORT_PATHS,
             ...FORM_VENDOR_IMPORT_PATHS,
             ...TRANSPORT_VENDOR_IMPORT_PATHS,
+            ...ERROR_BOUNDARY_VENDOR_IMPORT_PATHS,
           ],
           patterns: [...LOWER_LAYER_IMPORT_PATTERNS, ...FORM_VENDOR_IMPORT_PATTERNS],
         },
@@ -237,6 +247,7 @@ export default tseslint.config(
             ...I18N_VENDOR_IMPORT_PATHS,
             ...FORM_VENDOR_IMPORT_PATHS,
             ...TRANSPORT_VENDOR_IMPORT_PATHS,
+            ...ERROR_BOUNDARY_VENDOR_IMPORT_PATHS,
           ],
           patterns: [
             ...LOWER_LAYER_IMPORT_PATTERNS,
@@ -261,18 +272,22 @@ export default tseslint.config(
             ...LOWER_LAYER_IMPORT_PATHS,
             ...FORM_VENDOR_IMPORT_PATHS,
             ...TRANSPORT_VENDOR_IMPORT_PATHS,
+            ...ERROR_BOUNDARY_VENDOR_IMPORT_PATHS,
           ],
           patterns: [...LOWER_LAYER_IMPORT_PATTERNS, ...FORM_VENDOR_IMPORT_PATTERNS],
         },
       ],
     },
   },
-  // Flat config replaces rather than merges no-restricted-imports options, so the three blocks
+  // Flat config replaces rather than merges no-restricted-imports options, so the four blocks
   // below are order-sensitive. src/shared/api/** must follow the src/{...,shared}/** block to
   // lift the axios ban for the one segment that owns axios; its *.test.* twin must follow that
   // to lift the validator ban for tests; and the form block must stay last among blocks matching
   // src/shared/ui/form/**. A src/shared/** block appended below would silently kill that form
   // exemption, and nothing tests the flat config.
+  // The src/shared/ui/error-boundary/** block follows the same rule: it must sit after the
+  // src/{...,shared}/** block to lift the react-error-boundary ban for the one group that owns the
+  // vendor. Its glob does not overlap src/shared/ui/form/**, so it is safe beside the form block.
   {
     files: ['src/shared/api/**/*.{ts,tsx}'],
     rules: {
@@ -283,6 +298,7 @@ export default tseslint.config(
             ...LOWER_LAYER_IMPORT_PATHS,
             ...I18N_VENDOR_IMPORT_PATHS,
             ...FORM_VENDOR_IMPORT_PATHS,
+            ...ERROR_BOUNDARY_VENDOR_IMPORT_PATHS,
           ],
           patterns: [
             ...LOWER_LAYER_IMPORT_PATTERNS,
@@ -303,6 +319,7 @@ export default tseslint.config(
             ...LOWER_LAYER_IMPORT_PATHS,
             ...I18N_VENDOR_IMPORT_PATHS,
             ...FORM_VENDOR_IMPORT_PATHS,
+            ...ERROR_BOUNDARY_VENDOR_IMPORT_PATHS,
           ],
           patterns: [...LOWER_LAYER_IMPORT_PATTERNS, ...FORM_VENDOR_IMPORT_PATTERNS],
         },
@@ -320,8 +337,27 @@ export default tseslint.config(
             ...LOWER_LAYER_IMPORT_PATHS,
             ...I18N_VENDOR_IMPORT_PATHS,
             ...TRANSPORT_VENDOR_IMPORT_PATHS,
+            ...ERROR_BOUNDARY_VENDOR_IMPORT_PATHS,
           ],
           patterns: [...LOWER_LAYER_IMPORT_PATTERNS, ...VALIDATOR_IMPORT_PATTERNS],
+        },
+      ],
+    },
+  },
+  {
+    files: ['src/shared/ui/error-boundary/**/*.{ts,tsx}'],
+    ignores: ['src/shared/ui/error-boundary/**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            ...LOWER_LAYER_IMPORT_PATHS,
+            ...I18N_VENDOR_IMPORT_PATHS,
+            ...FORM_VENDOR_IMPORT_PATHS,
+            ...TRANSPORT_VENDOR_IMPORT_PATHS,
+          ],
+          patterns: [...LOWER_LAYER_IMPORT_PATTERNS, ...FORM_VENDOR_IMPORT_PATTERNS],
         },
       ],
     },
@@ -332,6 +368,7 @@ export default tseslint.config(
       'no-restricted-imports': [
         'error',
         {
+          paths: [...ERROR_BOUNDARY_VENDOR_IMPORT_PATHS],
           patterns: [
             {
               group: ['@/**', '!@/app', './*/**', '../**'],
@@ -369,6 +406,7 @@ export default tseslint.config(
             },
             ...I18N_VENDOR_IMPORT_PATHS,
             ...FORM_VENDOR_IMPORT_PATHS,
+            ...ERROR_BOUNDARY_VENDOR_IMPORT_PATHS,
           ],
           patterns: [
             {
