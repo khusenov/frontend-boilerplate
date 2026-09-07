@@ -18,6 +18,20 @@
     "loading": "Loading profile…",
     "unavailable": "This profile could not be loaded."
   },
+  "updateUserName": {
+    "formLabel": "Update name",
+    "firstName": "First name",
+    "lastName": "Last name",
+    "save": "Save name",
+    "saving": "Saving…",
+    "saved": "Name updated.",
+    "failed": "The name could not be updated.",
+    "validation": {
+      "firstNameRequired": "Enter a first name.",
+      "lastNameRequired": "Enter a last name.",
+      "nameTooLong": "Use at most {{max}} characters."
+    }
+  },
   "validation": {
     "invalid": "This value is invalid."
   }

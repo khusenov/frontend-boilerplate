@@ -8,6 +8,8 @@ import { UserProfileView } from './user-profile-view';
 
 const ada: User = {
   id: toUserId('u_1'),
+  firstName: 'Ada',
+  lastName: 'Lovelace',
   displayName: 'Ada Lovelace',
   email: 'ada@example.test',
   role: 'admin',

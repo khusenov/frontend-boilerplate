@@ -1,7 +1,7 @@
 import { toUserId } from '../model/user';
-import type { User, UserRole } from '../model/user';
+import type { User, UserNameChange, UserRole } from '../model/user';
 
-import type { UserDto } from './user-dto';
+import type { UpdateUserNameDto, UserDto } from './user-dto';
 
 const USER_ROLE_BY_WIRE_VALUE: Record<UserDto['role'], UserRole> = {
   ADMIN: 'admin',
@@ -10,11 +10,23 @@ const USER_ROLE_BY_WIRE_VALUE: Record<UserDto['role'], UserRole> = {
 };
 
 export function toUser(dto: UserDto): User {
+  const firstName = dto.first_name.trim();
+  const lastName = dto.last_name.trim();
+
   return {
     id: toUserId(dto.id),
-    displayName: `${dto.first_name} ${dto.last_name}`.trim(),
+    firstName,
+    lastName,
+    displayName: `${firstName} ${lastName}`.trim(),
     email: dto.email,
     role: USER_ROLE_BY_WIRE_VALUE[dto.role],
     joinedAt: new Date(dto.created_at),
+  };
+}
+
+export function toUpdateUserNameDto(change: UserNameChange): UpdateUserNameDto {
+  return {
+    first_name: change.firstName.trim(),
+    last_name: change.lastName.trim(),
   };
 }

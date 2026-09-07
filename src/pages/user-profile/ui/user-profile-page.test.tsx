@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { toUserId } from '@/entities/user';
 import { HttpClientProvider, toHttpError } from '@/shared/api';
-import type { HttpClient } from '@/shared/api';
+import type { HttpClient, ResponseSchema } from '@/shared/api';
 
 import { UserProfilePage } from './user-profile-page';
 
@@ -18,28 +19,76 @@ const adaPayload = {
 };
 
 const notCalled = (): Promise<never> =>
-  Promise.reject(toHttpError(new Error('The profile page performs no writes.')));
+  Promise.reject(toHttpError(new Error('The profile page performs no such request.')));
 
-function createClientStub(get: HttpClient['get']): HttpClient {
-  return { get, post: notCalled, put: notCalled, patch: notCalled, delete: notCalled };
+function createClientStub(overrides: Partial<HttpClient>): HttpClient {
+  return {
+    get: notCalled,
+    post: notCalled,
+    put: notCalled,
+    patch: notCalled,
+    delete: notCalled,
+    ...overrides,
+  };
 }
 
-const resolvingClient = createClientStub(async (_url, config) => {
-  const result = await config.schema['~standard'].validate(adaPayload);
+interface NamePayload {
+  readonly first_name: string;
+  readonly last_name: string;
+}
+
+function isNamePayload(body: unknown): body is NamePayload {
+  return (
+    typeof body === 'object' &&
+    body !== null &&
+    'first_name' in body &&
+    'last_name' in body &&
+    typeof body.first_name === 'string' &&
+    typeof body.last_name === 'string'
+  );
+}
+
+async function parse<TValue>(schema: ResponseSchema<TValue>, payload: unknown): Promise<TValue> {
+  const result = await schema['~standard'].validate(payload);
 
   if (result.issues !== undefined) {
     throw toHttpError(new Error('the payload does not satisfy the request schema'));
   }
 
   return result.value;
+}
+
+const resolvingClient = createClientStub({
+  get: (_url, config) => parse(config.schema, adaPayload),
 });
 
-const failingClient = createClientStub(() => Promise.reject(toHttpError(new Error('offline'))));
+const failingClient = createClientStub({
+  get: () => Promise.reject(toHttpError(new Error('offline'))),
+});
 
-const pendingClient = createClientStub(() => new Promise<never>(() => undefined));
+const pendingClient = createClientStub({ get: () => new Promise<never>(() => undefined) });
+
+function createRenamingClient(): HttpClient {
+  let currentPayload = adaPayload;
+
+  return createClientStub({
+    get: (_url, config) => parse(config.schema, currentPayload),
+    patch: (_url, config) => {
+      if (!isNamePayload(config.body)) {
+        throw toHttpError(new Error('the patch body does not carry both name parts'));
+      }
+
+      currentPayload = { ...currentPayload, ...config.body };
+
+      return parse(config.schema, null);
+    },
+  });
+}
 
 function renderPage(httpClient: HttpClient) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
 
   render(
     <QueryClientProvider client={queryClient}>
@@ -67,5 +116,18 @@ describe('UserProfilePage', () => {
     renderPage(failingClient);
 
     expect(await screen.findByRole('alert')).toHaveTextContent('could not be loaded');
+  });
+
+  it('refetches the profile so the heading shows the name the form just saved', async () => {
+    const user = userEvent.setup();
+    renderPage(createRenamingClient());
+
+    expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent('Ada Lovelace');
+
+    await user.clear(screen.getByLabelText('Last name'));
+    await user.type(screen.getByLabelText('Last name'), 'King');
+    await user.click(screen.getByRole('button', { name: 'Save name' }));
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Ada King' })).toBeInTheDocument();
   });
 });

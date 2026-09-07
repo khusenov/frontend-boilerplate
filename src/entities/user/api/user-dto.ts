@@ -10,3 +10,5 @@ export const userDtoSchema = zm.object({
 });
 
 export type UserDto = zm.infer<typeof userDtoSchema>;
+
+export type UpdateUserNameDto = Pick<UserDto, 'first_name' | 'last_name'>;

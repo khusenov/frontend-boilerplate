@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 
 import type { UserId } from '@/entities/user';
+import { UpdateUserNameForm } from '@/features/update-user-name';
 import { useTranslation } from '@/shared/i18n';
 
 import { useUserProfile } from '../model/use-user-profile';
@@ -29,7 +30,12 @@ function UserProfileContent({ profile }: UserProfileContentProps): ReactElement 
         </p>
       );
     case 'ready':
-      return <UserProfileView user={profile.user} />;
+      return (
+        <>
+          <UserProfileView user={profile.user} />
+          <UpdateUserNameForm user={profile.user} />
+        </>
+      );
   }
 }
 

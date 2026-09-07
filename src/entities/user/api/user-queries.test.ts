@@ -61,6 +61,8 @@ describe('createUserQueries', () => {
 
     await expect(fetchUser(client, 'u_1')).resolves.toStrictEqual({
       id: 'u_1',
+      firstName: 'Ada',
+      lastName: 'Lovelace',
       displayName: 'Ada Lovelace',
       email: 'ada@example.test',
       role: 'admin',

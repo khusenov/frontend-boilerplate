@@ -18,7 +18,7 @@ const adaPayload = {
 };
 
 const notCalled = (): Promise<never> =>
-  Promise.reject(toHttpError(new Error('This route performs no writes.')));
+  Promise.reject(toHttpError(new Error('This route test issues no writes.')));
 
 const httpClient: HttpClient = {
   get: async (url, config) => {

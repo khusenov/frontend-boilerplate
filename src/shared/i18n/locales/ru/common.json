@@ -18,6 +18,20 @@
     "loading": "Загрузка профиля…",
     "unavailable": "Не удалось загрузить профиль."
   },
+  "updateUserName": {
+    "formLabel": "Изменить имя",
+    "firstName": "Имя",
+    "lastName": "Фамилия",
+    "save": "Сохранить имя",
+    "saving": "Сохранение…",
+    "saved": "Имя обновлено.",
+    "failed": "Не удалось обновить имя.",
+    "validation": {
+      "firstNameRequired": "Введите имя.",
+      "lastNameRequired": "Введите фамилию.",
+      "nameTooLong": "Не более {{max}} символов."
+    }
+  },
   "validation": {
     "invalid": "Некорректное значение."
   }

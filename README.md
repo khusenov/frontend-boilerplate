@@ -141,8 +141,8 @@ Layers, from lowest to highest. A module may only import from layers **below** i
 | `pages`    | Route-level screens assembled from widgets, features, and entities.       |
 | `app`      | Composition root: providers, routing, global styles, the shell.           |
 
-Present today: `app`, `pages`, `entities`, `shared`. `features` and `widgets` arrive with their
-first real slice.
+Present today: `app`, `pages`, `features`, `entities`, `shared`. `widgets` arrives with its first
+real slice.
 
 `pages/home` and `shared/lib/format-duration` are worked examples, not product code. They exist so
 that every gate has something to bite. Replace them with the first real slice and helper.
@@ -417,32 +417,43 @@ retry policy then declines to retry.
   retried. `noContentSchema` covers a `204`. A schema that itself throws or rejects is a bug on our
   side, not contract drift, so it normalizes to kind `unknown` with the original error on `cause` —
   which keeps the rule that `issues` is non-empty only when the response body is at fault.
-- **DTO schemas use `zod/mini`; form schemas use full `zod`.** Measured on this repo, the same
+- **Every schema in `src/` uses `zod/mini` — DTO and form alike.** Measured on this repo, the same
   object schema costs ≈17 kB gzip with classic `zod` against ≈3.2 kB with `zod/mini` — about 5×,
-  on a ~2.2 kB floor for any mini schema. That ratio holds wherever the schema lands, and unlike a
-  form — which `autoCodeSplitting` confines to one route's chunk — an entity's DTO schema is
-  reached by every route touching that entity **through its `loader`**, which is the half
-  `autoCodeSplitting` cannot split — so it lands in the entry chunk every page view loads.
-  Measured on `entities/user`, `routes-*.js` did not change size at all. Response-validation
-  messages are developer-facing diagnostics, never display copy, so mini costs nothing that matters
-  here; forms keep full `zod`, whose chainable
-  wrappers are nicer for long refined validators. `zod/mini` composes functionally:
-  `zm.nullable(zm.string())`, never `zm.string().nullable()`. A field-level schema shared with a
-  DTO must therefore be authored in `zod/mini` — mini fields compose into classic objects, so the
-  form seam loses nothing, whereas a classic shared field pulls all ≈17 kB back with it. (The
-  table under **Bundle size baseline** reports 18.24 / 4.49 kB for the same packages: it measures
-  each schema bundled in isolation with React external, not a marginal delta.)
+  on a ~2.2 kB floor for any mini schema. That ratio holds wherever the schema lands, and an
+  entity's DTO schema is reached by every route touching that entity **through its `loader`**,
+  which is the half `autoCodeSplitting` cannot split — so it lands in the entry chunk every page
+  view loads. Measured on `entities/user`, `routes-*.js` did not change size at all. The rule
+  once exempted forms, on the reasoning that `autoCodeSplitting` confines a form to one route's
+  chunk and classic `zod`'s chainable wrappers read better in long refined validators.
+  `features/update-user-name` retired that exemption: the feature's route chunk **already**
+  carries the entity's `zod/mini` DTO schema, so reaching for classic `zod` beside it would ship
+  both validator runtimes into the same chunk — paying the ≈17 kB to avoid a syntax preference.
+  The same argument had always applied to a field-level schema shared with a DTO; it applies to
+  every schema. `zod/mini` composes functionally: `zm.nullable(zm.string())`, never
+  `zm.string().nullable()`, and refinements go through `.check(zm.refine(predicate, message))`.
+  Response-validation messages are developer-facing diagnostics, never display copy; form
+  messages are copy, and reach the schema as resolved strings — see [Forms](#forms). (The table
+  under **Bundle size baseline** reports 18.24 / 4.49 kB for the same packages: it measures each
+  schema bundled in isolation with React external, not a marginal delta.)
 - **`src/entities/user` is the reference implementation.** It is the canonical DTO → mapper →
-  domain example: `api/user-dto.ts` holds the wire shape the server owns (`snake_case` keys, a
-  split name, uppercase role constants, a timestamp as a string), `model/user.ts` holds the shape
-  the frontend owns (`camelCase`, one `displayName`, a lowercase role union, a real `Date`, a
-  branded `UserId`, and no dependency on any library), and `api/user-mapper.ts` is the pure
-  function between them — no I/O, no clock, no i18n. `api/user-queries.ts` gives the cache key and
-  the fetcher one home through `queryOptions()`, and depends on `Pick<HttpClient, 'get'>` rather
-  than the whole five-verb port, because the entity reads and never writes. **An entity's
-  `index.ts` exports the domain model and the query options, never the DTO type or its schema**:
-  `UserDto`, `userDtoSchema` and `toUser` are absent from the barrel by design, so no module
-  outside `entities/user/api/` can name the wire shape. Copy this slice for the next entity.
+  domain example, in both directions: `api/user-dto.ts` holds the wire shape the server owns
+  (`snake_case` keys, a split name, uppercase role constants, a timestamp as a string), and
+  `model/user.ts` holds the shape the frontend owns (`camelCase`, a lowercase role union, a real
+  `Date`, a branded `UserId`, and no dependency on any library). `api/user-mapper.ts` holds the
+  pure functions between them — no I/O, no clock, no i18n: `toUser` inbound and
+  `toUpdateUserNameDto` outbound. **`User.displayName` is a cached projection of `firstName` and
+  `lastName` whose sole author is `toUser`** — no module outside the mapper may construct or alter
+  a `User`, and a fixture must keep the three fields consistent, which no type can enforce.
+  `api/user-queries.ts` gives the read's cache key and fetcher one home through `queryOptions()`,
+  `api/user-mutations.ts` gives the write its `mutationOptions()` **and the invalidation those
+  keys imply**, because which queries a user write invalidates is the entity's own knowledge; each
+  depends on the narrowest port it uses — `Pick<HttpClient, 'get'>` and `Pick<HttpClient, 'patch'>`
+  — rather than the whole five-verb interface. `api/user-resource-path.ts` is the one builder both
+  reach for, so the dot-segment guard cannot be applied to reads and forgotten on writes. **An
+  entity's `index.ts` exports the domain model and the option factories, never the DTO type, its
+  schema, a mapper, a path builder or a query-key object**: all of those are absent from the
+  barrel by design, so no module outside `entities/user/api/` can name the wire shape. Copy this
+  slice for the next entity.
 
 ## Internationalization
 
@@ -541,34 +552,73 @@ consumer writes `<field.TextField label="Email" />` and cannot forget `aria-inva
 
 The schema **factory** lives at module scope in the slice's `model` segment, so it is importable and
 testable; the component receives its side effect as a prop and therefore renders and nothing else.
-Validation messages are user-facing copy, which is why the schema is a factory taking `t`.
+Validation messages are user-facing copy, so the factory takes them as **resolved strings** — never
+`t` itself. That keeps the rules module free of any i18n import, testable with plain literals, and
+declared as a **Standard Schema port** rather than a Zod type, so the consuming component depends
+on the interface and the validator stays swappable. A sibling hook resolves the copy in one place.
+`src/features/update-user-name` is the worked example; a second form would read the same way.
 
 ```ts
 // src/features/sign-in/model/sign-in-schema.ts
-import type { TFunction } from 'i18next';
-import { z } from 'zod';
+import type { StandardSchemaV1 } from '@standard-schema/spec';
+import * as zm from 'zod/mini';
 
-const MINIMUM_PASSWORD_LENGTH = 8;
+export const MINIMUM_PASSWORD_LENGTH = 8;
 
-export function createSignInSchema(t: TFunction) {
-  return z.object({
-    email: z.email(t('signIn.email.invalid')),
-    password: z.string().min(MINIMUM_PASSWORD_LENGTH, t('signIn.password.tooShort')),
-  });
+export interface SignInMessages {
+  readonly emailInvalid: string;
+  readonly passwordTooShort: string;
 }
 
-export type SignInInput = z.input<ReturnType<typeof createSignInSchema>>;
+export interface SignInInput {
+  readonly email: string;
+  readonly password: string;
+}
+
+export type SignInSchema = StandardSchemaV1<SignInInput, SignInInput>;
+
+function isLongEnough(value: string): boolean {
+  return value.length >= MINIMUM_PASSWORD_LENGTH;
+}
+
+export function createSignInSchema(messages: SignInMessages): SignInSchema {
+  return zm.object({
+    email: zm.email(messages.emailInvalid),
+    password: zm.string().check(zm.refine(isLongEnough, messages.passwordTooShort)),
+  });
+}
+```
+
+```ts
+// src/features/sign-in/model/use-sign-in-schema.ts
+import { useMemo } from 'react';
+
+import { useTranslation } from '@/shared/i18n';
+
+import { createSignInSchema, MINIMUM_PASSWORD_LENGTH } from './sign-in-schema';
+import type { SignInSchema } from './sign-in-schema';
+
+export function useSignInSchema(): SignInSchema {
+  const { t } = useTranslation();
+
+  return useMemo(
+    () =>
+      createSignInSchema({
+        emailInvalid: t('signIn.email.invalid'),
+        passwordTooShort: t('signIn.password.tooShort', { min: MINIMUM_PASSWORD_LENGTH }),
+      }),
+    [t],
+  );
+}
 ```
 
 ```tsx
 // src/features/sign-in/ui/sign-in-form.tsx
-import { useMemo } from 'react';
-
 import { useTranslation } from '@/shared/i18n';
 import { useAppForm } from '@/shared/ui/form';
 
-import { createSignInSchema } from '../model/sign-in-schema';
 import type { SignInInput } from '../model/sign-in-schema';
+import { useSignInSchema } from '../model/use-sign-in-schema';
 
 export interface SignInFormProps {
   readonly onSubmit: (input: SignInInput) => Promise<void>;
@@ -576,7 +626,7 @@ export interface SignInFormProps {
 
 export function SignInForm({ onSubmit }: SignInFormProps) {
   const { t } = useTranslation();
-  const signInSchema = useMemo(() => createSignInSchema(t), [t]);
+  const signInSchema = useSignInSchema();
 
   const form = useAppForm({
     defaultValues: { email: '', password: '' },
@@ -610,16 +660,17 @@ export function SignInForm({ onSubmit }: SignInFormProps) {
 }
 ```
 
-- **`onSubmit` receives the raw form values, not the schema's output — note the `z.input`.** See the
-  no-transform rule under [Rules](#rules); `z.infer<…>` there is a type-lie every future form would
-  inherit, and it would propagate straight into the DTO mapper.
+- **`onSubmit` receives the raw form values, not the schema's output.** See the no-transform rule
+  under [Rules](#rules); typing the schema `StandardSchemaV1<TInput, TInput>` states that in the
+  port itself. Declaring an output type the input cannot produce is a type-lie every future form
+  would inherit, and it would propagate straight into the DTO mapper.
 - **Three schemas, not one — do not collapse them.** A form-_input_ schema, a wire _DTO_ schema and
   a _domain-model_ parser are three shapes with three reasons to change: the form yields
   `{ email: string; password: string }` from `<input>` values; the DTO is snake-cased server JSON;
   the domain model carries parsed/branded types and no password at all. What may be shared is
   **field-level** refinement — a reusable `emailSchema` composed into all three — never the
-  top-level object. A field schema shared with a DTO must be authored in `zod/mini`; see the
-  DTO-schema convention under [Data layer](#data-layer).
+  top-level object. Every schema — form, DTO or shared field — is authored in `zod/mini`; see the
+  schema convention under [Data layer](#data-layer).
 - **Errors reveal on blur, or after the first submit attempt — never on `isTouched`.**
   `FormApi.setFieldValue` sets `isTouched` on the **first keystroke**, so an `isTouched` gate
   announces "Enter a valid email address" mid-word and re-fires assertively as the user types.
@@ -635,8 +686,12 @@ export function SignInForm({ onSubmit }: SignInFormProps) {
   rejection can never become an unhandled rejection — which matters because `vitest run` exits 1 on
   one while still reporting every test green — but a swallowed error is still a silent failure. Until
   server-error mapping wires `HttpError` into `setErrorMap`, catch inside the slice's own `onSubmit`
-  and render the failure (a Query mutation's `error` state is the natural source), or pass
-  `onSubmitError` to `form.Form`.
+  and render the failure, or pass `onSubmitError` to `form.Form`. **Pick one per form; do not wire
+  both.** A mutation-backed form reports failure through mutation state — `use-update-user-name.ts`
+  awaits `mutateAsync` so `isSubmitting` tracks the request, then swallows the rejection because
+  `status` already carries the failure and the UI already renders it; letting it propagate would
+  report the same failure twice. `onSubmitError` is for submit failures the mutation state does not
+  model.
 - **Key the schema memo on `t`, not on `i18n.language`.** react-i18next's `t` is already stable per
   language and namespace load, so `[t]` is the honest dependency and needs no suppression — which
   matters, because this repo runs _two_ exhaustive-deps rules and `reportUnusedDisableDirectives`
@@ -644,8 +699,10 @@ export function SignInForm({ onSubmit }: SignInFormProps) {
 - **Binding `TextField` to a non-string field is not a compile error.** `createFormHook` offers
   every registered field component on every field and `useFieldContext<T>()` asserts rather than
   proves `T`, so the seam converts that into a loud runtime `TypeError` instead of silent state
-  corruption. Add a `NumberField` / `SelectField` rather than reusing `TextField`. Note there is no
-  error boundary in this repo yet, so that throw currently unmounts the React root.
+  corruption. Add a `NumberField` / `SelectField` rather than reusing `TextField`. That throw is
+  caught by the `ErrorBoundary` at the composition root, so it replaces the app with
+  `AppCrashFallback` rather than unmounting the React root — loud, which is the point, but still a
+  whole-app failure from one mis-bound field.
 - **Form-level validation fans out re-renders and reveals.** With `validators: { onChange: schema }`
   one validator recomputes the whole error map, so a keystroke in one field re-renders every field —
   and a field that was blurred while empty flips to `aria-invalid="true"` mid-keystroke in a field
@@ -725,21 +782,21 @@ context, so exporting them as values would advertise a way to render them broken
 - A committed `it.skip(...)` fails `npm run lint`: `vitest/no-disabled-tests` is a warning and the
   lint gate runs with `--max-warnings 0`.
 
-Current suite: **35 files, 219 tests, 100% coverage** against the 90% per-file threshold — 302/302
-statements, 145/145 branches, 100/100 functions, 295/295 lines across 64 measured files (16 of which —
+Current suite: **39 files, 255 tests, 100% coverage** against the 90% per-file threshold — 343/343
+statements, 157/157 branches, 123/123 functions, 335/335 lines across 74 measured files (17 of which —
 the barrels and one type-only module — carry no coverable statements).
 
 ## Bundle size baseline
 
 Recorded from `npm run build` on the scaffold as committed, with no `.env` present (Vite 8.2.2,
-production, 479 modules transformed):
+production, 550 modules transformed):
 
 | Asset                | Raw       | Gzip      |
 | -------------------- | --------- | --------- |
-| `index.js`           | 451.07 kB | 146.94 kB |
+| `index.js`           | 453.06 kB | 147.71 kB |
 | `routes-*.js`        | 12.01 kB  | 5.08 kB   |
-| `index.css`          | 21.00 kB  | 4.56 kB   |
-| `users._userId-*.js` | 9.80 kB   | 3.59 kB   |
+| `index.css`          | 21.18 kB  | 4.60 kB   |
+| `users._userId-*.js` | 86.12 kB  | 22.74 kB  |
 | `home-*.js`          | 0.63 kB   | 0.31 kB   |
 | `index.html`         | 0.47 kB   | 0.30 kB   |
 
@@ -776,11 +833,11 @@ covers every subsequent route by starting the fetch on link hover, but it cannot
 
 **Form seam cost, measured against the pre-form tree:** the entry chunk grew 402.12 → 402.23 kB raw
 and 130.70 → 130.76 kB gzip, `index.css` grew 17.99 → 20.15 kB raw and 4.07 → 4.39 kB gzip, and the
-`routes-*.js` and `home-*.js` chunks did not move. **The seam ships no JavaScript yet** — its
-modules do import `@tanstack/react-form`, but nothing in the entry graph imports `@/shared/ui/form`,
-so Rollup tree-shakes the whole group out; `grep -rE 'form-core|_zod' dist/assets/*.js` returns
-nothing. The +0.06 kB gzip of JS is the two new `validation.invalid` keys in each locale's bundled
-`common`.
+`routes-*.js` and `home-*.js` chunks did not move. **The seam shipped no JavaScript when it
+landed** — its modules do import `@tanstack/react-form`, but nothing in the entry graph imported
+`@/shared/ui/form`, so Rollup tree-shook the whole group out. The +0.06 kB gzip of JS is the two
+new `validation.invalid` keys in each locale's bundled `common`. That changed with
+`features/update-user-name`, the seam's first consumer — see **First write path cost** below.
 
 The CSS growth is real and is not tree-shaken: Tailwind v4 scans **source files**, not the import
 graph, so the utilities on `Input`, `Label` and `TextField` are emitted the moment the files exist —
@@ -813,8 +870,24 @@ half, fetched only by a visitor to `/users/:id`. `index.css` grew 20.18 → 20.6
 `text-muted-foreground` and `text-destructive` on the two new components are emitted the moment the
 files exist.
 
-What the first Zod-validated form route will actually cost, bundled with this repo's own toolchain
-(Vite 8 / Rolldown, minified, React external, each measured in isolation):
+**First write path cost, measured against the pre-`features` tree:** `features/update-user-name` is
+the first non-test consumer of `shared/ui/form`, so this is where the form seam starts shipping.
+The `users._userId-*.js` route chunk grew 9.80 → 86.12 kB raw and 3.59 → 22.74 kB gzip
+(**+19.15 kB gzip**), the entry chunk grew 451.07 → 453.06 kB raw and 146.94 → 147.71 kB gzip
+(+0.77 kB gzip), `index.css` grew 21.00 → 21.18 kB raw and 4.56 → 4.60 kB gzip, `routes-*.js` did
+not change size, and modules transformed went 479 → 550.
+
+Of the route chunk's +19.15 kB, the `zod/mini` command schema is ~1 kB and **TanStack Form plus
+the field components are ~18 kB** — that, not the 1 kB validator choice, is the dominant bundle
+decision in this step. Two things make it acceptable. `autoCodeSplitting` confines the cost to the
+lazily loaded `users.$userId` route chunk — verified: `grep -lE 'submissionAttempts'
+dist/assets/*.js` matches that chunk and nothing else, and the entry chunk has zero matches — so
+initial page load grows by under 1 kB. And the ~18 kB is paid once and amortises across every form
+the template grows; a second form adds its own schema and fields, not another copy of the seam.
+
+The projection below was written before that measurement and is left as the isolated per-package
+reference it always was — bundled with this repo's own toolchain (Vite 8 / Rolldown, minified,
+React external, each measured in isolation):
 
 | Bundle                                            | Raw      | Gzip     |
 | ------------------------------------------------- | -------- | -------- |
@@ -822,10 +895,12 @@ What the first Zod-validated form route will actually cost, bundled with this re
 | `zod` (`z.object` + `z.email` + `z.string().min`) | 78.83 kB | 18.24 kB |
 | `zod/mini`, same schema                           | 14.29 kB | 4.49 kB  |
 
-So roughly **+40 kB gzip** for the first form route, of which ~21 kB is the seam. It does not have
-to land in the entry chunk — `autoCodeSplitting: true` means a form lands in **its route's chunk** —
-and `zod/mini` is the escape hatch if the 18 kB ever matters. Re-measure with `npm run build` when
-the first form route lands.
+That projected roughly **+40 kB gzip** for the first form route, of which ~21 kB is the seam. The
+measured figure is +19.15 kB, about half — because the projection assumed classic `zod` (18.24 kB)
+where the slice uses `zod/mini`, and because a real slice validates two string fields rather than
+the whole per-package surface. Both halves of the prediction's shape held: the cost landed in the
+route's own chunk, and `zod/mini` was indeed the escape hatch — it is now the rule for every
+schema in `src/`, not an exception.
 
 Note that `@tanstack/react-form` requires `@tanstack/react-store@^0.11.0` while
 `@tanstack/react-router@1.170.32` declares `@tanstack/react-store@^0.9.3` — a range that cannot
