@@ -109,6 +109,21 @@ describe('createAuthenticatedTransport', () => {
     expect(exchanges).toHaveLength(1);
   });
 
+  it('reports an anonymous session once the refresh credential is rejected', async () => {
+    const sentCredentials: (string | null)[] = [];
+    const exchanges: RefreshExchange[] = [];
+    server.use(unauthorizeEveryRequest(sentCredentials), refuseRenewal(exchanges));
+    const transport = createAuthenticatedTransport(BASE_URL);
+
+    expect(transport.sessionObserver.status()).toBe('unknown');
+
+    await expect(
+      transport.httpClient.get(PROTECTED_PATH, { schema: okSchema }),
+    ).rejects.toMatchObject({ status: 401 });
+
+    expect(transport.sessionObserver.status()).toBe('anonymous');
+  });
+
   it('stops renewing once the session has ended', async () => {
     const sentCredentials: (string | null)[] = [];
     const exchanges: RefreshExchange[] = [];

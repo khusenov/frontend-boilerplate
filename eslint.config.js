@@ -28,6 +28,11 @@ const LOWER_LAYER_IMPORT_PATHS = [
     message:
       'Construct the i18n instance only in the app layer. Reach it with useTranslation() or useLocale().',
   },
+  {
+    name: '@/entities/session',
+    importNames: ['createSessionApi', 'createSessionStore', 'createSessionTokenSource'],
+    message: 'Construct the session only in the app layer. Read it through SessionObserver.',
+  },
 ];
 
 const LOWER_LAYER_IMPORT_PATTERNS = [
@@ -412,6 +417,12 @@ export default tseslint.config(
               message:
                 'Route and router modules receive i18n through the provider tree. Only app/entrypoint constructs instances.',
             },
+            {
+              name: '@/entities/session',
+              importNames: ['createSessionApi', 'createSessionStore', 'createSessionTokenSource'],
+              message:
+                'Route and router modules receive the session through the provider tree. Only app/entrypoint constructs one.',
+            },
             ...I18N_VENDOR_IMPORT_PATHS,
             ...FORM_VENDOR_IMPORT_PATHS,
             ...ERROR_BOUNDARY_VENDOR_IMPORT_PATHS,
@@ -428,6 +439,11 @@ export default tseslint.config(
             {
               regex: '^@/shared/api/',
               message: 'Import the segment public API: @/shared/api.',
+            },
+            {
+              regex: '^@/(entities|features|widgets|pages)/[^/]+/(?!@x/).+',
+              message:
+                'Import the slice public API: @/<layer>/<slice>. Cross-slice imports go through @x.',
             },
           ],
         },

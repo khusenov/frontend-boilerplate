@@ -3,13 +3,14 @@ import { appConfig } from '@/shared/config';
 import { singleFlight } from '@/shared/lib/single-flight';
 
 import type { AccessToken } from './access-token';
-import type { AccessTokenStore } from './access-token-store';
 import type { RefreshResult } from './refresh-result';
+import { readAccessToken } from './session-state';
+import type { SessionRenewalTarget } from './session-store';
 
 const REFRESH_TASK_NAME = `${appConfig.name}:session-refresh`;
 
 export interface CreateSessionTokenSourceOptions {
-  readonly store: AccessTokenStore;
+  readonly store: SessionRenewalTarget;
   readonly refresh: () => Promise<RefreshResult>;
 }
 
@@ -19,17 +20,18 @@ export function createSessionTokenSource(
   const { store, refresh } = options;
 
   function applyResult(result: RefreshResult): AccessToken | null {
-    if (result.status === 'refreshed') {
-      store.write(result.accessToken);
+    switch (result.status) {
+      case 'expired':
+        store.end();
 
-      return result.accessToken;
+        return null;
+      case 'refreshed':
+        store.start(result.accessToken);
+
+        return result.accessToken;
+      case 'unavailable':
+        return null;
     }
-
-    if (result.status === 'expired') {
-      store.clear();
-    }
-
-    return null;
   }
 
   const renewal = singleFlight(REFRESH_TASK_NAME, async () => applyResult(await refresh()));
@@ -43,17 +45,19 @@ export function createSessionTokenSource(
   }
 
   return {
-    getToken: () => store.read(),
+    getToken: () => readAccessToken(store.read()),
     renewToken: async (staleToken) => {
-      if (store.hasEnded()) {
+      const state = store.read();
+
+      if (state.status === 'anonymous') {
         return null;
       }
 
-      if (renewal.isRunning() || store.read() === staleToken) {
+      if (renewal.isRunning() || readAccessToken(state) === staleToken) {
         return joinRenewal();
       }
 
-      return store.read();
+      return readAccessToken(state);
     },
   };
 }

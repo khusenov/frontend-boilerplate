@@ -501,12 +501,30 @@ retry policy then declines to retry.
   from the barrel by design, so no module outside `entities/user/api/` can name the wire shape.
   Copy this slice for the next entity.
 - **`entities/session` is the same anatomy with a different surface.** `model/` holds the branded
-  `AccessToken`, the `RefreshResult` union, the in-memory `AccessTokenStore` and the renewal policy
-  in `session-token-source.ts`; `api/` holds the wire schema, the mapper and the one HTTP call.
-  Its barrel publishes three collaborator factories — `createAccessTokenStore`, `createSessionApi`,
-  `createSessionTokenSource` — and no domain model and no TanStack option factory, because nothing
-  above it renders a session yet. The prohibitions are unchanged: the DTO, its schema, the mapper
-  and `SessionWriteClient` all stay inside the slice.
+  `AccessToken`, the `RefreshResult` union, the `SessionState` machine with its in-memory
+  observable `createSessionStore`, and the renewal policy in `session-token-source.ts`; `api/`
+  holds the wire schema, the mapper and the one HTTP call. Its barrel publishes three collaborator
+  factories — `createSessionApi`, `createSessionStore`, `createSessionTokenSource` — plus
+  `toSessionObserver` and the `SessionObserver` and `SessionStatus` types, and no domain model and
+  no TanStack option factory, because nothing above it renders a session yet. The prohibitions are
+  unchanged and one is new: the DTO, its schema, the mapper, `SessionWriteClient`, `SessionState`,
+  `SessionStore` and `AccessToken` all stay inside the slice.
+- **Three session states, not two booleans.** `SessionState` is a union of `unknown` (no refresh
+  attempted yet), `anonymous` (attempted, the credential is gone) and `authenticated` (carrying the
+  token). The distinction is load-bearing: a route guard must hold the route open on `unknown` and
+  redirect on `anonymous`, which a nullable token cannot express. **Outside the slice a session is
+  a `SessionStatus` string and nothing more** — `toSessionObserver` builds a new two-method object,
+  so a holder can neither reach a mutator by widening the type back nor park a bearer token in
+  React state where DevTools would render it. `eslint.config.js` closes the hole the barrel cannot:
+  `createSessionStore` is importable only from the app layer, so no lower layer can build a second,
+  split-brain store.
+- **`SessionStore.read()` must return a referentially stable snapshot between transitions.** No
+  type expresses this, and the deferred `useSyncExternalStore` hook depends on it: React compares
+  snapshots by identity, and a fresh object on every call logs `The result of getSnapshot should be
+cached to avoid an infinite loop` and re-renders forever. `publish` is the single place that
+  decides whether anything changed — by token when both states are authenticated, by status
+  otherwise — and it iterates a copy of the listener set, so unsubscribing during a notification
+  takes effect from the next publish rather than skipping a listener in the current one.
 - **The access token lives in a closure variable — never `localStorage`, never `sessionStorage`.**
   Anything readable by JavaScript is readable by injected JavaScript; an in-memory token limits an
   XSS payload to the current page lifetime instead of handing it a live credential to exfiltrate.
@@ -522,11 +540,12 @@ retry policy then declines to retry.
   revoking the whole token family and signing the user out everywhere. `navigator.locks` needs a
   secure context; feature detection degrades to the in-tab guarantee. Rename `appConfig.name` when
   you fork this template — it is the origin-wide lock namespace.
-- **An ended session never renews again.** `AccessTokenStore.hasEnded()` is a latch, not
-  decoration. Once the credential is rejected every later request goes out bare and comes back
-  401, and with only a token comparison to go on `null === null` would match and fire another
-  refresh — ten sequential requests, ten refresh calls. The latch clears when something writes a
-  token, which is what makes re-login work. A `401` from `/auth/refresh` is the only outcome that
+- **An `anonymous` session never renews again.** The state is a latch, not decoration. Once the
+  credential is rejected every later request goes out bare and comes back 401, and with only a
+  token comparison to go on `null === null` would match and fire another refresh — ten sequential
+  requests, ten refresh calls. `unknown` is deliberately a different state and not a latch, which
+  is what lets the very first request of a page load trigger the bootstrap refresh; the latch
+  clears when something starts a session, which is what makes re-login work. A `401` from `/auth/refresh` is the only outcome that
   ends the session; a 500, a dropped connection or a wire-shape mismatch is `unavailable` — this
   attempt failed, the session did not. Collapsing those two is how boilerplates sign users out
   every time the API restarts.
@@ -534,9 +553,21 @@ retry policy then declines to retry.
   authenticated client with the bearer interceptor and a second, unauthenticated client — the only
   one with `sendCookies: true` — for `/auth/refresh`. A single client would recurse: refresh
   returns 401, the interceptor catches it, calls refresh, forever. It is a composition rule
-  enforced at one site and asserted by a test, not a type-level guarantee. `createAuthenticatedTransport`
-  returns an object rather than a bare `HttpClient` so the deferred login and route-guard steps can
-  add the token store additively.
+  enforced at one site and asserted by a test, not a type-level guarantee. The unauthenticated
+  client is also the one the deferred logout must use, for the same reason. `createAuthenticatedTransport`
+  returns an object rather than a bare `HttpClient`: alongside the client it publishes a
+  `SessionObserver`, and the concrete `SessionStore` never leaves the factory.
+- **An ending session takes the query cache with it.**
+  `app/entrypoint/clear-cache-on-session-end.ts` subscribes to the observer and calls
+  `queryClient.clear()` on the **edge out of `authenticated`** — not on the level `is anonymous`.
+  Both halves matter: a level test would fire on the bootstrap `unknown → anonymous` path where no
+  session ever existed and nothing can leak, and it would miss `authenticated(A) →
+authenticated(B)`, one user replacing another, which is precisely the leak the policy exists to
+  prevent. It is a subscriber rather than a call site because a session ends two ways — an expired
+  refresh today, an explicit sign-out later — and only one of those ever flows through a sign-out
+  function. Clearing does fan out: every mounted query refetches once. That is bounded (the
+  transition publishes once, and `401` is not in `RETRYABLE_ERROR_KINDS`) and the deferred route
+  guard should pre-empt the burst.
 - **Deploying the API to a different registrable domain silently drops the refresh cookie.**
   `sameSite: 'strict'` is a site-level rule that `withCredentials` cannot override. Serve the API
   under the same site as the app — which is what the dev proxy models — or change the cookie
@@ -942,13 +973,13 @@ until the directory is deleted.
 ## Bundle size baseline
 
 Recorded from `npm run build` on the scaffold as committed, with no `.env` present (Vite 8.2.2,
-production, 561 modules transformed):
+production, 563 modules transformed):
 
 | Asset                | Raw       | Gzip      |
 | -------------------- | --------- | --------- |
-| `index.js`           | 454.93 kB | 148.52 kB |
+| `index.js`           | 455.66 kB | 148.76 kB |
 | `routes-*.js`        | 12.01 kB  | 5.08 kB   |
-| `index.css`          | 21.18 kB  | 4.60 kB   |
+| `index.css`          | 19.93 kB  | 4.38 kB   |
 | `users._userId-*.js` | 86.12 kB  | 22.74 kB  |
 | `home-*.js`          | 0.63 kB   | 0.31 kB   |
 | `index.html`         | 0.47 kB   | 0.30 kB   |
@@ -957,6 +988,16 @@ Six assets, not three, because `autoCodeSplitting` puts each route's component i
 own. The hashed `routes-*.js` chunk is the `/` route; a second route adds another. Styling is a
 single `index.css`: components carry Tailwind utilities rather than their own stylesheets, so no
 route chunk emits CSS of its own.
+
+**`shared/ui/theme.css` scopes Tailwind's content detection to `src/` with
+`@import 'tailwindcss' source('../../')`, and that line is load-bearing.** Tailwind v4 otherwise
+auto-detects sources from the project root and scans every non-ignored file — `README.md` and
+`docs/` included — so ordinary English prose becomes class-name candidates. This document alone was
+minting `.absolute`, `.block`, `.collapse`, `.container`, `.contents`, `.filter`, `.grow`,
+`.inline`, `.invisible`, `.lowercase`, `.relative`, `.static`, `.table`, `.transform`,
+`.transition` and `.uppercase` into the shipped stylesheet, none of them used by any component:
+1.25 kB raw / 0.22 kB gzip of dead CSS, and a stylesheet whose size moved whenever the docs were
+edited. `index.html` carries no utilities, so `src/` is the whole of the real surface.
 `home-*.js` is the Russian `home` namespace, code-split by the i18n backend's dynamic `import()`;
 it is fetched only by a non-English visitor to `/` and is absent from the entry chunk.
 
@@ -1060,6 +1101,15 @@ Note that `@tanstack/react-form` requires `@tanstack/react-store@^0.11.0` while
 reach it — so npm nests a second copy of **both** `@tanstack/react-store` and `@tanstack/store`,
 which is where most of those duplicated bytes are. It resolves itself when TanStack Router widens
 its range; nothing needs doing here.
+
+**Session state machine cost, measured against the bearer-token tree:** the entry chunk grew
+454.93 → 455.66 kB raw and 148.52 → 148.76 kB gzip — **+0.24 kB gzip, all of it first-party** — and
+modules transformed went 561 → 563. The route chunks did not move. `index.css` fell 21.18 →
+19.93 kB raw and 4.60 → 4.38 kB gzip, which is not this step's doing: scoping Tailwind's content
+detection to `src/` (above) dropped the utilities this README's prose had been minting. No vendor
+code was added: the observable store is a `Set` of listeners, which is the shape
+`useSyncExternalStore` consumes, so a store library would have bought a second state paradigm and
+nothing else.
 
 **Bearer token source cost, measured against the pre-auth tree:** the entry chunk grew
 453.06 → 454.93 kB raw and 147.71 → 148.52 kB gzip — **+0.81 kB gzip, all of it first-party**, and

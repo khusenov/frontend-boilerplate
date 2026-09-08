@@ -2,32 +2,20 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { AccessToken } from './access-token';
 import { toAccessToken } from './access-token';
-import type { AccessTokenStore } from './access-token-store';
 import type { RefreshResult } from './refresh-result';
+import { createSessionStore } from './session-store';
 import { createSessionTokenSource } from './session-token-source';
 
 const FRESH_TOKEN = toAccessToken('fresh-token');
 
-function createFakeStore(initialToken: AccessToken | null = null) {
-  let accessToken = initialToken;
-  let ended = false;
-  const writes: AccessToken[] = [];
+function createStore(initialToken: AccessToken | null = null) {
+  const store = createSessionStore();
 
-  const store: AccessTokenStore = {
-    read: () => accessToken,
-    hasEnded: () => ended,
-    write: (value) => {
-      accessToken = value;
-      ended = false;
-      writes.push(value);
-    },
-    clear: () => {
-      accessToken = null;
-      ended = true;
-    },
-  };
+  if (initialToken !== null) {
+    store.start(initialToken);
+  }
 
-  return { store, writes };
+  return store;
 }
 
 function resolving(result: RefreshResult) {
@@ -45,25 +33,36 @@ function createDeferredRefresh() {
 
 describe('createSessionTokenSource', () => {
   it('reads the current token straight from the store', () => {
-    const { store } = createFakeStore(toAccessToken('token-1'));
+    const store = createStore(toAccessToken('token-1'));
     const source = createSessionTokenSource({ store, refresh: resolving({ status: 'expired' }) });
 
     expect(source.getToken()).toBe('token-1');
   });
 
+  it('treats the unknown state as tokenless and refreshes on the first request', async () => {
+    const store = createStore();
+    const refresh = resolving({ status: 'refreshed', accessToken: FRESH_TOKEN });
+    const source = createSessionTokenSource({ store, refresh });
+
+    expect(source.getToken()).toBeNull();
+
+    await expect(source.renewToken(null)).resolves.toBe(FRESH_TOKEN);
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
   it('writes a renewed token to the store and hands it back', async () => {
-    const { store } = createFakeStore();
+    const store = createStore();
     const source = createSessionTokenSource({
       store,
       refresh: resolving({ status: 'refreshed', accessToken: FRESH_TOKEN }),
     });
 
     await expect(source.renewToken(null)).resolves.toBe(FRESH_TOKEN);
-    expect(store.read()).toBe(FRESH_TOKEN);
+    expect(store.read()).toStrictEqual({ status: 'authenticated', accessToken: FRESH_TOKEN });
   });
 
   it('renews once for concurrent callers and resolves them all with the same token', async () => {
-    const { store, writes } = createFakeStore();
+    const store = createStore();
     const refresh = resolving({ status: 'refreshed', accessToken: FRESH_TOKEN });
     const source = createSessionTokenSource({ store, refresh });
 
@@ -71,23 +70,23 @@ describe('createSessionTokenSource', () => {
       Promise.all([source.renewToken(null), source.renewToken(null), source.renewToken(null)]),
     ).resolves.toStrictEqual([FRESH_TOKEN, FRESH_TOKEN, FRESH_TOKEN]);
     expect(refresh).toHaveBeenCalledTimes(1);
-    expect(writes).toStrictEqual([FRESH_TOKEN]);
+    expect(store.read()).toStrictEqual({ status: 'authenticated', accessToken: FRESH_TOKEN });
   });
 
   it('never renews again once the session has ended', async () => {
-    const { store } = createFakeStore(toAccessToken('token-1'));
+    const store = createStore(toAccessToken('token-1'));
     const refresh = resolving({ status: 'expired' });
     const source = createSessionTokenSource({ store, refresh });
 
     await expect(source.renewToken('token-1')).resolves.toBeNull();
-    expect(store.hasEnded()).toBe(true);
+    expect(store.read().status).toBe('anonymous');
 
     await expect(source.renewToken(null)).resolves.toBeNull();
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it('hands the renewed token to a caller arriving after the renewal settled', async () => {
-    const { store } = createFakeStore();
+    const store = createStore();
     const refresh = resolving({ status: 'refreshed', accessToken: FRESH_TOKEN });
     const source = createSessionTokenSource({ store, refresh });
 
@@ -97,7 +96,7 @@ describe('createSessionTokenSource', () => {
   });
 
   it('returns the stored token without renewing when the store has already moved on', async () => {
-    const { store } = createFakeStore(toAccessToken('token-2'));
+    const store = createStore(toAccessToken('token-2'));
     const refresh = resolving({ status: 'refreshed', accessToken: FRESH_TOKEN });
     const source = createSessionTokenSource({ store, refresh });
 
@@ -106,7 +105,7 @@ describe('createSessionTokenSource', () => {
   });
 
   it('makes a caller carrying an older token wait for the renewal already in flight', async () => {
-    const { store } = createFakeStore(toAccessToken('token-1'));
+    const store = createStore(toAccessToken('token-1'));
     const { refresh, settle } = createDeferredRefresh();
     const source = createSessionTokenSource({ store, refresh });
 
@@ -121,25 +120,24 @@ describe('createSessionTokenSource', () => {
   });
 
   it('keeps the token and the open session when a renewal is merely unavailable', async () => {
-    const { store } = createFakeStore(toAccessToken('token-1'));
+    const store = createStore(toAccessToken('token-1'));
     const source = createSessionTokenSource({
       store,
       refresh: resolving({ status: 'unavailable' }),
     });
 
     await expect(source.renewToken('token-1')).resolves.toBeNull();
-    expect(store.read()).toBe('token-1');
-    expect(store.hasEnded()).toBe(false);
+    expect(store.read()).toStrictEqual({ status: 'authenticated', accessToken: 'token-1' });
   });
 
   it('resolves null rather than rejecting when the renewal itself fails', async () => {
-    const { store } = createFakeStore(toAccessToken('token-1'));
+    const store = createStore(toAccessToken('token-1'));
     const source = createSessionTokenSource({
       store,
       refresh: () => Promise.reject(new Error('the lock timed out')),
     });
 
     await expect(source.renewToken('token-1')).resolves.toBeNull();
-    expect(store.read()).toBe('token-1');
+    expect(store.read()).toStrictEqual({ status: 'authenticated', accessToken: 'token-1' });
   });
 });

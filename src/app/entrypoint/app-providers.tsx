@@ -1,11 +1,12 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { createQueryClient, HttpClientProvider } from '@/shared/api';
 import { createI18n, I18nProvider } from '@/shared/i18n';
 
+import { clearCacheOnSessionEnd } from './clear-cache-on-session-end';
 import { createAuthenticatedTransport } from './create-authenticated-transport';
 
 interface AppProvidersProps {
@@ -17,6 +18,11 @@ export function AppProviders({ apiBaseUrl, children }: AppProvidersProps) {
   const [transport] = useState(() => createAuthenticatedTransport(apiBaseUrl));
   const [queryClient] = useState(() => createQueryClient());
   const [i18n] = useState(() => createI18n());
+
+  useEffect(
+    () => clearCacheOnSessionEnd(transport.sessionObserver, queryClient),
+    [transport, queryClient],
+  );
 
   return (
     <QueryClientProvider client={queryClient}>
