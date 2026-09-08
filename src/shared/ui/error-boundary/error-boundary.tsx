@@ -6,20 +6,21 @@ export interface ErrorFallbackProps {
   readonly resetErrorBoundary: () => void;
 }
 
-export type ErrorReporter = (error: unknown, info: ErrorInfo) => void;
+export type RenderErrorHandler = (error: unknown, info: ErrorInfo) => void;
 
 export interface ErrorBoundaryProps {
   readonly FallbackComponent: ComponentType<ErrorFallbackProps>;
-  readonly onError?: ErrorReporter | undefined;
+  readonly onError?: RenderErrorHandler | undefined;
   readonly children: ReactNode;
 }
 
-export function ErrorBoundary({ FallbackComponent, onError, children }: ErrorBoundaryProps) {
+export function ErrorBoundary({
+  FallbackComponent,
+  onError = () => undefined,
+  children,
+}: ErrorBoundaryProps) {
   return (
-    <ErrorBoundaryPrimitive
-      FallbackComponent={FallbackComponent}
-      {...(onError === undefined ? {} : { onError })}
-    >
+    <ErrorBoundaryPrimitive FallbackComponent={FallbackComponent} onError={onError}>
       {children}
     </ErrorBoundaryPrimitive>
   );

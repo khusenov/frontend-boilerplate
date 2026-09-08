@@ -1,4 +1,4 @@
-import { QueryClient } from '@tanstack/react-query';
+import { hashKey, MutationCache, QueryCache, QueryClient } from '@tanstack/react-query';
 import type { DefaultOptions } from '@tanstack/react-query';
 
 import type { HttpErrorKind } from './http-error';
@@ -23,19 +23,39 @@ function shouldRetryQuery(failureCount: number, error: Error): boolean {
   return isRetryableFailure(error) && failureCount < MAX_QUERY_RETRIES;
 }
 
-export function createQueryClient(overrides: DefaultOptions = {}): QueryClient {
+export interface CreateQueryClientOptions {
+  readonly onQueryError?: ((error: unknown, queryHash: string) => void) | undefined;
+  readonly onMutationError?: ((error: unknown, mutationHash: string) => void) | undefined;
+  readonly defaultOptions?: DefaultOptions | undefined;
+}
+
+export function createQueryClient({
+  onQueryError = () => undefined,
+  onMutationError = () => undefined,
+  defaultOptions = {},
+}: CreateQueryClientOptions = {}): QueryClient {
   return new QueryClient({
+    queryCache: new QueryCache({
+      onError: (error, query) => {
+        onQueryError(error, query.queryHash);
+      },
+    }),
+    mutationCache: new MutationCache({
+      onError: (error, _variables, _onMutateResult, mutation) => {
+        onMutationError(error, hashKey(mutation.options.mutationKey ?? []));
+      },
+    }),
     defaultOptions: {
-      ...overrides,
+      ...defaultOptions,
       queries: {
         staleTime: STALE_TIME_MILLISECONDS,
         gcTime: GARBAGE_COLLECTION_TIME_MILLISECONDS,
         retry: shouldRetryQuery,
-        ...overrides.queries,
+        ...defaultOptions.queries,
       },
       mutations: {
         retry: false,
-        ...overrides.mutations,
+        ...defaultOptions.mutations,
       },
     },
   });

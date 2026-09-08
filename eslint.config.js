@@ -29,6 +29,12 @@ const LOWER_LAYER_IMPORT_PATHS = [
       'Construct the i18n instance only in the app layer. Reach it with useTranslation() or useLocale().',
   },
   {
+    name: '@/shared/observability',
+    allowTypeImports: true,
+    message:
+      'Construct the error reporter only in the app layer. Below app, take an ErrorReporter as a prop or a factory argument.',
+  },
+  {
     name: '@/entities/session',
     importNames: ['createSessionApi', 'createSessionStore', 'createSessionTokenSource'],
     message: 'Construct the session only in the app layer. Read it through SessionObserver.',
@@ -48,6 +54,10 @@ const LOWER_LAYER_IMPORT_PATTERNS = [
     regex: '^@/shared/api/',
     message:
       'Import the segment public API: @/shared/api. steiger skips same-layer imports, so this is the only gate on a shared-to-shared sidestep.',
+  },
+  {
+    regex: '^@/shared/observability/',
+    message: 'Import the segment public API: @/shared/observability.',
   },
   {
     regex: '^@tanstack/(react-)?router-core',
@@ -418,6 +428,12 @@ export default tseslint.config(
                 'Route and router modules receive i18n through the provider tree. Only app/entrypoint constructs instances.',
             },
             {
+              name: '@/shared/observability',
+              allowTypeImports: true,
+              message:
+                'Route and router modules receive the error reporter through props or context. Only app/entrypoint constructs one.',
+            },
+            {
               name: '@/entities/session',
               importNames: ['createSessionApi', 'createSessionStore', 'createSessionTokenSource'],
               message:
@@ -439,6 +455,10 @@ export default tseslint.config(
             {
               regex: '^@/shared/api/',
               message: 'Import the segment public API: @/shared/api.',
+            },
+            {
+              regex: '^@/shared/observability/',
+              message: 'Import the segment public API: @/shared/observability.',
             },
             {
               regex: '^@/(entities|features|widgets|pages)/[^/]+/(?!@x/).+',

@@ -1,6 +1,7 @@
-import { useQueryClient } from '@tanstack/react-query';
+import { hashKey, useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import { useEffect } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { SessionStatus } from '@/entities/session';
@@ -59,10 +60,14 @@ function createControllableTransport(initialStatus: SessionStatus) {
   return { transport, moveTo };
 }
 
+function createQueryErrorHandlersFake() {
+  return { onQueryError: vi.fn(), onMutationError: vi.fn() };
+}
+
 describe('AppProviders', () => {
   it('renders its children', () => {
     render(
-      <AppProviders apiBaseUrl="/api">
+      <AppProviders apiBaseUrl="/api" queryErrorHandlers={createQueryErrorHandlersFake()}>
         <p>child content</p>
       </AppProviders>,
     );
@@ -84,7 +89,7 @@ describe('AppProviders', () => {
     }
 
     render(
-      <AppProviders apiBaseUrl="/api">
+      <AppProviders apiBaseUrl="/api" queryErrorHandlers={createQueryErrorHandlersFake()}>
         <ClientProbe />
       </AppProviders>,
     );
@@ -103,7 +108,7 @@ describe('AppProviders', () => {
     }
 
     const renderTree = () => (
-      <AppProviders apiBaseUrl="/api">
+      <AppProviders apiBaseUrl="/api" queryErrorHandlers={createQueryErrorHandlersFake()}>
         <IdentityProbe />
       </AppProviders>
     );
@@ -126,7 +131,7 @@ describe('AppProviders', () => {
     }
 
     render(
-      <AppProviders apiBaseUrl="/api">
+      <AppProviders apiBaseUrl="/api" queryErrorHandlers={createQueryErrorHandlersFake()}>
         <CacheProbe />
       </AppProviders>,
     );
@@ -137,5 +142,32 @@ describe('AppProviders', () => {
     moveTo('anonymous');
 
     expect(captured.cache?.getQueryData(PROBE_KEY)).toBeUndefined();
+  });
+
+  it('reports a query failure through the injected handlers', async () => {
+    const queryErrorHandlers = createQueryErrorHandlersFake();
+    const error = new Error('query failed');
+
+    function FailingQueryProbe() {
+      const queryClient = useQueryClient();
+
+      useEffect(() => {
+        void queryClient
+          .fetchQuery({ queryKey: ['boom'], queryFn: () => Promise.reject(error), retry: false })
+          .catch(() => undefined);
+      }, [queryClient]);
+
+      return null;
+    }
+
+    render(
+      <AppProviders apiBaseUrl="/api" queryErrorHandlers={queryErrorHandlers}>
+        <FailingQueryProbe />
+      </AppProviders>,
+    );
+
+    await waitFor(() => {
+      expect(queryErrorHandlers.onQueryError).toHaveBeenCalledWith(error, hashKey(['boom']));
+    });
   });
 });

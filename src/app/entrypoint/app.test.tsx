@@ -30,7 +30,7 @@ describe('App', () => {
   });
 
   it('catches a provider construction failure instead of unmounting the tree', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     vi.doMock('./app-providers', () => ({
       AppProviders: () => {
         throw new Error('provider construction failed');
@@ -44,5 +44,10 @@ describe('App', () => {
     expect(
       screen.getByRole('heading', { level: 1, name: 'Something went wrong' }),
     ).toBeInTheDocument();
+    expect(consoleError).toHaveBeenCalledWith(
+      'error reported from render',
+      expect.any(Error),
+      expect.any(String),
+    );
   });
 });

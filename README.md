@@ -241,7 +241,28 @@ router's 404 screen and stays.
   exemptions coexist. The seam forwards only `FallbackComponent`, never `fallbackRender`: the
   vendor calls a `fallbackRender` function directly inside its own class `render()`, so the
   fallback gets no fiber and any hook it calls throws _Invalid hook call_ from a position no
-  boundary can catch.
+  boundary can catch. Its optional `onError` prop is typed `RenderErrorHandler` — a narrow "a render
+  crashed" callback over React's own `ErrorInfo`, not the observability port, which the boundary
+  knows nothing about.
+- **Error reporting goes through the `shared/observability` port, and the sink is chosen in
+  `app/entrypoint`.** The segment ships an `ErrorReporter` function type, an `ErrorReport`
+  discriminated union over the three producers (`render`, `query`, `mutation`), one console adapter
+  and the `toSafeErrorReporter` guard — no vendor. `no-restricted-imports` bans the
+  `@/shared/observability` **path** across the five non-`app` layers **and** from `app/routes` and
+  `app/router`, with `allowTypeImports: true`, plus a companion `^@/shared/observability/` pattern
+  that closes the deep-import route around the barrel. The ban is on the path rather than on today's
+  factory names, because an `importNames` list would silently admit the next adapter added to the
+  barrel. Below `app`, take an `ErrorReporter` as a prop or a factory argument.
+  `app/entrypoint/app-error-reporter.ts` is the one module that names a concrete sink; swapping it
+  for Sentry or Rollbar is one new adapter file and one changed line, with nothing in `shared`,
+  `entities`, `features` or `pages` touched. `shared/api` stays ignorant of all of it:
+  `createQueryClient` takes two plain `(error, hash) => void` callbacks and imports nothing from the
+  segment. **`console` belongs to `shared/observability` alone** — one adapter writes to it, one
+  guard falls back to it, and no other module in `src/` calls it. Note that the shipped default is
+  the console adapter in production too, deliberately: it writes the whole error object,
+  `HttpError` `payload` and `issues` included, to the browser console until a real sink replaces
+  it. A template that silenced production errors by default would be worse, but swap the sink
+  before shipping.
 - **Every `form.Subscribe` / `useSelector` selector returns a scalar.** TanStack Store compares
   selector results referentially (`defaultCompare` is `a === b`) and `form.Subscribe` exposes no
   `compare` option, so a selector returning `{ canSubmit, isSubmitting }` allocates a fresh object
@@ -907,9 +928,9 @@ context, so exporting them as values would advertise a way to render them broken
 - A committed `it.skip(...)` fails `npm run lint`: `vitest/no-disabled-tests` is a warning and the
   lint gate runs with `--max-warnings 0`.
 
-Current unit and component suite: **46 files, 299 tests, 100% coverage** against the 90% per-file
-threshold — 422/422 statements, 193/193 branches, 152/152 functions, 412/412 lines across 87
-measured files (21 of which — the barrels and three type-only modules — carry no coverable
+Current unit and component suite: **52 files, 343 tests, 100% coverage** against the 90% per-file
+threshold — 468/468 statements, 212/212 branches, 176/176 functions, 458/458 lines across 96
+measured files (23 of which — the barrels and four type-only modules — carry no coverable
 statements). The browser suite is counted separately and measured by nothing; see
 [End-to-end tests](#end-to-end-tests).
 
@@ -973,11 +994,11 @@ until the directory is deleted.
 ## Bundle size baseline
 
 Recorded from `npm run build` on the scaffold as committed, with no `.env` present (Vite 8.2.2,
-production, 563 modules transformed):
+production, 569 modules transformed):
 
 | Asset                | Raw       | Gzip      |
 | -------------------- | --------- | --------- |
-| `index.js`           | 455.66 kB | 148.76 kB |
+| `index.js`           | 456.53 kB | 149.08 kB |
 | `routes-*.js`        | 12.01 kB  | 5.08 kB   |
 | `index.css`          | 19.93 kB  | 4.38 kB   |
 | `users._userId-*.js` | 86.12 kB  | 22.74 kB  |
@@ -1101,6 +1122,14 @@ Note that `@tanstack/react-form` requires `@tanstack/react-store@^0.11.0` while
 reach it — so npm nests a second copy of **both** `@tanstack/react-store` and `@tanstack/store`,
 which is where most of those duplicated bytes are. It resolves itself when TanStack Router widens
 its range; nothing needs doing here.
+
+**Observability seam cost, measured against the session-state tree:** the entry chunk grew
+455.66 → 456.53 kB raw and 148.76 → 149.08 kB gzip — **+0.32 kB gzip, all of it first-party** — and
+modules transformed went 563 → 569. The route chunks and `index.css` did not move. **No vendor was
+added**: the port is a type, the only shipped sink is `console.error`, and the guard is a
+`try/catch` — an error-reporting SDK is a decision this template leaves to its consumer, so the six
+new modules are code this repo owns. `@sentry/react` was rejected for this step at roughly +30 kB
+gzip on the entry chunk, for a DSN the template has no business owning.
 
 **Session state machine cost, measured against the bearer-token tree:** the entry chunk grew
 454.93 → 455.66 kB raw and 148.52 → 148.76 kB gzip — **+0.24 kB gzip, all of it first-party** — and
