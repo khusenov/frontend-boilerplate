@@ -15,6 +15,11 @@ const routerPlugin = tanstackRouter({
 
 export default defineConfig(({ mode }) => ({
   plugins: [...(mode === 'test' ? [] : [routerPlugin]), react(), tailwindcss()],
+  server: {
+    proxy: {
+      '/v1': 'http://localhost:8000',
+    },
+  },
   resolve: {
     tsconfigPaths: true,
   },

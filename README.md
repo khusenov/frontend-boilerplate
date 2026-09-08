@@ -21,7 +21,7 @@ npm run dev
 ```
 
 `/users/:id` is a live demo route and the reference `entities` slice. It renders its alert state
-until `VITE_API_BASE_URL` points at an API serving `GET /users/:id`; the shape it expects is
+until `VITE_API_BASE_URL` points at an API serving `GET /v1/users/:id`; the shape it expects is
 `src/entities/user/api/user-dto.ts`.
 
 ## Stack
@@ -323,7 +323,15 @@ into the public bundle and is readable by every visitor.
 
 | Variable            | Default | Meaning                    |
 | ------------------- | ------- | -------------------------- |
-| `VITE_API_BASE_URL` | `/api`  | Base URL for API requests. |
+| `VITE_API_BASE_URL` | `/v1`   | Base URL for API requests. |
+
+The default is a **path**, not an origin, and `vite.config.ts` proxies `/v1` to
+`http://localhost:8000` in development. That makes every request same-origin — no CORS, no
+preflight on the recovery path, no `sameSite` question — and mirrors the reverse-proxy topology a
+production deployment should use. The `/v1` prefix is load-bearing rather than cosmetic: the
+refresh cookie is issued with `path: '/v1/auth'`, so a base URL missing it produces requests the
+browser refuses to attach the cookie to, and every renewal then fails with a 401 that looks exactly
+like an expired session.
 
 `env.d.ts` opts into `ViteTypeOptions.strictImportMetaEnv`. Without it Vite's `ImportMetaEnv`
 extends `Record<string, any>` and a misspelled variable type-checks clean; with it, the typo is a
@@ -347,8 +355,10 @@ tests.
 ## Data layer
 
 `shared/api` is the only place that speaks HTTP. It exposes a transport port, a response-schema
-port, a frontend-owned failure model, and a configured TanStack Query cache — and no axios type at
-all.
+port, a credential port, a frontend-owned failure model, and a configured TanStack Query cache —
+and no axios type at all. That last clause still holds after the credential port arrived:
+`BearerTokenSource` is two plain functions, and `attachBearerToken` — the one module that names
+`AxiosInstance` — is deliberately absent from the barrel.
 
 ```tsx
 const httpClient = useHttpClient();
@@ -366,10 +376,12 @@ retry policy then declines to retry.
 - **`createHttpClient` is a factory, never a module singleton.** Nothing outside `@/shared/config`
   reads `import.meta.env`; the base URL arrives as a plain string, which is what keeps every
   consumer testable with a literal.
-- **`app/entrypoint/app-providers.tsx` owns both client lifetimes,** each held in a `useState` lazy
+- **`app/entrypoint/app-providers.tsx` owns every client lifetime,** each held in a `useState` lazy
   initializer so its identity is stable for the component's lifetime. `useMemo` would not do:
-  React may discard a memo result, and both clients own live state (an interceptor chain, a query
-  cache).
+  React may discard a memo result, and each of them owns live state (an interceptor chain, a query
+  cache, an in-memory access token). The transport is built by
+  `app/entrypoint/create-authenticated-transport.ts`, which composes the two HTTP clients and the
+  session collaborators behind one call.
 - **`useHttpClient()` is the only sanctioned way to reach the transport.** Three gates hold it, and
   none is sufficient alone. `no-restricted-imports` blocks `createHttpClient` and
   `createQueryClient` on the barrel route, from all five non-`app` layers **and from `app/routes`
@@ -405,9 +417,30 @@ retry policy then declines to retry.
   `redact` builds a snapshot for serialization only and never touches the outgoing request.
   `authorization`, `cookie` and `set-cookie` are redacted by default; a custom scheme names its own
   secret through `redactedHeaders`.
-- **`getAuthHeaders` is an injected port with no implementation.** It returns a header map rather
-  than a token, so it serves a bearer scheme, an API key, a tenant id or a trace header without
-  committing to any. Pass nothing and the interceptor is never registered.
+- **`bearerTokenSource` is the credential port, and it owns `Authorization` alone.** Pass nothing
+  and neither interceptor is registered. Pass one and the client sends `Authorization: Bearer
+<token>` on every request, and on a `401` renews once, replays the request through the request
+  interceptor so the replay carries the _new_ token, and returns the replayed response to the
+  caller. The port is `getToken()` plus `renewToken(staleToken)`; `renewToken` receives the token
+  the failed request actually carried, so the source can tell "my credential expired" from "someone
+  else already replaced it". A caller-supplied `Authorization` header is overridden — on this
+  client the header belongs to the source.
+- **Interceptor registration order is a correctness requirement.** `attachBearerToken` registers
+  before `normalizeErrors` so its error handler receives the raw `AxiosError` — the only value that
+  still carries `config`, and therefore the only value that can be replayed. Swap the two and ten
+  tests redden; `attach-bearer-token.test.ts` names one of them after the reason.
+- **The renewal itself lives in `entities/session`, not here.** The transport knows one HTTP fact —
+  "a 401 means ask for a fresh bearer token, once" — and `bearerTokenRenewed`, stamped on the
+  replay config, is what stops a second 401 looping. It survives axios's `mergeConfig`, which a
+  `WeakSet` keyed on the config object would not: axios hands the replay a merged clone.
+- **`renewToken` is called through a guard.** `BearerTokenSource` is an interface anyone may
+  implement, and a foreign implementation that rejects must not escape as a non-`HttpError` into
+  React Query, so a rejected renewal is converted to "no token" and the request fails with its
+  original 401. `getToken` totality is contractual and unguarded, deliberately.
+- **`sendCookies` is off by default** and is named for what it does rather than for axios's
+  `withCredentials`, the same way `baseUrl` and `timeoutMilliseconds` are. Only the client that
+  calls `/auth/refresh` turns it on. Cookie behaviour is browser-only, so no test in this repo
+  asserts it — `http-client.test.ts` runs under the Node adapter, where the flag is a no-op.
 - **Every request carries a response schema.** All five verbs take a required `schema` in their
   config — a `ResponseSchema<T>`, which is the Standard Schema interface, so each slice picks its own
   validator and `shared/api` never imports one. The body is validated before it leaves the transport,
@@ -450,10 +483,51 @@ retry policy then declines to retry.
   depends on the narrowest port it uses — `Pick<HttpClient, 'get'>` and `Pick<HttpClient, 'patch'>`
   — rather than the whole five-verb interface. `api/user-resource-path.ts` is the one builder both
   reach for, so the dot-segment guard cannot be applied to reads and forgotten on writes. **An
-  entity's `index.ts` exports the domain model and the option factories, never the DTO type, its
-  schema, a mapper, a path builder or a query-key object**: all of those are absent from the
-  barrel by design, so no module outside `entities/user/api/` can name the wire shape. Copy this
-  slice for the next entity.
+  entity's `index.ts` exports the domain model and the slice's collaborator factories, never the
+  DTO type, its schema, a mapper, a path builder or a query-key object**: all of those are absent
+  from the barrel by design, so no module outside `entities/user/api/` can name the wire shape.
+  Copy this slice for the next entity.
+- **`entities/session` is the same anatomy with a different surface.** `model/` holds the branded
+  `AccessToken`, the `RefreshResult` union, the in-memory `AccessTokenStore` and the renewal policy
+  in `session-token-source.ts`; `api/` holds the wire schema, the mapper and the one HTTP call.
+  Its barrel publishes three collaborator factories — `createAccessTokenStore`, `createSessionApi`,
+  `createSessionTokenSource` — and no domain model and no TanStack option factory, because nothing
+  above it renders a session yet. The prohibitions are unchanged: the DTO, its schema, the mapper
+  and `SessionWriteClient` all stay inside the slice.
+- **The access token lives in a closure variable — never `localStorage`, never `sessionStorage`.**
+  Anything readable by JavaScript is readable by injected JavaScript; an in-memory token limits an
+  XSS payload to the current page lifetime instead of handing it a live credential to exfiltrate.
+  Durability comes from the `httpOnly` refresh cookie, which script cannot read by construction.
+  The cost is stated plainly: a page reload wipes the token, so the first authenticated request
+  after every load is a guaranteed `401` + refresh + replay — one extra round trip, and a 401 in
+  every devtools and APM trace. A boot-time refresh can hide it later.
+- **Renewal is de-duplicated origin-wide, not module-wide.** `shared/lib/single-flight` collapses
+  concurrent callers in one tab onto a single promise and serializes across tabs on a Web Lock.
+  Both layers matter: because the token is deliberately in memory, _every_ tab boots with an empty
+  store and fires a bare first request, so two restored tabs 401 simultaneously and present the
+  same refresh cookie — the precise input a backend with refresh-token reuse detection answers by
+  revoking the whole token family and signing the user out everywhere. `navigator.locks` needs a
+  secure context; feature detection degrades to the in-tab guarantee. Rename `appConfig.name` when
+  you fork this template — it is the origin-wide lock namespace.
+- **An ended session never renews again.** `AccessTokenStore.hasEnded()` is a latch, not
+  decoration. Once the credential is rejected every later request goes out bare and comes back
+  401, and with only a token comparison to go on `null === null` would match and fire another
+  refresh — ten sequential requests, ten refresh calls. The latch clears when something writes a
+  token, which is what makes re-login work. A `401` from `/auth/refresh` is the only outcome that
+  ends the session; a 500, a dropped connection or a wire-shape mismatch is `unavailable` — this
+  attempt failed, the session did not. Collapsing those two is how boilerplates sign users out
+  every time the API restarts.
+- **Two clients, not one.** `app/entrypoint/create-authenticated-transport.ts` builds the
+  authenticated client with the bearer interceptor and a second, unauthenticated client — the only
+  one with `sendCookies: true` — for `/auth/refresh`. A single client would recurse: refresh
+  returns 401, the interceptor catches it, calls refresh, forever. It is a composition rule
+  enforced at one site and asserted by a test, not a type-level guarantee. `createAuthenticatedTransport`
+  returns an object rather than a bare `HttpClient` so the deferred login and route-guard steps can
+  add the token store additively.
+- **Deploying the API to a different registrable domain silently drops the refresh cookie.**
+  `sameSite: 'strict'` is a site-level rule that `withCredentials` cannot override. Serve the API
+  under the same site as the app — which is what the dev proxy models — or change the cookie
+  policy on the backend.
 
 ## Internationalization
 
@@ -535,8 +609,10 @@ const { t } = useTranslation('home');
   boundary and needs no runtime schema validation. Server-supplied display strings are DTO fields
   and get mapped into the domain model like any other field — they do not belong in these
   namespaces, which are for copy the frontend owns. When the active locale needs to reach the
-  backend it goes as an `Accept-Language` header through `createHttpClient`'s injected header hook,
-  never by importing i18next inside a mapper.
+  backend it goes as an `Accept-Language` header in `HttpRequestOptions.headers` at the call site,
+  never by importing i18next inside a mapper. `bearerTokenSource` is not the place for it: that
+  port owns `Authorization` and nothing else. A general request-header hook is future work if one
+  is wanted.
 - **The re-export of `useTranslation` and `Trans` adopts i18next's API as this project's own, and
   that is a deliberate departure from `shared/api`.** The transport hides axios entirely behind a
   hand-written port; i18n does not, because a wrapper would sever the `CustomTypeOptions` type
@@ -732,9 +808,9 @@ context, so exporting them as values would advertise a way to render them broken
   seven `Not implemented: Window's scrollTo()` lines that read like a regression.
 - **The last three of those are guarded by `typeof window !== 'undefined'`, and the guard is
   mandatory.** Setup files run for every test file regardless of its environment, and
-  `src/shared/api/http-client.test.ts` declares `// @vitest-environment node`, where `localStorage`
-  does not exist — without the guard all 18 tests in that file die on
-  `ReferenceError: localStorage is not defined`.
+  three files declare `// @vitest-environment node`, where `localStorage` does not exist — without
+  the guard all 16 tests in `src/shared/api/http-client.test.ts` die on
+  `ReferenceError: localStorage is not defined`, and so do the other two files.
 - **The globally-registered i18n instance is a test convenience, not the app's wiring.** The
   application receives its instance by explicit injection through `I18nProvider`; the global exists
   so a page test can render `<HomePage />` with no provider and still get real English copy, which
@@ -761,11 +837,15 @@ context, so exporting them as values would advertise a way to render them broken
   and that the app mounts. React 19 roots flush asynchronously, and mounting the router makes the
   first route match asynchronous too, so the mount assertion wraps the import in `act()` **and**
   the assertion itself in `waitFor`.
-- `src/shared/api/http-client.test.ts` declares `// @vitest-environment node` on its first line.
-  In jsdom axios picks its `xhr` adapter, and MSW's XHR interceptor ignores `xhr.timeout`, so the
-  timeout test would silently _resolve_. The cost is that the file exercises axios's Node adapter
-  rather than the browser's; the code-to-kind mapping is unit-tested for both `ECONNABORTED` and
-  `ETIMEDOUT` in `axios-error-mapper.test.ts`, which is environment-independent.
+- Three files declare `// @vitest-environment node` on their first line:
+  `src/shared/api/http-client.test.ts`, `src/shared/api/attach-bearer-token.test.ts` and
+  `src/app/entrypoint/create-authenticated-transport.test.ts` — every test that drives a real
+  request through MSW. In jsdom axios picks its `xhr` adapter, and MSW's XHR interceptor ignores
+  `xhr.timeout`, so the timeout test would silently _resolve_. The cost is that these files
+  exercise axios's Node adapter rather than the browser's; the code-to-kind mapping is unit-tested
+  for both `ECONNABORTED` and `ETIMEDOUT` in `axios-error-mapper.test.ts`, which is
+  environment-independent. Node ≥ 22 also ships a real `LockManager`, so the composition test
+  genuinely acquires an origin-wide Web Lock rather than a stub.
 - MSW is a dev dependency and is used in Node test mode only. The browser service worker is not
   installed — `npx msw init public/` lands with the first mocked dev-server slice.
 - **`src/pages/home/ui/home-page.test.tsx` stands up no router, deliberately.** It is the
@@ -782,18 +862,18 @@ context, so exporting them as values would advertise a way to render them broken
 - A committed `it.skip(...)` fails `npm run lint`: `vitest/no-disabled-tests` is a warning and the
   lint gate runs with `--max-warnings 0`.
 
-Current suite: **39 files, 255 tests, 100% coverage** against the 90% per-file threshold — 343/343
-statements, 157/157 branches, 123/123 functions, 335/335 lines across 74 measured files (17 of which —
-the barrels and one type-only module — carry no coverable statements).
+Current suite: **46 files, 299 tests, 100% coverage** against the 90% per-file threshold — 422/422
+statements, 193/193 branches, 152/152 functions, 412/412 lines across 87 measured files (21 of which —
+the barrels and three type-only modules — carry no coverable statements).
 
 ## Bundle size baseline
 
 Recorded from `npm run build` on the scaffold as committed, with no `.env` present (Vite 8.2.2,
-production, 550 modules transformed):
+production, 561 modules transformed):
 
 | Asset                | Raw       | Gzip      |
 | -------------------- | --------- | --------- |
-| `index.js`           | 453.06 kB | 147.71 kB |
+| `index.js`           | 454.93 kB | 148.52 kB |
 | `routes-*.js`        | 12.01 kB  | 5.08 kB   |
 | `index.css`          | 21.18 kB  | 4.60 kB   |
 | `users._userId-*.js` | 86.12 kB  | 22.74 kB  |
@@ -907,6 +987,17 @@ Note that `@tanstack/react-form` requires `@tanstack/react-store@^0.11.0` while
 reach it — so npm nests a second copy of **both** `@tanstack/react-store` and `@tanstack/store`,
 which is where most of those duplicated bytes are. It resolves itself when TanStack Router widens
 its range; nothing needs doing here.
+
+**Bearer token source cost, measured against the pre-auth tree:** the entry chunk grew
+453.06 → 454.93 kB raw and 147.71 → 148.52 kB gzip — **+0.81 kB gzip, all of it first-party**, and
+modules transformed went 550 → 561. `index.css`, `routes-*.js`, `users._userId-*.js` and
+`home-*.js` did not move. **Zero bytes of new vendor code**: axios interceptors already provide the
+request and response hooks, and the Web Locks API is the platform's own cross-tab mutex, so the
+whole mechanism — the credential port, the two interceptors, the single-flight primitive and the
+`entities/session` slice — is code this repo owns. `axios-auth-refresh` (unmaintained) and
+`axios-retry` (which solves retry-on-5xx, not token custody) were both rejected: either would still
+leave de-duplication and token custody here, in exchange for a dependency and an opaque interceptor
+ordering.
 
 A `.env` shifts the total by a few bytes because Vite inlines the value, so record baselines without
 one. Treat a jump against this baseline as a review item, not a build failure — the number is here to

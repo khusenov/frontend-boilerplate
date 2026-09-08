@@ -1,6 +1,6 @@
+export type { BearerTokenSource } from './bearer-token-source';
 export { createHttpClient } from './http-client';
 export type {
-  AuthHeadersReader,
   CreateHttpClientOptions,
   HttpBodyRequestConfig,
   HttpClient,

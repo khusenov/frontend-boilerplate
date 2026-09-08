@@ -127,28 +127,7 @@ describe('createHttpClient', () => {
     });
   });
 
-  it('attaches the headers the auth reader supplies', async () => {
-    server.use(respondWithRequestHeader('/me', 'authorization'));
-    const client = createHttpClient({
-      baseUrl: BASE_URL,
-      getAuthHeaders: () => ({ Authorization: 'Bearer token-123' }),
-    });
-
-    await expect(client.get('/me', { schema: headerValueSchema })).resolves.toStrictEqual({
-      value: 'Bearer token-123',
-    });
-  });
-
-  it('sends no auth header when the reader supplies none', async () => {
-    server.use(respondWithRequestHeader('/me', 'authorization'));
-    const client = createHttpClient({ baseUrl: BASE_URL, getAuthHeaders: () => ({}) });
-
-    await expect(client.get('/me', { schema: headerValueSchema })).resolves.toStrictEqual({
-      value: null,
-    });
-  });
-
-  it('sends no auth header when no reader is configured', async () => {
+  it('sends no auth header when no bearer token source is configured', async () => {
     server.use(respondWithRequestHeader('/me', 'authorization'));
     const client = createHttpClient({ baseUrl: BASE_URL });
 
@@ -161,12 +140,11 @@ describe('createHttpClient', () => {
     server.use(http.get(`${BASE_URL}/things`, () => new HttpResponse(null, { status: 500 })));
     const client = createHttpClient({
       baseUrl: BASE_URL,
-      getAuthHeaders: () => ({ 'X-Api-Key': 'super-secret' }),
       redactedHeaders: ['x-api-key'],
     });
 
     const failure = await client
-      .get('/things', { schema: idSchema })
+      .get('/things', { schema: idSchema, headers: { 'X-Api-Key': 'super-secret' } })
       .catch((error: unknown) => error);
     const serialized = JSON.stringify(isHttpError(failure) ? failure.cause : null);
 

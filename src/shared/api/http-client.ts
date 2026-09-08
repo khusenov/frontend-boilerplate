@@ -1,7 +1,9 @@
 import axios from 'axios';
 import type { AxiosInstance, AxiosRequestConfig } from 'axios';
 
+import { attachBearerToken } from './attach-bearer-token';
 import { toHttpErrorFromAxios } from './axios-error-mapper';
+import type { BearerTokenSource } from './bearer-token-source';
 import type { ExchangeContext } from './http-error';
 import type { ResponseSchema } from './response-schema';
 import { parseResponse } from './response-schema';
@@ -18,8 +20,6 @@ export type HttpQueryParams = Record<
   string,
   HttpQueryParamValue | readonly HttpQueryParamValue[] | undefined
 >;
-
-export type AuthHeadersReader = () => Record<string, string>;
 
 export interface HttpRequestOptions {
   readonly params?: HttpQueryParams;
@@ -48,18 +48,9 @@ export interface HttpClient {
 export interface CreateHttpClientOptions {
   readonly baseUrl: string;
   readonly timeoutMilliseconds?: number;
-  readonly getAuthHeaders?: AuthHeadersReader;
+  readonly bearerTokenSource?: BearerTokenSource;
+  readonly sendCookies?: boolean;
   readonly redactedHeaders?: readonly string[];
-}
-
-function attachAuthHeaders(instance: AxiosInstance, getAuthHeaders: AuthHeadersReader): void {
-  instance.interceptors.request.use((config) => {
-    for (const [name, value] of Object.entries(getAuthHeaders())) {
-      config.headers.set(name, value);
-    }
-
-    return config;
-  });
 }
 
 function normalizeErrors(instance: AxiosInstance): void {
@@ -75,13 +66,14 @@ function createInstance(options: CreateHttpClientOptions): AxiosInstance {
     timeout: options.timeoutMilliseconds ?? DEFAULT_TIMEOUT_MILLISECONDS,
     headers: { Accept: JSON_MEDIA_TYPE },
     allowAbsoluteUrls: false,
+    withCredentials: options.sendCookies ?? false,
     redact: [...(options.redactedHeaders ?? REDACTED_HEADERS)],
   });
 
-  const { getAuthHeaders } = options;
+  const { bearerTokenSource } = options;
 
-  if (getAuthHeaders) {
-    attachAuthHeaders(instance, getAuthHeaders);
+  if (bearerTokenSource) {
+    attachBearerToken(instance, bearerTokenSource);
   }
 
   normalizeErrors(instance);

@@ -19,22 +19,22 @@ describe('appConfig', () => {
     });
   });
 
-  it('falls back to /api when VITE_API_BASE_URL is unset', async () => {
+  it('falls back to /v1 when VITE_API_BASE_URL is unset', async () => {
     vi.stubEnv('VITE_API_BASE_URL', undefined);
 
-    await expect(loadConfig()).resolves.toMatchObject({ apiBaseUrl: '/api' });
+    await expect(loadConfig()).resolves.toMatchObject({ apiBaseUrl: '/v1' });
   });
 
-  it('falls back to /api when VITE_API_BASE_URL is blank', async () => {
+  it('falls back to /v1 when VITE_API_BASE_URL is blank', async () => {
     vi.stubEnv('VITE_API_BASE_URL', '');
 
-    await expect(loadConfig()).resolves.toMatchObject({ apiBaseUrl: '/api' });
+    await expect(loadConfig()).resolves.toMatchObject({ apiBaseUrl: '/v1' });
   });
 
-  it('falls back to /api when VITE_API_BASE_URL is whitespace only', async () => {
+  it('falls back to /v1 when VITE_API_BASE_URL is whitespace only', async () => {
     vi.stubEnv('VITE_API_BASE_URL', '   ');
 
-    await expect(loadConfig()).resolves.toMatchObject({ apiBaseUrl: '/api' });
+    await expect(loadConfig()).resolves.toMatchObject({ apiBaseUrl: '/v1' });
   });
 
   it('trims surrounding whitespace from VITE_API_BASE_URL', async () => {

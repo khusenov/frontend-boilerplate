@@ -1,4 +1,4 @@
-const DEFAULT_API_BASE_URL = '/api';
+const DEFAULT_API_BASE_URL = '/v1';
 
 const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim() ?? '';
 
