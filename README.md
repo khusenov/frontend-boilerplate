@@ -95,6 +95,9 @@ lint:a11y:fix` regenerates the file.
 | `npm run test`                  | Vitest, single run.                                                                                  |
 | `npm run test:watch`            | Vitest in watch mode.                                                                                |
 | `npm run test:coverage`         | Vitest with v8 coverage and the 90% per-file thresholds enforced.                                    |
+| `npm run test:e2e`              | Playwright over the production build in Chromium. Not part of `audit`; CI runs it as its own job.    |
+| `npm run test:e2e:ui`           | Playwright's interactive UI runner.                                                                  |
+| `npm run test:e2e:report`       | Opens the HTML report from the last `test:e2e` run.                                                  |
 | `npm run arch`                  | steiger over `./src` — Feature-Sliced Design rules.                                                  |
 | `npm run audit`                 | Runs every gate in sequence. The list lives in the `audit` script in `package.json` — read it there. |
 | `npm run verify:coverage-scope` | Fails if any source file escaped coverage measurement. Runs last in `audit`.                         |
@@ -108,17 +111,20 @@ about 11 seconds warm. Every gate in it runs offline; a vulnerability scan
 
 Every gate in `npm run audit` runs at three points:
 
-| When                          | What runs                                                                 | Scope                            |
-| ----------------------------- | ------------------------------------------------------------------------- | -------------------------------- |
-| `pre-commit`                  | prettier, eslint, oxlint, plus glob-gated a11y-config and lockfile checks | staged files only                |
-| `pre-push`                    | `npm run audit`                                                           | whole repository                 |
-| pull request / push to `main` | `npm run audit` (blocking) and `npm run audit:deps` (advisory)            | whole repository, clean checkout |
+| When                          | What runs                                                                          | Scope                            |
+| ----------------------------- | ---------------------------------------------------------------------------------- | -------------------------------- |
+| `pre-commit`                  | prettier, eslint, oxlint, plus glob-gated a11y-config and lockfile checks          | staged files only                |
+| `pre-push`                    | `npm run audit`                                                                    | whole repository                 |
+| pull request / push to `main` | `npm run audit` and `npm run test:e2e` (blocking), `npm run audit:deps` (advisory) | whole repository, clean checkout |
 
 Hooks are managed by [lefthook](https://github.com/evilmartians/lefthook). They install themselves on
 `npm install` via the package's own postinstall, which skips when `CI` is set. To reinstall by hand:
 `npx lefthook install -f`.
 
-CI runs the same `npm run audit` you run locally, so the gate list lives in `package.json` only.
+CI runs the same `npm run audit` you run locally, so the gate list lives in `package.json` only —
+plus a second, parallel `End-to-end tests` job running `npm run test:e2e`. That one is deliberately
+outside `audit`: a gate that builds the app and boots a browser does not belong in a pre-push hook.
+See [End-to-end tests](#end-to-end-tests).
 
 Hooks can be bypassed with `git commit --no-verify` / `git push --no-verify`, so `pre-push` is a
 strong default rather than a guarantee.
@@ -291,12 +297,19 @@ router's 404 screen and stays.
 | Barrel / public API  | `index.ts`                                               | `src/shared/lib/format-duration/index.ts`                |
 | Global stylesheet    | `index.css`                                              | `src/app/styles/index.css`                               |
 | Test                 | Co-located `*.test.ts(x)`                                | `src/shared/lib/format-duration/format-duration.test.ts` |
+| End-to-end spec      | `e2e/**/*.spec.ts`, not co-located                       | `e2e/user-profile.spec.ts`                               |
 
 Four files under `src/app` do not follow the table, by convention rather than by oversight:
 `routes/__root.tsx`, `routes/index.tsx`, `routes/users.$userId.tsx` and its co-located
 `routes/users.$userId.test.tsx` follow TanStack's file-name-is-the-URL rule.
 `router/route-tree.gen.ts` is generated, and `generatedRouteTree` in `vite.config.ts` is what keeps
 its name on the table.
+
+The `.spec` suffix is the one sanctioned departure from `*.test.ts(x)`, and it is load-bearing: it
+says at a glance that a file runs in a real browser against the built bundle rather than in jsdom,
+and `e2e/` sits outside `src/` because the suite observes the deployed artefact rather than
+belonging to a layer. Page objects are named `*-page-object.ts` under `e2e/page-objects/` so that
+neither the folder nor the exported symbol can be mistaken for the FSD `pages` layer.
 
 - Tests sit next to the code they cover, never in a parallel `__tests__` tree.
 - Components are styled with Tailwind utilities against the semantic tokens declared in
@@ -853,7 +866,8 @@ context, so exporting them as values would advertise a way to render them broken
   one exception to router-free pages — it needs a `RouterProvider` ancestor — which makes
   `pages/not-found` the single slice with no co-located test: a standalone one would have to stand
   up a router and would then be testing the router twice. It is covered from
-  `src/app/router/create-app-router.test.tsx` instead.
+  `src/app/router/create-app-router.test.tsx`, and end-to-end from `e2e/app-shell.spec.ts`, which
+  reaches it through the real route tree in the built bundle.
 - **Router policy a constant cannot explain is asserted.** `defaultPreloadStaleTime: 0` stops the
   router keeping a 30 s cache of loader results alongside Query's; without the assertion in
   `create-app-router.test.tsx`, deleting the line would pass every gate. The last case in that file
@@ -862,9 +876,68 @@ context, so exporting them as values would advertise a way to render them broken
 - A committed `it.skip(...)` fails `npm run lint`: `vitest/no-disabled-tests` is a warning and the
   lint gate runs with `--max-warnings 0`.
 
-Current suite: **46 files, 299 tests, 100% coverage** against the 90% per-file threshold — 422/422
-statements, 193/193 branches, 152/152 functions, 412/412 lines across 87 measured files (21 of which —
-the barrels and three type-only modules — carry no coverable statements).
+Current unit and component suite: **46 files, 299 tests, 100% coverage** against the 90% per-file
+threshold — 422/422 statements, 193/193 branches, 152/152 functions, 412/412 lines across 87
+measured files (21 of which — the barrels and three type-only modules — carry no coverable
+statements). The browser suite is counted separately and measured by nothing; see
+[End-to-end tests](#end-to-end-tests).
+
+## End-to-end tests
+
+Playwright drives a real Chromium against the **production build**. Eight scenarios across two spec
+files under `e2e/`.
+
+| Script                    | What it does                                             |
+| ------------------------- | -------------------------------------------------------- |
+| `npm run test:e2e`        | Builds, previews, and runs the suite headless.           |
+| `npm run test:e2e:ui`     | The interactive runner, for writing and debugging specs. |
+| `npm run test:e2e:report` | Opens the HTML report from the last run.                 |
+
+**It tests the build, not the dev server.** `webServer.command` is `npm run build && vite preview`,
+because the gap this suite exists to close is precisely "the built bundle is unverified": minified
+output, the route tree as generated by the Vite plugin rather than by the test-mode config,
+`import.meta.env` inlined, and both devtools overlays absent because they no-op in production.
+
+**The build is hermetic.** Vite loads `.env` files during `build` and gives real `process.env`
+`VITE_*` variables precedence over them, so `webServer.env` pins `VITE_API_BASE_URL=/v1`. Without
+that pin a developer with `VITE_API_BASE_URL=http://localhost:8000/api` in an untracked `.env`
+would build a bundle whose requests miss the stub entirely, fall through to `vite preview`'s SPA
+history fallback, receive `200 text/html`, fail `userDtoSchema`, and surface as "this profile could
+not be loaded" — the wrong diagnosis, on a machine-dependent basis.
+
+**The network is stubbed in the browser, not in the app.** `page.route` intercepts at Chromium's
+network layer, so no mocking machinery reaches the production bundle and `src/main.tsx` needs no
+branch. MSW was the alternative and was rejected for exactly that reason: its browser mode needs a
+service worker registered from application code plus `mockServiceWorker.js` in `public/`.
+
+**The suite never imports `src/`, by construction.** `e2e/fixtures/user-stub.ts` declares the wire
+shape as its own `UserWireRecord`, deliberately duplicating `src/entities/user/api/user-dto.ts`.
+Sharing that type would make a wire-field rename update both sides at once and keep the suite green
+while production broke — a single declaration cannot detect its own drift. The fence is mechanical,
+not conventional: a `no-restricted-imports` rule over `e2e/**` rejects `@/**` and `**/src/**`, and
+`tsconfig.e2e.json` omits the `@/*` path alias so the aliased form also fails `npm run typecheck`.
+
+What that catches and what it does not: it catches the application **tightening** away from the
+wire — a renamed or retyped field. It does not catch the wire **loosening** away from the
+application; if the server makes a field optional, the pinned copy keeps sending the old shape and
+nothing fails. That needs a contract artefact generated from the server (OpenAPI or Pact).
+
+**Locators and copy live in `e2e/page-objects/`.** Seven scenarios drive the profile form, so
+`'Save name'` and `'First name'` would otherwise appear at four or five sites each. Everything is
+queried by role, label, or visible text — never a `data-testid`, a CSS class, or a generated id,
+because `TextField` derives its control id from `useId()` and the label association is the real
+contract. `e2e/app-shell.spec.ts` queries two strings once each and keeps them inline: the rule is
+extract at the second call site, not the first.
+
+**`npm run audit` deliberately excludes it.** `audit` is the `pre-push` hook and must stay fast; a
+gate that builds the app and boots a browser belongs in CI, which runs `End-to-end tests` as its own
+job in parallel with `Quality gates`. Run it locally before opening a pull request.
+
+Playwright's `test-results/`, `playwright-report/` and `blob-report/` are ignored by git, by
+Prettier, and by ESLint. All three matter: the HTML report is a single multi-hundred-kilobyte line
+that fails `format:check`, and a recorded trace copies real `.js` files into `playwright-report/`
+that belong to no TypeScript project and hard-fail `projectService`. Either one blocks every push
+until the directory is deleted.
 
 ## Bundle size baseline
 

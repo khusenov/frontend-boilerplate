@@ -107,7 +107,15 @@ const VALIDATOR_IMPORT_PATTERNS = [
 
 export default tseslint.config(
   {
-    ignores: ['dist', 'coverage', 'node_modules', 'src/app/router/route-tree.gen.ts'],
+    ignores: [
+      'dist',
+      'coverage',
+      'node_modules',
+      'playwright-report',
+      'test-results',
+      'blob-report',
+      'src/app/router/route-tree.gen.ts',
+    ],
   },
   {
     linterOptions: {
@@ -420,6 +428,23 @@ export default tseslint.config(
             {
               regex: '^@/shared/api/',
               message: 'Import the segment public API: @/shared/api.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ['e2e/**/*.ts', 'playwright.config.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@/**', '**/src/**'],
+              message:
+                'End-to-end tests observe the running application through the browser, not through its source. Importing src couples the suite to the implementation it exists to verify independently: sharing UserDto would make a wire-shape rename update both sides at once and keep these tests green while production broke.',
             },
           ],
         },

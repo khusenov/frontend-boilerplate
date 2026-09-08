@@ -3,6 +3,10 @@ coverage
 node_modules
 package-lock.json
 src/app/router/route-tree.gen.ts
+test-results
+playwright-report
+blob-report
+playwright/.cache
 
 docs
 .claude
