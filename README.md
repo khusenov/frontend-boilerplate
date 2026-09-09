@@ -472,8 +472,8 @@ retry policy then declines to retry.
   React Query, so a rejected renewal is converted to "no token" and the request fails with its
   original 401. `getToken` totality is contractual and unguarded, deliberately.
 - **`sendCookies` is off by default** and is named for what it does rather than for axios's
-  `withCredentials`, the same way `baseUrl` and `timeoutMilliseconds` are. Only the client that
-  calls `/auth/refresh` turns it on. Cookie behaviour is browser-only, so no test in this repo
+  `withCredentials`, the same way `baseUrl` and `timeoutMilliseconds` are. Only the unauthenticated
+  client — the one that calls `/auth/login` and `/auth/refresh` — turns it on. Cookie behaviour is browser-only, so no test in this repo
   asserts it — `http-client.test.ts` runs under the Node adapter, where the flag is a no-op.
 - **Every request carries a response schema.** All five verbs take a required `schema` in their
   config — a `ResponseSchema<T>`, which is the Standard Schema interface, so each slice picks its own
@@ -522,14 +522,19 @@ retry policy then declines to retry.
   from the barrel by design, so no module outside `entities/user/api/` can name the wire shape.
   Copy this slice for the next entity.
 - **`entities/session` is the same anatomy with a different surface.** `model/` holds the branded
-  `AccessToken`, the `RefreshResult` union, the `SessionState` machine with its in-memory
-  observable `createSessionStore`, and the renewal policy in `session-token-source.ts`; `api/`
-  holds the wire schema, the mapper and the one HTTP call. Its barrel publishes three collaborator
-  factories — `createSessionApi`, `createSessionStore`, `createSessionTokenSource` — plus
-  `toSessionObserver` and the `SessionObserver` and `SessionStatus` types, and no domain model and
-  no TanStack option factory, because nothing above it renders a session yet. The prohibitions are
-  unchanged and one is new: the DTO, its schema, the mapper, `SessionWriteClient`, `SessionState`,
-  `SessionStore` and `AccessToken` all stay inside the slice.
+  `AccessToken`, the `RefreshResult` and sign-in unions, the `Credentials` domain model, the
+  `SessionState` machine with its in-memory observable `createSessionStore`, the renewal policy in
+  `session-token-source.ts`, and the `SessionStarter` port with the context and provider that
+  publish it; `api/` holds two wire schemas, three mappers and two HTTP calls. Its barrel publishes
+  four collaborator factories — `createSessionApi`, `createSessionStarter`, `createSessionStore`,
+  `createSessionTokenSource` — plus `toSessionObserver`, the `SessionStarterProvider` and its
+  `useSessionStarter` hook, and the `Credentials`, `SessionObserver`, `SessionStarter`,
+  `SessionStatus` and `SignInOutcome` types. There is still no TanStack option
+  factory, because nothing above it renders a session yet. The prohibitions are unchanged and two
+  are new: the DTOs, their schemas, the mappers, `SessionWriteClient`, `SessionState`,
+  `SessionStore`, `AccessToken`, **`SignInResult`** (its `signed-in` member carries the bearer
+  token, so only the slice may name it) and **`SessionStarterContext`** (naming it would let a
+  caller `use()` the context and skip the null check) all stay inside the slice.
 - **Three session states, not two booleans.** `SessionState` is a union of `unknown` (no refresh
   attempted yet), `anonymous` (attempted, the credential is gone) and `authenticated` (carrying the
   token). The distinction is load-bearing: a route guard must hold the route open on `unknown` and
@@ -539,6 +544,18 @@ retry policy then declines to retry.
   React state where DevTools would render it. `eslint.config.js` closes the hole the barrel cannot:
   `createSessionStore` is importable only from the app layer, so no lower layer can build a second,
   split-brain store.
+- **A sign-in returns an outcome, not a token.** `SessionApi.signIn` yields a `SignInResult` whose
+  `signed-in` member carries the `AccessToken`; `createSessionStarter` consumes that token with
+  `store.start()` and returns a `SignInOutcome` whose `signed-in` member declares
+  `accessToken?: never` — a field no value can inhabit. The asymmetry is the
+  point: it is the same decision as `toSessionObserver`, applied to the write path, and
+  `accessToken?: never` on the outcome's `signed-in` member is what makes the compiler enforce it
+  rather than a hand-written literal. A component that can start a session still cannot read the
+  credential, so a bearer token cannot reach `localStorage`, a log line, or a third-party widget
+  through this seam. `signIn` also catches every
+  `HttpError` rather than rethrowing it — `toHttpErrorFromAxios` keeps the `AxiosError` as `cause`,
+  and that object holds the serialised request body, which for this one endpoint is a plaintext
+  password.
 - **`SessionStore.read()` must return a referentially stable snapshot between transitions.** No
   type expresses this, and the deferred `useSyncExternalStore` hook depends on it: React compares
   snapshots by identity, and a fresh object on every call logs `The result of getSnapshot should be
@@ -572,12 +589,12 @@ cached to avoid an infinite loop` and re-renders forever. `publish` is the singl
   every time the API restarts.
 - **Two clients, not one.** `app/entrypoint/create-authenticated-transport.ts` builds the
   authenticated client with the bearer interceptor and a second, unauthenticated client — the only
-  one with `sendCookies: true` — for `/auth/refresh`. A single client would recurse: refresh
+  one with `sendCookies: true` — for `/auth/login` and `/auth/refresh`. A single client would recurse: refresh
   returns 401, the interceptor catches it, calls refresh, forever. It is a composition rule
   enforced at one site and asserted by a test, not a type-level guarantee. The unauthenticated
   client is also the one the deferred logout must use, for the same reason. `createAuthenticatedTransport`
   returns an object rather than a bare `HttpClient`: alongside the client it publishes a
-  `SessionObserver`, and the concrete `SessionStore` never leaves the factory.
+  `SessionObserver` and a `SessionStarter`, and the concrete `SessionStore` never leaves the factory.
 - **An ending session takes the query cache with it.**
   `app/entrypoint/clear-cache-on-session-end.ts` subscribes to the observer and calls
   `queryClient.clear()` on the **edge out of `authenticated`** — not on the level `is anonymous`.
@@ -928,9 +945,9 @@ context, so exporting them as values would advertise a way to render them broken
 - A committed `it.skip(...)` fails `npm run lint`: `vitest/no-disabled-tests` is a warning and the
   lint gate runs with `--max-warnings 0`.
 
-Current unit and component suite: **52 files, 343 tests, 100% coverage** against the 90% per-file
-threshold — 468/468 statements, 212/212 branches, 176/176 functions, 458/458 lines across 96
-measured files (23 of which — the barrels and four type-only modules — carry no coverable
+Current unit and component suite: **54 files, 369 tests, 100% coverage** against the 90% per-file
+threshold — 498/498 statements, 221/221 branches, 184/184 functions, 488/488 lines across 101
+measured files (24 of which — the barrels and five type-only modules — carry no coverable
 statements). The browser suite is counted separately and measured by nothing; see
 [End-to-end tests](#end-to-end-tests).
 

@@ -9,6 +9,7 @@ import { createAuthenticatedTransport } from './create-authenticated-transport';
 const BASE_URL = 'https://api.test';
 const PROTECTED_PATH = '/me';
 const REFRESH_PATH = '/auth/refresh';
+const SIGN_IN_PATH = '/auth/login';
 
 const okSchema = z.object({ ok: z.boolean() });
 
@@ -68,6 +69,26 @@ function refuseRenewal(exchanges: RefreshExchange[]) {
     });
 
     return new HttpResponse(null, { status: 401 });
+  });
+}
+
+interface SignInExchange {
+  readonly body: unknown;
+}
+
+function issueTokenTo(exchanges: SignInExchange[]) {
+  return http.post(`${BASE_URL}${SIGN_IN_PATH}`, async ({ request }) => {
+    exchanges.push({ body: await request.json() });
+
+    return HttpResponse.json({ accessToken: 'issued-token' });
+  });
+}
+
+function acceptEveryRequest(sentCredentials: (string | null)[]) {
+  return http.get(`${BASE_URL}${PROTECTED_PATH}`, ({ request }) => {
+    sentCredentials.push(request.headers.get('authorization'));
+
+    return HttpResponse.json({ ok: true });
   });
 }
 
@@ -139,5 +160,42 @@ describe('createAuthenticatedTransport', () => {
 
     expect(sentCredentials).toStrictEqual([null, null]);
     expect(exchanges).toHaveLength(1);
+  });
+
+  it('authenticates the session the observer reports and the transport carries', async () => {
+    const sentCredentials: (string | null)[] = [];
+    const exchanges: SignInExchange[] = [];
+    server.use(issueTokenTo(exchanges), acceptEveryRequest(sentCredentials));
+    const transport = createAuthenticatedTransport(BASE_URL);
+
+    expect(transport.sessionObserver.status()).toBe('unknown');
+
+    await expect(
+      transport.sessionStarter.signIn({ email: 'Ada@Example.com', password: 'correct horse' }),
+    ).resolves.toStrictEqual({ status: 'signed-in' });
+
+    expect(transport.sessionObserver.status()).toBe('authenticated');
+
+    await expect(
+      transport.httpClient.get(PROTECTED_PATH, { schema: okSchema }),
+    ).resolves.toStrictEqual({ ok: true });
+
+    expect(sentCredentials).toStrictEqual(['Bearer issued-token']);
+    expect(exchanges).toStrictEqual([
+      { body: { email: 'ada@example.com', password: 'correct horse' } },
+    ]);
+  });
+
+  it('does not attempt a renewal when the credentials are rejected', async () => {
+    server.use(
+      http.post(`${BASE_URL}${SIGN_IN_PATH}`, () => new HttpResponse(null, { status: 401 })),
+    );
+    const transport = createAuthenticatedTransport(BASE_URL);
+
+    await expect(
+      transport.sessionStarter.signIn({ email: 'ada@example.com', password: 'wrong' }),
+    ).resolves.toStrictEqual({ status: 'rejected' });
+
+    expect(transport.sessionObserver.status()).toBe('unknown');
   });
 });

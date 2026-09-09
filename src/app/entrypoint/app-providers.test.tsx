@@ -4,7 +4,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { SessionStatus } from '@/entities/session';
+import type { SessionStarter, SessionStatus } from '@/entities/session';
+import { useSessionStarter } from '@/entities/session';
 import type { HttpClient } from '@/shared/api';
 import { toHttpError, useHttpClient } from '@/shared/api';
 
@@ -47,6 +48,7 @@ function createControllableTransport(initialStatus: SessionStatus) {
         };
       },
     },
+    sessionStarter: { signIn: () => Promise.resolve({ status: 'unavailable' }) },
   };
 
   function moveTo(next: SessionStatus) {
@@ -142,6 +144,26 @@ describe('AppProviders', () => {
     moveTo('anonymous');
 
     expect(captured.cache?.getQueryData(PROBE_KEY)).toBeUndefined();
+  });
+
+  it('provides the transport session starter to its children', () => {
+    const { transport } = createControllableTransport('unknown');
+    vi.mocked(createAuthenticatedTransport).mockReturnValueOnce(transport);
+    const captured: { starter: SessionStarter | null } = { starter: null };
+
+    function StarterProbe() {
+      captured.starter = useSessionStarter();
+
+      return null;
+    }
+
+    render(
+      <AppProviders apiBaseUrl="/api" queryErrorHandlers={createQueryErrorHandlersFake()}>
+        <StarterProbe />
+      </AppProviders>,
+    );
+
+    expect(captured.starter).toBe(transport.sessionStarter);
   });
 
   it('reports a query failure through the injected handlers', async () => {

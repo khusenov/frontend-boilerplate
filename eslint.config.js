@@ -10,6 +10,13 @@ import reactRefresh from 'eslint-plugin-react-refresh';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
+const SESSION_CONSTRUCTOR_NAMES = [
+  'createSessionApi',
+  'createSessionStarter',
+  'createSessionStore',
+  'createSessionTokenSource',
+];
+
 const LOWER_LAYER_IMPORT_PATHS = [
   {
     name: '@/shared/api',
@@ -36,8 +43,9 @@ const LOWER_LAYER_IMPORT_PATHS = [
   },
   {
     name: '@/entities/session',
-    importNames: ['createSessionApi', 'createSessionStore', 'createSessionTokenSource'],
-    message: 'Construct the session only in the app layer. Read it through SessionObserver.',
+    importNames: SESSION_CONSTRUCTOR_NAMES,
+    message:
+      'Construct the session only in the app layer. Read it through SessionObserver, or start one with useSessionStarter().',
   },
 ];
 
@@ -435,7 +443,7 @@ export default tseslint.config(
             },
             {
               name: '@/entities/session',
-              importNames: ['createSessionApi', 'createSessionStore', 'createSessionTokenSource'],
+              importNames: SESSION_CONSTRUCTOR_NAMES,
               message:
                 'Route and router modules receive the session through the provider tree. Only app/entrypoint constructs one.',
             },

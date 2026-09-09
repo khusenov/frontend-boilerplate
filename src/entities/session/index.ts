@@ -1,5 +1,11 @@
 export { createSessionApi } from './api/session-api';
+export type { Credentials } from './model/credentials';
+export { createSessionStarter } from './model/session-starter';
+export type { SessionStarter } from './model/session-starter';
+export { useSessionStarter } from './model/session-starter-context';
+export { SessionStarterProvider } from './model/session-starter-provider';
+export type { SessionStatus } from './model/session-state';
 export { createSessionStore, toSessionObserver } from './model/session-store';
 export type { SessionObserver } from './model/session-store';
 export { createSessionTokenSource } from './model/session-token-source';
-export type { SessionStatus } from './model/session-state';
+export type { SignInOutcome } from './model/sign-in-result';

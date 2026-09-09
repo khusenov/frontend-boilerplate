@@ -3,6 +3,7 @@ import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { Suspense, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 
+import { SessionStarterProvider } from '@/entities/session';
 import { createQueryClient, HttpClientProvider } from '@/shared/api';
 import { createI18n, I18nProvider } from '@/shared/i18n';
 
@@ -30,7 +31,11 @@ export function AppProviders({ apiBaseUrl, queryErrorHandlers, children }: AppPr
     <QueryClientProvider client={queryClient}>
       <Suspense fallback={null}>
         <I18nProvider i18n={i18n}>
-          <HttpClientProvider client={transport.httpClient}>{children}</HttpClientProvider>
+          <HttpClientProvider client={transport.httpClient}>
+            <SessionStarterProvider sessionStarter={transport.sessionStarter}>
+              {children}
+            </SessionStarterProvider>
+          </HttpClientProvider>
         </I18nProvider>
       </Suspense>
       <ReactQueryDevtools initialIsOpen={false} />
