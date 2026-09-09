@@ -32,6 +32,21 @@
       "nameTooLong": "Use at most {{max}} characters."
     }
   },
+  "signIn": {
+    "title": "Sign in",
+    "formLabel": "Sign in",
+    "email": "Email",
+    "password": "Password",
+    "submit": "Sign in",
+    "submitting": "Signing in…",
+    "rejected": "Email or password is incorrect.",
+    "rateLimited": "Too many attempts. Try again in a few minutes.",
+    "unavailable": "Sign-in is unavailable right now. Try again.",
+    "validation": {
+      "emailInvalid": "Enter a valid email address.",
+      "passwordRequired": "Enter your password."
+    }
+  },
   "validation": {
     "invalid": "This value is invalid."
   }

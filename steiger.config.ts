@@ -4,10 +4,10 @@ import { defineConfig } from 'steiger';
 export default defineConfig([
   ...fsd.configs.recommended,
   {
-    files: ['./src/features/update-user-name/**'],
+    files: ['./src/features/sign-in/**', './src/features/update-user-name/**'],
     rules: {
-      // The template ships one reference feature on purpose; the rule targets
-      // premature slicing, which a deliberate single example is not.
+      // Each reference feature is consumed by exactly one page, which is what the rule flags.
+      // It targets premature slicing; a screen that genuinely has one home is not that.
       'fsd/insignificant-slice': 'off',
     },
   },

@@ -24,6 +24,10 @@ npm run dev
 until `VITE_API_BASE_URL` points at an API serving `GET /v1/users/:id`; the shape it expects is
 `src/entities/user/api/user-dto.ts`.
 
+`/sign-in` is the other live route, and nothing links to it yet — open it directly. Without an
+API serving `POST /v1/auth/login` a submitted sign-in answers with its `unavailable` outcome,
+which is the transport, validation and outcome path working end to end.
+
 ## Stack
 
 | Concern             | Choice                                                                         |
@@ -714,32 +718,35 @@ Validation messages are user-facing copy, so the factory takes them as **resolve
 `t` itself. That keeps the rules module free of any i18n import, testable with plain literals, and
 declared as a **Standard Schema port** rather than a Zod type, so the consuming component depends
 on the interface and the validator stays swappable. A sibling hook resolves the copy in one place.
-`src/features/update-user-name` is the worked example; a second form would read the same way.
+`src/features/update-user-name` and `src/features/sign-in` are the worked examples; a third
+form — sketched below as a hypothetical `features/sign-up` — would read the same way. Both
+shipped slices key their copy flat (`signIn.email`); the sketch nests it (`signUp.email.label`),
+which is what a form grows into once a field carries several messages of its own.
 
 ```ts
-// src/features/sign-in/model/sign-in-schema.ts
+// src/features/sign-up/model/sign-up-schema.ts
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import * as zm from 'zod/mini';
 
 export const MINIMUM_PASSWORD_LENGTH = 8;
 
-export interface SignInMessages {
+export interface SignUpMessages {
   readonly emailInvalid: string;
   readonly passwordTooShort: string;
 }
 
-export interface SignInInput {
+export interface SignUpInput {
   readonly email: string;
   readonly password: string;
 }
 
-export type SignInSchema = StandardSchemaV1<SignInInput, SignInInput>;
+export type SignUpSchema = StandardSchemaV1<SignUpInput, SignUpInput>;
 
 function isLongEnough(value: string): boolean {
   return value.length >= MINIMUM_PASSWORD_LENGTH;
 }
 
-export function createSignInSchema(messages: SignInMessages): SignInSchema {
+export function createSignUpSchema(messages: SignUpMessages): SignUpSchema {
   return zm.object({
     email: zm.email(messages.emailInvalid),
     password: zm.string().check(zm.refine(isLongEnough, messages.passwordTooShort)),
@@ -748,22 +755,22 @@ export function createSignInSchema(messages: SignInMessages): SignInSchema {
 ```
 
 ```ts
-// src/features/sign-in/model/use-sign-in-schema.ts
+// src/features/sign-up/model/use-sign-up-schema.ts
 import { useMemo } from 'react';
 
 import { useTranslation } from '@/shared/i18n';
 
-import { createSignInSchema, MINIMUM_PASSWORD_LENGTH } from './sign-in-schema';
-import type { SignInSchema } from './sign-in-schema';
+import { createSignUpSchema, MINIMUM_PASSWORD_LENGTH } from './sign-up-schema';
+import type { SignUpSchema } from './sign-up-schema';
 
-export function useSignInSchema(): SignInSchema {
+export function useSignUpSchema(): SignUpSchema {
   const { t } = useTranslation();
 
   return useMemo(
     () =>
-      createSignInSchema({
-        emailInvalid: t('signIn.email.invalid'),
-        passwordTooShort: t('signIn.password.tooShort', { min: MINIMUM_PASSWORD_LENGTH }),
+      createSignUpSchema({
+        emailInvalid: t('signUp.email.invalid'),
+        passwordTooShort: t('signUp.password.tooShort', { min: MINIMUM_PASSWORD_LENGTH }),
       }),
     [t],
   );
@@ -771,24 +778,24 @@ export function useSignInSchema(): SignInSchema {
 ```
 
 ```tsx
-// src/features/sign-in/ui/sign-in-form.tsx
+// src/features/sign-up/ui/sign-up-form.tsx
 import { useTranslation } from '@/shared/i18n';
 import { useAppForm } from '@/shared/ui/form';
 
-import type { SignInInput } from '../model/sign-in-schema';
-import { useSignInSchema } from '../model/use-sign-in-schema';
+import type { SignUpInput } from '../model/sign-up-schema';
+import { useSignUpSchema } from '../model/use-sign-up-schema';
 
-export interface SignInFormProps {
-  readonly onSubmit: (input: SignInInput) => Promise<void>;
+export interface SignUpFormProps {
+  readonly onSubmit: (input: SignUpInput) => Promise<void>;
 }
 
-export function SignInForm({ onSubmit }: SignInFormProps) {
+export function SignUpForm({ onSubmit }: SignUpFormProps) {
   const { t } = useTranslation();
-  const signInSchema = useSignInSchema();
+  const signUpSchema = useSignUpSchema();
 
   const form = useAppForm({
     defaultValues: { email: '', password: '' },
-    validators: { onChange: signInSchema },
+    validators: { onChange: signUpSchema },
     onSubmit: ({ value }) => onSubmit(value),
   });
 
@@ -797,20 +804,20 @@ export function SignInForm({ onSubmit }: SignInFormProps) {
       <form.Form className="grid gap-4">
         <form.AppField name="email">
           {(field) => (
-            <field.TextField autoComplete="email" label={t('signIn.email.label')} type="email" />
+            <field.TextField autoComplete="username" label={t('signUp.email.label')} type="email" />
           )}
         </form.AppField>
         <form.AppField name="password">
           {(field) => (
             <field.TextField
-              autoComplete="current-password"
-              label={t('signIn.password.label')}
+              autoComplete="new-password"
+              label={t('signUp.password.label')}
               type="password"
             />
           )}
         </form.AppField>
-        <form.SubmitButton pendingLabel={t('signIn.pending')}>
-          {t('signIn.submit')}
+        <form.SubmitButton pendingLabel={t('signUp.pending')}>
+          {t('signUp.submit')}
         </form.SubmitButton>
       </form.Form>
     </form.AppForm>
@@ -1139,6 +1146,34 @@ Note that `@tanstack/react-form` requires `@tanstack/react-store@^0.11.0` while
 reach it — so npm nests a second copy of **both** `@tanstack/react-store` and `@tanstack/store`,
 which is where most of those duplicated bytes are. It resolves itself when TanStack Router widens
 its range; nothing needs doing here.
+
+**Second form cost, measured against the session-starter tree:** `features/sign-in` is the form
+seam's second consumer, and its arrival re-partitioned the build. The moment two routes wanted the
+same modules, Rollup hoisted them out of the single `users._userId` route chunk into shared chunks:
+`button-*.js` (the `shared/ui` primitives and i18next), `schemas-*.js` (`zod/mini`) and `form-*.js`
+(TanStack Form and the field components). Eager bytes — everything `index.html` pulls — grew
+458.02 → 460.05 kB raw and 149.54 → 152.60 kB gzip, now spread over four chunks (`index` 328.23,
+`button` 102.98, `schemas` 28.76, `app-config` 0.08). The raw **+2.03 kB** is this step's own code;
+most of the **+3.06 kB gzip** is the split itself, because four chunks are gzipped separately and
+lose the shared compression context one chunk had. `routes-*.js` grew 12.01 → 12.05 kB raw and
+5.08 → 5.12 kB gzip, `index.css` grew 19.93 → 19.99 kB raw and 4.38 → 4.39 kB gzip (`max-w-sm` and
+the page's own utilities), `index.html` grew 0.47 → 0.70 kB for three `modulepreload` links, and
+modules transformed went 573 → 585. These figures are measured against a fresh build of `e870db3`,
+**not** against the 456.53 / 149.08 kB and 569 modules recorded under **Observability seam cost**
+below: that entry predates the session-starter commit, which changed this file without recording a
+cost of its own.
+
+**The first-form entry's prediction held.** It claimed that "a second form adds its own schema and
+fields, not another copy of the seam", and it does. `grep -lE 'submissionAttempts' dist/assets/*.js`
+matches `form-*.js` and nothing else, and that single 74.03 / 19.06 kB chunk is now imported by both
+`sign-in-*.js` and `users._userId-*.js`. The sign-in route's own marginal chunk is **2.60 kB raw /
+1.16 kB gzip** — schema, three components and the page. The seam's ~19 kB gzip is now amortised over
+two routes instead of one: `users._userId-*.js` fell 86.12 → 12.28 kB raw and 22.74 → 4.38 kB gzip
+as its form bytes moved to the shared chunk, so a cold visit to either route costs about what the
+profile route alone used to, and a visitor who has already opened `/sign-in` pays nothing for them
+again. The seam still stays out of the initial load: `form-*.js` appears only in the entry's
+`__vite__mapDeps` table, so it is fetched on navigation rather than preloaded, and the entry chunk
+has zero `submissionAttempts` matches.
 
 **Observability seam cost, measured against the session-state tree:** the entry chunk grew
 455.66 → 456.53 kB raw and 148.76 → 149.08 kB gzip — **+0.32 kB gzip, all of it first-party** — and
