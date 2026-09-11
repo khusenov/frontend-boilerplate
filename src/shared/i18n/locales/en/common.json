@@ -47,6 +47,9 @@
       "passwordRequired": "Enter your password."
     }
   },
+  "session": {
+    "resolving": "Checking your session…"
+  },
   "validation": {
     "invalid": "This value is invalid."
   }

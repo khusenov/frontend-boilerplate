@@ -186,6 +186,37 @@ describe('createAuthenticatedTransport', () => {
     ]);
   });
 
+  it('resolves an unknown session by refreshing once', async () => {
+    let refreshCount = 0;
+
+    server.use(
+      http.post(`${BASE_URL}${REFRESH_PATH}`, () => {
+        refreshCount += 1;
+
+        return HttpResponse.json({ accessToken: 'restored.access.token' });
+      }),
+    );
+
+    const transport = createAuthenticatedTransport(BASE_URL);
+
+    await expect(transport.sessionResolver.resolve()).resolves.toBe('authenticated');
+    await expect(transport.sessionResolver.resolve()).resolves.toBe('authenticated');
+    expect(refreshCount).toBe(1);
+  });
+
+  it('sends the first request after a resolved session with its bearer token', async () => {
+    const sentCredentials: (string | null)[] = [];
+    const exchanges: RefreshExchange[] = [];
+    server.use(renewInto(exchanges), acceptEveryRequest(sentCredentials));
+    const transport = createAuthenticatedTransport(BASE_URL);
+
+    await transport.sessionResolver.resolve();
+    await transport.httpClient.get(PROTECTED_PATH, { schema: okSchema });
+
+    expect(sentCredentials).toStrictEqual(['Bearer fresh-token']);
+    expect(exchanges).toHaveLength(1);
+  });
+
   it('does not attempt a renewal when the credentials are rejected', async () => {
     server.use(
       http.post(`${BASE_URL}${SIGN_IN_PATH}`, () => new HttpResponse(null, { status: 401 })),

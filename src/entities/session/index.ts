@@ -1,5 +1,9 @@
 export { createSessionApi } from './api/session-api';
 export type { Credentials } from './model/credentials';
+export { createSessionResolver } from './model/session-resolver';
+export type { SessionResolver } from './model/session-resolver';
+export { useSessionResolver } from './model/session-resolver-context';
+export { SessionResolverProvider } from './model/session-resolver-provider';
 export { createSessionStarter } from './model/session-starter';
 export type { SessionStarter } from './model/session-starter';
 export { useSessionStarter } from './model/session-starter-context';

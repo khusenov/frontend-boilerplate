@@ -4,8 +4,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { SessionStarter, SessionStatus } from '@/entities/session';
-import { useSessionStarter } from '@/entities/session';
+import type { SessionResolver, SessionStarter, SessionStatus } from '@/entities/session';
+import { useSessionResolver, useSessionStarter } from '@/entities/session';
 import type { HttpClient } from '@/shared/api';
 import { toHttpError, useHttpClient } from '@/shared/api';
 
@@ -48,6 +48,7 @@ function createControllableTransport(initialStatus: SessionStatus) {
         };
       },
     },
+    sessionResolver: { resolve: () => Promise.resolve(status) },
     sessionStarter: { signIn: () => Promise.resolve({ status: 'unavailable' }) },
   };
 
@@ -164,6 +165,26 @@ describe('AppProviders', () => {
     );
 
     expect(captured.starter).toBe(transport.sessionStarter);
+  });
+
+  it('provides the transport session resolver to its children', () => {
+    const { transport } = createControllableTransport('unknown');
+    vi.mocked(createAuthenticatedTransport).mockReturnValueOnce(transport);
+    const captured: { resolver: SessionResolver | null } = { resolver: null };
+
+    function ResolverProbe() {
+      captured.resolver = useSessionResolver();
+
+      return null;
+    }
+
+    render(
+      <AppProviders apiBaseUrl="/api" queryErrorHandlers={createQueryErrorHandlersFake()}>
+        <ResolverProbe />
+      </AppProviders>,
+    );
+
+    expect(captured.resolver).toBe(transport.sessionResolver);
   });
 
   it('reports a query failure through the injected handlers', async () => {

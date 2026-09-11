@@ -47,6 +47,9 @@
       "passwordRequired": "Введите пароль."
     }
   },
+  "session": {
+    "resolving": "Проверяем вашу сессию…"
+  },
   "validation": {
     "invalid": "Некорректное значение."
   }

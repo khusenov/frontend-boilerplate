@@ -140,4 +140,46 @@ describe('createSessionTokenSource', () => {
     await expect(source.renewToken('token-1')).resolves.toBeNull();
     expect(store.read()).toStrictEqual({ status: 'authenticated', accessToken: 'token-1' });
   });
+
+  it('settles an unknown session with one refresh, and concurrent callers join it', async () => {
+    const store = createStore();
+    const refresh = resolving({ status: 'refreshed', accessToken: FRESH_TOKEN });
+    const source = createSessionTokenSource({ store, refresh });
+
+    await expect(Promise.all([source.settle(), source.settle()])).resolves.toStrictEqual([
+      'authenticated',
+      'authenticated',
+    ]);
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('settles a live session without spending a refresh', async () => {
+    const store = createStore(FRESH_TOKEN);
+    const refresh = resolving({ status: 'refreshed', accessToken: FRESH_TOKEN });
+    const source = createSessionTokenSource({ store, refresh });
+
+    await expect(source.settle()).resolves.toBe('authenticated');
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it('never renews an ended session when asked to settle either', async () => {
+    const store = createStore();
+    const refresh = resolving({ status: 'refreshed', accessToken: FRESH_TOKEN });
+    const source = createSessionTokenSource({ store, refresh });
+    store.end();
+
+    await expect(source.settle()).resolves.toBe('anonymous');
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it('retries the refresh on every settle while the session stays unresolved', async () => {
+    const store = createStore();
+    const refresh = resolving({ status: 'unavailable' });
+    const source = createSessionTokenSource({ store, refresh });
+
+    await source.settle();
+    await source.settle();
+
+    expect(refresh).toHaveBeenCalledTimes(2);
+  });
 });

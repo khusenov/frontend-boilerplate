@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
+import { SessionResolverProvider } from '@/entities/session';
 import { HttpClientProvider, toHttpError } from '@/shared/api';
 import type { HttpClient } from '@/shared/api';
 
@@ -28,12 +29,15 @@ const httpClient: HttpClient = {
 describe('AppRouterProvider', () => {
   it('creates the router once across re-renders', async () => {
     const queryClient = new QueryClient();
+    const sessionResolver = { resolve: () => Promise.resolve('anonymous' as const) };
 
     function Harness() {
       return (
         <QueryClientProvider client={queryClient}>
           <HttpClientProvider client={httpClient}>
-            <AppRouterProvider />
+            <SessionResolverProvider sessionResolver={sessionResolver}>
+              <AppRouterProvider />
+            </SessionResolverProvider>
           </HttpClientProvider>
         </QueryClientProvider>
       );

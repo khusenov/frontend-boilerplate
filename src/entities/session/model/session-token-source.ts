@@ -4,6 +4,7 @@ import { singleFlight } from '@/shared/lib/single-flight';
 
 import type { AccessToken } from './access-token';
 import type { RefreshResult } from './refresh-result';
+import type { SessionStatus } from './session-state';
 import { readAccessToken } from './session-state';
 import type { SessionRenewalTarget } from './session-store';
 
@@ -14,9 +15,13 @@ export interface CreateSessionTokenSourceOptions {
   readonly refresh: () => Promise<RefreshResult>;
 }
 
+export interface SessionTokenSource extends BearerTokenSource {
+  readonly settle: () => Promise<SessionStatus>;
+}
+
 export function createSessionTokenSource(
   options: CreateSessionTokenSourceOptions,
-): BearerTokenSource {
+): SessionTokenSource {
   const { store, refresh } = options;
 
   function applyResult(result: RefreshResult): AccessToken | null {
@@ -46,6 +51,17 @@ export function createSessionTokenSource(
 
   return {
     getToken: () => readAccessToken(store.read()),
+    settle: async () => {
+      const status = store.read().status;
+
+      if (status !== 'unknown') {
+        return status;
+      }
+
+      await joinRenewal();
+
+      return store.read().status;
+    },
     renewToken: async (staleToken) => {
       const state = store.read();
 

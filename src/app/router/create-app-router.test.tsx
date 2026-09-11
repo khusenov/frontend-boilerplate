@@ -20,10 +20,12 @@ const httpClient: HttpClient = {
   delete: notCalled,
 };
 
+const sessionResolver = { resolve: () => Promise.resolve('anonymous' as const) };
+
 function createRouterAt(initialPath: string) {
   const queryClient = new QueryClient();
   const router = createAppRouter({
-    context: { httpClient, queryClient },
+    context: { httpClient, queryClient, sessionResolver },
     history: createMemoryHistory({ initialEntries: [initialPath] }),
   });
 
@@ -71,6 +73,7 @@ describe('createAppRouter', () => {
 
     expect(router.options.context.httpClient).toBe(httpClient);
     expect(router.options.context.queryClient).toBe(queryClient);
+    expect(router.options.context.sessionResolver).toBe(sessionResolver);
   });
 
   it('applies the routing policy the factory owns', () => {
@@ -78,6 +81,8 @@ describe('createAppRouter', () => {
 
     expect(router.options.defaultPreload).toBe('intent');
     expect(router.options.defaultPreloadStaleTime).toBe(0);
+    expect(router.options.defaultPendingMs).toBe(300);
+    expect(router.options.defaultPendingMinMs).toBe(300);
     expect(router.options.scrollRestoration).toBe(true);
   });
 

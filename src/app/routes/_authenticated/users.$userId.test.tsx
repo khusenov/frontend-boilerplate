@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { HttpClientProvider, toHttpError } from '@/shared/api';
 import type { HttpClient } from '@/shared/api';
 
-import { createAppRouter } from '../router/create-app-router';
+import { createAppRouter } from '../../router/create-app-router';
 
 const adaPayload = {
   id: 'u_1',
@@ -40,11 +40,13 @@ const httpClient: HttpClient = {
   delete: notCalled,
 };
 
+const sessionResolver = { resolve: () => Promise.resolve('authenticated' as const) };
+
 describe('the /users/$userId route', () => {
   it('loads the user named by the url and renders the profile', async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const router = createAppRouter({
-      context: { httpClient, queryClient },
+      context: { httpClient, queryClient, sessionResolver },
       history: createMemoryHistory({ initialEntries: ['/users/u_1'] }),
     });
 
@@ -56,6 +58,8 @@ describe('the /users/$userId route', () => {
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent('Ada Lovelace');
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Ada Lovelace' }),
+    ).toBeInTheDocument();
   });
 });

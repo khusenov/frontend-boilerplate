@@ -22,10 +22,12 @@ const httpClient: HttpClient = {
   delete: notCalled,
 };
 
+const sessionResolver = { resolve: () => Promise.resolve('anonymous' as const) };
+
 function renderSignInRoute(sessionStarter: SessionStarter) {
   const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
   const router = createAppRouter({
-    context: { httpClient, queryClient },
+    context: { httpClient, queryClient, sessionResolver },
     history: createMemoryHistory({ initialEntries: ['/sign-in'] }),
   });
 

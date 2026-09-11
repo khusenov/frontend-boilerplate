@@ -20,13 +20,17 @@ cp .env.example .env
 npm run dev
 ```
 
-`/users/:id` is a live demo route and the reference `entities` slice. It renders its alert state
-until `VITE_API_BASE_URL` points at an API serving `GET /v1/users/:id`; the shape it expects is
-`src/entities/user/api/user-dto.ts`.
+`/users/:id` is the reference `entities` slice, and it is a private route: it sits behind the
+session guard in `src/app/routes/_authenticated.tsx`. On a fresh clone with no API it redirects to
+`/sign-in`, because the guard resolves the session through `POST /v1/auth/refresh` and a refused
+connection is not an authenticated session. Point `VITE_API_BASE_URL` at an API serving that
+endpoint and `GET /v1/users/:id`, sign in, and it renders; the shapes it expects are
+`src/entities/session/api/session-dto.ts` and `src/entities/user/api/user-dto.ts`.
 
-`/sign-in` is the other live route, and nothing links to it yet — open it directly. Without an
-API serving `POST /v1/auth/login` a submitted sign-in answers with its `unavailable` outcome,
-which is the transport, validation and outcome path working end to end.
+`/sign-in` is the other live route. Nothing links to it yet, but the guard sends every visitor it
+turns away there — or open it directly. Without an API serving `POST /v1/auth/login` a submitted
+sign-in answers with its `unavailable` outcome, which is the transport, validation and outcome
+path working end to end.
 
 ## Stack
 
@@ -291,12 +295,31 @@ router's 404 screen and stays.
   `no-restricted-imports` enforces this as an allow-list, so a router export added in a future
   minor is banned by default rather than silently permitted. A `shared/ui` link wrapper that needs
   a router _type_ widens the entry with `allowTypeImports: true`, not with a new allowed name.
+- **A private route is a file under `app/routes/_authenticated/`.** The pathless layout route
+  `_authenticated.tsx` guards every descendant and adds nothing to the URL: its `beforeLoad` asks
+  `context.sessionResolver.resolve()` for a verdict and sends anything other than `authenticated`
+  to `/sign-in` before a loader fires or a component mounts, showing `ResolvingSessionPage` while
+  the refresh is in flight. The check is a negation (`!== 'authenticated'`), so a future
+  `SessionStatus` member fails closed. Protecting a route is a file-system move, not a code change,
+  and that cuts both ways: a route filed outside `_authenticated/` is silently public, and no gate
+  notices. The redirect is `redirect({ to, throw: true })` rather than `throw redirect(...)`,
+  because `redirect()` returns a `Response` and `@typescript-eslint/only-throw-error` rejects
+  throwing one; dropping the option is neither a type nor a lint error, and three cases in
+  `_authenticated.test.tsx` are what fail. **The guard is a UX affordance, not an authorization
+  boundary** — it decides what to render, in code the visitor controls, and the server must
+  authorize every request on its own. A visitor it turned away who then signs in lands on `/`, not
+  on the page they asked for; returning them needs an open-redirect guard and is deferred.
 - **The router context carries only app-wide ports.** `AppRouterContext` holds the `HttpClient`
-  port and the `QueryClient` — things a loader needs injected because they vary by environment or
-  must be swappable in a test. A dependency only one subtree needs arrives through that subtree's
-  `beforeLoad` return value, which the router merges into the child context. Module singletons such
-  as `appConfig` are imported directly rather than threaded through. Every route inherits the root
-  context, so a member added there is a dependency forced on routes that will never use it.
+  port, the `QueryClient` and the `SessionResolver` — things a loader or a guard needs injected
+  because they vary by environment or must be swappable in a test. A dependency only one subtree
+  needs normally arrives through that subtree's `beforeLoad` return value, which the router merges
+  into the child context. A guard's dependency is the exception: it is what the guard's _own_
+  `beforeLoad` consumes, and `beforeLoad` runs outside React, so no hook can reach it — the router
+  context is the only way in. It is required, not optional, because a guard whose resolver may be
+  absent fails open. Module singletons such as `appConfig` are imported directly rather than
+  threaded through. Every route inherits the root context, so a member added there is a dependency
+  forced on routes that will never use it: `/` and `/sign-in` carry a `sessionResolver` they never
+  call, which is the price of a guard that cannot fail open.
 - **The route tree is generated and committed.** `src/app/router/route-tree.gen.ts` is written by
   `@tanstack/router-plugin`; it is linted, formatted and coverage-excluded, but it is **not**
   gitignored — `npm run typecheck` runs `tsc -b` with no Vite in the process, so an ignored tree is
@@ -324,9 +347,12 @@ router's 404 screen and stays.
 | Test                 | Co-located `*.test.ts(x)`                                | `src/shared/lib/format-duration/format-duration.test.ts` |
 | End-to-end spec      | `e2e/**/*.spec.ts`, not co-located                       | `e2e/user-profile.spec.ts`                               |
 
-Four files under `src/app` do not follow the table, by convention rather than by oversight:
-`routes/__root.tsx`, `routes/index.tsx`, `routes/users.$userId.tsx` and its co-located
-`routes/users.$userId.test.tsx` follow TanStack's file-name-is-the-URL rule.
+Six files under `src/app` do not follow the table, by convention rather than by oversight:
+`routes/__root.tsx`, `routes/index.tsx`, `routes/_authenticated.tsx` and its co-located
+`routes/_authenticated.test.tsx`, and `routes/_authenticated/users.$userId.tsx` and its co-located
+`routes/_authenticated/users.$userId.test.tsx` follow TanStack's file-name-is-the-URL rule, in
+which a leading underscore marks a pathless layout route — one that contributes a guard but no URL
+segment.
 `router/route-tree.gen.ts` is generated, and `generatedRouteTree` in `vite.config.ts` is what keeps
 its name on the table.
 
@@ -528,21 +554,27 @@ retry policy then declines to retry.
 - **`entities/session` is the same anatomy with a different surface.** `model/` holds the branded
   `AccessToken`, the `RefreshResult` and sign-in unions, the `Credentials` domain model, the
   `SessionState` machine with its in-memory observable `createSessionStore`, the renewal policy in
-  `session-token-source.ts`, and the `SessionStarter` port with the context and provider that
-  publish it; `api/` holds two wire schemas, three mappers and two HTTP calls. Its barrel publishes
-  four collaborator factories — `createSessionApi`, `createSessionStarter`, `createSessionStore`,
-  `createSessionTokenSource` — plus `toSessionObserver`, the `SessionStarterProvider` and its
-  `useSessionStarter` hook, and the `Credentials`, `SessionObserver`, `SessionStarter`,
-  `SessionStatus` and `SignInOutcome` types. There is still no TanStack option
-  factory, because nothing above it renders a session yet. The prohibitions are unchanged and two
-  are new: the DTOs, their schemas, the mappers, `SessionWriteClient`, `SessionState`,
-  `SessionStore`, `AccessToken`, **`SignInResult`** (its `signed-in` member carries the bearer
-  token, so only the slice may name it) and **`SessionStarterContext`** (naming it would let a
-  caller `use()` the context and skip the null check) all stay inside the slice.
+  `session-token-source.ts` together with the `settle()` that bootstraps an `unknown` session, and
+  the `SessionStarter` and `SessionResolver` ports, each with the context and provider that publish
+  it; `api/` holds two wire schemas, three mappers and two HTTP calls. Its barrel publishes five
+  collaborator factories — `createSessionApi`, `createSessionResolver`, `createSessionStarter`,
+  `createSessionStore`, `createSessionTokenSource` — plus `toSessionObserver`, the
+  `SessionResolverProvider` and `SessionStarterProvider` with their `useSessionResolver` and
+  `useSessionStarter` hooks, and the `Credentials`, `SessionObserver`, `SessionResolver`,
+  `SessionStarter`, `SessionStatus` and `SignInOutcome` types. There is still no TanStack option
+  factory, because nothing above it renders a session yet. The DTOs, their schemas, the mappers,
+  `SessionWriteClient`, `SessionState`, `SessionStore`, `AccessToken`, **`SignInResult`** (its
+  `signed-in` member carries the bearer token, so only the slice may name it),
+  **`SessionTokenSource`** (the transport infers it rather than naming it), **`SessionSettler`**,
+  **`CreateSessionResolverOptions`**, and **`SessionStarterContext`** and
+  **`SessionResolverContext`** (naming either would let a caller `use()` the context and skip the
+  null check) all stay inside the slice.
 - **Three session states, not two booleans.** `SessionState` is a union of `unknown` (no refresh
   attempted yet), `anonymous` (attempted, the credential is gone) and `authenticated` (carrying the
-  token). The distinction is load-bearing: a route guard must hold the route open on `unknown` and
-  redirect on `anonymous`, which a nullable token cannot express. **Outside the slice a session is
+  token). The distinction is load-bearing, and a nullable token cannot express it: a route guard
+  must **resolve** `unknown` before it judges it, and deny anything that is not `authenticated`. A
+  status still `unknown` after `SessionResolver.resolve()` means the refresh itself failed, which
+  is a denial, not an open door. **Outside the slice a session is
   a `SessionStatus` string and nothing more** — `toSessionObserver` builds a new two-method object,
   so a holder can neither reach a mutator by widening the type back nor park a bearer token in
   React state where DevTools would render it. `eslint.config.js` closes the hole the barrel cannot:
@@ -573,7 +605,13 @@ cached to avoid an infinite loop` and re-renders forever. `publish` is the singl
   Durability comes from the `httpOnly` refresh cookie, which script cannot read by construction.
   The cost is stated plainly: a page reload wipes the token, so the first authenticated request
   after every load is a guaranteed `401` + refresh + replay — one extra round trip, and a 401 in
-  every devtools and APM trace. A boot-time refresh can hide it later.
+  every devtools and APM trace. **Guarded routes no longer pay it.** The guard's `beforeLoad`
+  settles the session before any loader fires, so the first request under `_authenticated/` already
+  carries a bearer token; unguarded routes that issue requests still pay it. That is a property of
+  the composition in `createAuthenticatedTransport`, not a guarantee of the `SessionResolver` port,
+  which promises a verdict and nothing more: it holds because one token source instance serves both
+  the authenticated client and the resolver, so the refresh the guard drives writes the very store
+  the bearer interceptor reads. `create-authenticated-transport.test.ts` asserts it end to end.
 - **Renewal is de-duplicated origin-wide, not module-wide.** `shared/lib/single-flight` collapses
   concurrent callers in one tab onto a single promise and serializes across tabs on a Web Lock.
   Both layers matter: because the token is deliberately in memory, _every_ tab boots with an empty
@@ -591,14 +629,29 @@ cached to avoid an infinite loop` and re-renders forever. `publish` is the singl
   ends the session; a 500, a dropped connection or a wire-shape mismatch is `unavailable` — this
   attempt failed, the session did not. Collapsing those two is how boilerplates sign users out
   every time the API restarts.
+- **`SessionResolver.resolve()` is total, and a failed resolution is not cached.** It settles
+  through the token source's `settle()`, which returns an `authenticated` or `anonymous` status as
+  it stands — no request, so a live session never spends its refresh cookie and the latch above
+  holds — and drives one single-flight refresh only while the status is `unknown`. A settler that
+  rejects resolves `unknown`, the routing-seam twin of the guard `renewToken` is called through:
+  the port is an interface anyone may implement, and a rejection escaping `beforeLoad` as anything
+  but a redirect would error the route instead of turning the visitor away. The cost is stated
+  plainly: while `/auth/refresh` is degraded, every navigation into a guarded subtree — and,
+  because `defaultPreload: 'intent'` pairs with `defaultPreloadStaleTime: 0`, every hover over a
+  link into one — fires another refresh POST, since `singleFlight` collapses concurrent callers,
+  not sequential ones. Back-off is deferred; the last `settle()` case in
+  `session-token-source.test.ts` pins today's behaviour so that step starts from a red test.
 - **Two clients, not one.** `app/entrypoint/create-authenticated-transport.ts` builds the
   authenticated client with the bearer interceptor and a second, unauthenticated client — the only
   one with `sendCookies: true` — for `/auth/login` and `/auth/refresh`. A single client would recurse: refresh
   returns 401, the interceptor catches it, calls refresh, forever. It is a composition rule
   enforced at one site and asserted by a test, not a type-level guarantee. The unauthenticated
   client is also the one the deferred logout must use, for the same reason. `createAuthenticatedTransport`
-  returns an object rather than a bare `HttpClient`: alongside the client it publishes a
-  `SessionObserver` and a `SessionStarter`, and the concrete `SessionStore` never leaves the factory.
+  returns an object rather than a bare `HttpClient`: alongside the client it publishes three session
+  ports — a `SessionObserver`, a `SessionResolver` and a `SessionStarter` — and the concrete
+  `SessionStore` never leaves the factory. The resolver and the client share one token source
+  instance, which is what makes a guard's refresh and a 401 retry join one in-flight request; a
+  second instance would own a second single-flight and send a second refresh.
 - **An ending session takes the query cache with it.**
   `app/entrypoint/clear-cache-on-session-end.ts` subscribes to the observer and calls
   `queryClient.clear()` on the **edge out of `authenticated`** — not on the level `is anonymous`.
@@ -608,8 +661,10 @@ authenticated(B)`, one user replacing another, which is precisely the leak the p
   prevent. It is a subscriber rather than a call site because a session ends two ways — an expired
   refresh today, an explicit sign-out later — and only one of those ever flows through a sign-out
   function. Clearing does fan out: every mounted query refetches once. That is bounded (the
-  transition publishes once, and `401` is not in `RETRYABLE_ERROR_KINDS`) and the deferred route
-  guard should pre-empt the burst.
+  transition publishes once, and `401` is not in `RETRYABLE_ERROR_KINDS`), and the route guard
+  pre-empts it only on the **next navigation** into a guarded subtree: nothing re-runs `beforeLoad`
+  when a session ends mid-visit, so the visitor stays on the page they were on until they
+  navigate. Re-validating the matched routes on that edge is deferred to sign-out.
 - **Deploying the API to a different registrable domain silently drops the refresh cookie.**
   `sameSite: 'strict'` is a site-level rule that `withCredentials` cannot override. Serve the API
   under the same site as the app — which is what the dev proxy models — or change the cookie
@@ -910,7 +965,9 @@ context, so exporting them as values would advertise a way to render them broken
 - Query by accessible role and name (`getByRole('button', { name: 'Add one second' })`) rather than
   by test id, so tests fail when accessibility regresses. Provider components render no roles of
   their own, so their assertions use `getByText`; the query-by-role rule is about the UI layer,
-  where roles exist.
+  where roles exist. A test that renders a guarded route names the heading it waits for:
+  `ResolvingSessionPage` has an `<h1>` of its own, so an unnamed
+  `findByRole('heading', { level: 1 })` resolves against it the instant it paints.
 - Coverage thresholds are 90% for lines, functions, branches, and statements, applied **per file**
   (`thresholds.perFile`). A global threshold lets a well-covered codebase absorb one untested
   module; a per-file threshold names the file that fell short. Only test files, `.d.ts` declarations,
@@ -938,23 +995,33 @@ context, so exporting them as values would advertise a way to render them broken
 - MSW is a dev dependency and is used in Node test mode only. The browser service worker is not
   installed — `npx msw init public/` lands with the first mocked dev-server slice.
 - **`src/pages/home/ui/home-page.test.tsx` stands up no router, deliberately.** It is the
-  executable proof that a page below `app` reads no route state; keep it that way. `Link` is the
-  one exception to router-free pages — it needs a `RouterProvider` ancestor — which makes
-  `pages/not-found` the single slice with no co-located test: a standalone one would have to stand
-  up a router and would then be testing the router twice. It is covered from
+  executable proof that a page below `app` reads no route state; keep it that way.
+  `resolving-session-page.test.tsx` is the same kind of test. Two slices have no co-located test,
+  for different reasons. `pages/not-found` renders a `Link`, the one exception to router-free
+  pages — it needs a `RouterProvider` ancestor — so a standalone test would have to stand up a
+  router and would then be testing the router twice; it is covered from
   `src/app/router/create-app-router.test.tsx`, and end-to-end from `e2e/app-shell.spec.ts`, which
-  reaches it through the real route tree in the built bundle.
+  reaches it through the real route tree in the built bundle. `pages/sign-in` imports nothing from
+  the router: it is a heading around `SignInForm`, whose behaviour is tested in its own slice, and
+  `src/app/routes/sign-in.test.tsx` renders the page through the real route tree — its heading, a
+  rejected sign-in, and `onSignedIn` navigating home. A co-located test would stand up the same
+  two providers to assert nothing those two suites do not.
 - **Router policy a constant cannot explain is asserted.** `defaultPreloadStaleTime: 0` stops the
   router keeping a 30 s cache of loader results alongside Query's; without the assertion in
-  `create-app-router.test.tsx`, deleting the line would pass every gate. The last case in that file
-  is the type-safety gate: a `@ts-expect-error` on `<Link to="/definitely-not-a-route">`, which
-  fails with `TS2578` the moment the `Register` augmentation stops working.
+  `create-app-router.test.tsx`, deleting the line would pass every gate. `defaultPendingMs` and
+  `defaultPendingMinMs`, both 300 ms, are asserted for the same reason. The first is how long a
+  pending match stays blank before the guard's `ResolvingSessionPage` appears, the second how long
+  that page then holds so a fast refresh does not flicker; TanStack's defaults of 1000 / 500 ms
+  would leave a cold load of a guarded route blank for up to a full second, and nothing else would
+  notice. The last case in that file is the type-safety gate: a `@ts-expect-error` on
+  `<Link to="/definitely-not-a-route">`, which fails with `TS2578` the moment the `Register`
+  augmentation stops working.
 - A committed `it.skip(...)` fails `npm run lint`: `vitest/no-disabled-tests` is a warning and the
   lint gate runs with `--max-warnings 0`.
 
-Current unit and component suite: **54 files, 369 tests, 100% coverage** against the 90% per-file
-threshold — 498/498 statements, 221/221 branches, 184/184 functions, 488/488 lines across 101
-measured files (24 of which — the barrels and five type-only modules — carry no coverable
+Current unit and component suite: **62 files, 426 tests, 100% coverage** against the 90% per-file
+threshold — 564/564 statements, 235/235 branches, 213/213 functions, 553/553 lines across 118
+measured files (27 of which — the barrels and five type-only modules — carry no coverable
 statements). The browser suite is counted separately and measured by nothing; see
 [End-to-end tests](#end-to-end-tests).
 
@@ -986,10 +1053,13 @@ network layer, so no mocking machinery reaches the production bundle and `src/ma
 branch. MSW was the alternative and was rejected for exactly that reason: its browser mode needs a
 service worker registered from application code plus `mockServiceWorker.js` in `public/`.
 
-**The suite never imports `src/`, by construction.** `e2e/fixtures/user-stub.ts` declares the wire
-shape as its own `UserWireRecord`, deliberately duplicating `src/entities/user/api/user-dto.ts`.
-Sharing that type would make a wire-field rename update both sides at once and keep the suite green
-while production broke — a single declaration cannot detect its own drift. The fence is mechanical,
+**The suite never imports `src/`, by construction.** Each stub pins its own copy of the wire shape
+it serves, under the same do-not-DRY header: `e2e/fixtures/user-stub.ts` declares
+`UserWireRecord`, deliberately duplicating `src/entities/user/api/user-dto.ts`, and
+`e2e/fixtures/session-stub.ts` answers `POST /v1/auth/refresh` with a literal `{ accessToken }`,
+deliberately duplicating `src/entities/session/api/session-dto.ts`. Sharing either shape would make
+a wire-field rename update both sides at once and keep the suite green while production broke — a
+single declaration cannot detect its own drift. The fence is mechanical,
 not conventional: a `no-restricted-imports` rule over `e2e/**` rejects `@/**` and `**/src/**`, and
 `tsconfig.e2e.json` omits the `@/*` path alias so the aliased form also fails `npm run typecheck`.
 
@@ -997,6 +1067,13 @@ What that catches and what it does not: it catches the application **tightening*
 wire — a renamed or retyped field. It does not catch the wire **loosening** away from the
 application; if the server makes a field optional, the pinned copy keeps sending the old shape and
 nothing fails. That needs a contract artefact generated from the server (OpenAPI or Pact).
+
+**Every spec runs with a restorable session.** The refresh stub is registered for every spec but
+fires only where something asks for a session — today the seven `user-profile` specs, whose routes
+sit behind the guard; `e2e/app-shell.spec.ts` visits only unguarded paths and still exercises a
+session-less app. Because the stub always issues a token, the suite covers the guard's **admit**
+path only: it would stay green with the guard deleted. The bounce and the `401` → refresh path
+need a controllable session stub, which is deferred.
 
 **Locators and copy live in `e2e/page-objects/`.** Seven scenarios drive the profile form, so
 `'Save name'` and `'First name'` would otherwise appear at four or five sites each. Everything is
@@ -1146,6 +1223,21 @@ Note that `@tanstack/react-form` requires `@tanstack/react-store@^0.11.0` while
 reach it — so npm nests a second copy of **both** `@tanstack/react-store` and `@tanstack/store`,
 which is where most of those duplicated bytes are. It resolves itself when TanStack Router widens
 its range; nothing needs doing here.
+
+**Route guard cost, measured against the sign-in tree:** eager bytes — everything `index.html`
+pulls — grew 460.05 → 461.34 kB raw and 152.60 → 152.95 kB gzip — **+0.35 kB gzip, all of it
+first-party** — and modules transformed went 585 → 591. `index` grew 328.23 → 329.40 kB raw with
+the guard, the resolver port and the pending page; `button` grew 102.98 → 103.10 kB raw with the
+`session.resolving` string in each locale's bundled `common`. `routes-*.js`, `schemas-*.js`,
+`form-*.js`, `home-*.js` and both route chunks kept their raw size, and `index.css` keeps its
+content hash, because the pending page reuses the sign-in page's utilities. The profile's route
+chunk is still named `users._userId-*.js`: the bundler names a chunk from its module's file name,
+and the pathless layout adds no path segment, so the `grep` recipe above and every other passage
+naming that chunk still hold. `pendingComponent` is absent from the router plugin's
+`defaultCodeSplitGroupings`, which split only `component`, `errorComponent` and
+`notFoundComponent`, so `ResolvingSessionPage` costs no chunk of its own **because it ships in the
+eager entry chunk instead**. No vendor code was added: `beforeLoad` and `redirect` are the router's
+own guard primitives.
 
 **Second form cost, measured against the session-starter tree:** `features/sign-in` is the form
 seam's second consumer, and its arrival re-partitioned the build. The moment two routes wanted the

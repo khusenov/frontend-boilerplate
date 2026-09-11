@@ -9,7 +9,7 @@ function UserProfileRoute() {
   return <UserProfilePage userId={toUserId(userId)} />;
 }
 
-export const Route = createFileRoute('/users/$userId')({
+export const Route = createFileRoute('/_authenticated/users/$userId')({
   loader: ({ context, params }) => {
     void context.queryClient.prefetchQuery(
       createUserQueries(context.httpClient).detail(toUserId(params.userId)),
