@@ -1,6 +1,6 @@
 # Forms
 
-> **Status:** Complete · **Layers:** features, shared, outside layers · **Verified against:** `1c193c6`
+> **Status:** Complete · **Layers:** features, shared, outside layers · **Verified against:** `19fe53b`
 
 ## Purpose
 
@@ -22,8 +22,10 @@ same path. Both live in a _slice_: Feature-Sliced Design (FSD) stacks the codeba
 (`app`, `pages`, `widgets`, `features`, `entities`, `shared`, each importing only from the ones
 below it), and a slice is one folder for one user action inside the `features` layer — here
 `src/features/sign-in` and `src/features/update-user-name`, the seam's only consumers today —
-which the rest of the app reaches only through its public `index.ts` barrel. Each of the two
-splits its form the same way: a _container_ (`SignInForm`, `UpdateUserNameForm`) calls the slice's
+which the rest of the app reaches only through its public `index.ts` barrel. A third slice shares
+that layer, `src/features/sign-out`, and uses none of this: it submits no form, so it calls no
+`useAppForm`, declares no schema and renders no `SubmitButton`. Each of the two form slices splits
+its form the same way: a _container_ (`SignInForm`, `UpdateUserNameForm`) calls the slice's
 action hook — `useSignIn` or `useUpdateUserName`, the hook that owns the mutation — and its schema
 hook, then renders a presentational _view_ (`SignInFormView`, `UpdateUserNameFormView`) with four
 named props: `schema` unchanged, the hook's `submit` as the view's `onSubmit`, the hook's
@@ -187,10 +189,10 @@ the `useAppForm` options its slice passes.
 
 ### Build a form in a feature slice
 
-The walkthrough below builds a hypothetical `features/sign-up` slice the way the two shipped slices
-are built — [Sign-in](./sign-in.md) and [Update user name (write path)](./update-user-name.md) are
-the reference. The form's value type is the entity's domain type (`Credentials` from
-`@/entities/session`), never a DTO.
+The walkthrough below builds a hypothetical `features/sign-up` slice the way the two shipped form
+slices are built — [Sign-in](./sign-in.md) and
+[Update user name (write path)](./update-user-name.md) are the reference. The form's value type is
+the entity's domain type (`Credentials` from `@/entities/session`), never a DTO.
 
 **Step 1 — the rules,** in `src/features/sign-up/model/sign-up-schema.ts`: a module-scope factory
 in the `model` segment, typed as the Standard Schema port and taking resolved messages. The email
@@ -411,12 +413,12 @@ Four things the sketch leaves to the caller, and how the shipped slices handle t
 - **A value that must be transformed.** `onSubmit` receives the raw field values, never the
   schema's output. A slice that needs the parsed value — trimmed, lower-cased, coerced — has to
   validate once more itself inside `onSubmit`, as the bullet on transforms under
-  [Design decisions & trade-offs](#design-decisions--trade-offs) sets out; both shipped slices
+  [Design decisions & trade-offs](#design-decisions--trade-offs) sets out; both shipped form slices
   avoid the question by normalising in their outbound mapper instead.
 - **The architecture check.** steiger's `fsd/insignificant-slice` flags a slice consumed by a
-  single page; `steiger.config.ts` switches it off for the two shipped slices by path, and a new
-  single-consumer slice needs the same entry (see
-  [Architecture boundaries](./architecture-boundaries.md)).
+  single page; `steiger.config.ts` switches it off by path for the three slices the `features`
+  layer holds today — `sign-in`, `sign-out` and `update-user-name` — and a new single-consumer
+  slice needs the same entry (see [Architecture boundaries](./architecture-boundaries.md)).
 
 ### Add a field component to the seam
 
@@ -582,7 +584,12 @@ from a list needs its own component inside `src/shared/ui/form`, modelled on `te
   `useFormContext()` and `useFieldContext()` throw — so exporting them as values would advertise a
   way to render them broken. `use-app-form.ts` destructures only `useAppForm` from
   `createFormHook`, so its `withForm`, `withFieldGroup`, `useTypedAppFormContext` and `extendForm`
-  are unreachable; neither shipped form needs them.
+  are unreachable; neither shipped form needs them. The same boundary is why a pending action
+  outside a form cannot borrow `SubmitButton`: it calls `useFormContext()` and would throw outside
+  `<form.AppForm>`, so `src/features/sign-out/ui/sign-out-button-view.tsx` renders a plain `Button`
+  with `variant="outline"` and repeats the pending triple itself — `aria-busy={isSigningOut}`,
+  `disabled={isSigningOut}`, and a label that swaps `t('signOut.action')` for
+  `t('signOut.inProgress')`. The convention travels; the component does not.
 - **The seam costs one lazily loaded chunk, shared by every form.** On a production build at
   `1c193c6`, TanStack Form, the seam's components and the `Input` and `Label` primitives they
   render sit in one `form-*.js` chunk of 74.03 kB raw / 19.06 kB gzip. Almost all of that is the

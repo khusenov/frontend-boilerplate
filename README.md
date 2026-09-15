@@ -92,9 +92,14 @@ the app somewhere else.
 [backend-boilerplate](https://github.com/khusenov/backend-boilerplate) serves out of the box — so
 every request stays same-origin, with no CORS and no `sameSite` question. Start it, run
 `npm run dev`, sign in at `/sign-in` and open `/users/<id>`. This app calls `POST /v1/auth/login`,
-`POST /v1/auth/refresh`, `GET /v1/users/:id` and `PATCH /v1/users/:id`; the wire shapes it expects
-are [`session-dto.ts`](./src/entities/session/api/session-dto.ts) and
-[`user-dto.ts`](./src/entities/user/api/user-dto.ts).
+`POST /v1/auth/refresh`, `POST /v1/auth/logout`, `GET /v1/users/:id` and `PATCH /v1/users/:id`; the
+wire shapes it expects are [`session-dto.ts`](./src/entities/session/api/session-dto.ts) and
+[`user-dto.ts`](./src/entities/user/api/user-dto.ts). `POST /v1/auth/logout` has no wire shape of
+its own: it is authenticated by the refresh cookie rather than by a bearer token, sends `{}` as its
+body, and must answer `204` with an empty body. It rides the same cookie-bearing client as
+`POST /v1/auth/refresh`, and carries the same expectation of the backend — away from the same-origin
+dev proxy, a cookie-authenticated `POST` that changes state has to reject cross-site requests, with
+`SameSite=Lax` or `Strict` on the refresh cookie or a CSRF token.
 
 For an API anywhere else, either change the proxy target in `vite.config.ts` or set an absolute
 `VITE_API_BASE_URL` in an untracked `.env` — see

@@ -1,6 +1,6 @@
 # Authenticated route guard
 
-> **Status:** Complete · **Layers:** app, pages, entities, shared, outside layers · **Verified against:** `1c193c6`
+> **Status:** Complete · **Layers:** app, pages, entities, shared, outside layers · **Verified against:** `19fe53b`
 
 ## Purpose
 
@@ -77,8 +77,9 @@ wrapper around the token source's `settle()`. The _composition root_ — `src/ap
 only code that constructs concretes — builds it in `createAuthenticatedTransport` and publishes it
 through `SessionResolverProvider` in `AppProviders`; `AppRouterProvider` in `app/router` reads it
 back with `useSessionResolver()`, and `_authenticated.tsx` only ever sees `context.sessionResolver`.
-The context-and-provider pair mirrors the one that publishes the `SessionStarter`, and ESLint bans
-importing `createSessionResolver` in `app/routes`, `app/router` and every layer below `app`, so no
+The context-and-provider pair mirrors the ones that publish the `SessionStarter` and the
+`SessionEnder`, and ESLint bans importing `createSessionResolver` in `app/routes`, `app/router` and
+every layer below `app`, so no
 route or page can build a resolver of its own (see
 [Architecture boundaries](./architecture-boundaries.md)). Every import points downward:
 `app/routes` → `pages/resolving-session` → `shared/i18n`, and `app/entrypoint` and `app/router` →
@@ -102,11 +103,11 @@ route or page can build a resolver of its own (see
 
 ## Public surface
 
-| Path                                    | Auth            | Purpose                                                                                                  |
-| --------------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------- |
-| _(pathless)_ route id `/_authenticated` | —               | The guard itself: a layout route whose children are every module under `src/app/routes/_authenticated/`  |
-| `/users/$userId`                        | `authenticated` | The one guarded screen today — see [User profile (read path)](./user-profile.md)                         |
-| `/sign-in`                              | `public`        | Where the guard sends every visitor it turns away; nothing links to it yet — see [Sign-in](./sign-in.md) |
+| Path                                    | Auth            | Purpose                                                                                                                                                                                     |
+| --------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| _(pathless)_ route id `/_authenticated` | —               | The guard itself: a layout route whose children are every module under `src/app/routes/_authenticated/`                                                                                     |
+| `/users/$userId`                        | `authenticated` | The one guarded screen today — see [User profile (read path)](./user-profile.md)                                                                                                            |
+| `/sign-in`                              | `public`        | Where the guard sends every visitor it turns away; no `<Link>` points to it, and the profile's sign-out navigates there in code — see [Sign-in](./sign-in.md) and [Sign-out](./sign-out.md) |
 
 `/` and the not-found page are public and never consult the guard.
 
@@ -124,9 +125,19 @@ route or page can build a resolver of its own (see
 The rest of that barrel — `createSessionApi`, `Credentials`, `createSessionStarter`,
 `SessionStarter`, `useSessionStarter`, `SessionStarterProvider`, `createSessionStore`,
 `toSessionObserver`, `SessionObserver`, `createSessionTokenSource` and `SignInOutcome` — is
-documented in [Session management](./session-management.md) and [Sign-in](./sign-in.md). Three
-resolver names stay inside the slice on purpose: `SessionResolverContext` (naming it would let a
-caller `use()` the context and skip the null check), `SessionSettler` and
+documented in [Session management](./session-management.md) and [Sign-in](./sign-in.md). The same
+barrel also publishes the session's closing half, documented in [Sign-out](./sign-out.md):
+`createSessionEnder` and the `SessionEnder` port
+(`{ readonly signOut: () => Promise<SignOutOutcome> }`, where `SignOutOutcome` is
+`{ readonly status: 'signed-out' } | { readonly status: 'unavailable' }`), together with
+`useSessionEnder` and `SessionEnderProvider`, which mirror the resolver's context-and-provider pair
+name for name — `useSessionEnder()` throws
+`useSessionEnder must be called inside a SessionEnderProvider` when no provider is above it. The
+guard itself never calls them, but a test that renders a route under the guard must mount the
+provider (see [Test a route under the guard](#test-a-route-under-the-guard)).
+
+Three resolver names stay inside the slice on purpose: `SessionResolverContext` (naming it would
+let a caller `use()` the context and skip the null check), `SessionSettler` and
 `CreateSessionResolverOptions`.
 
 **`pages/resolving-session`** exports `ResolvingSessionPage`, a component with no props.
@@ -148,8 +159,9 @@ export interface AppRouterContext {
 ```
 
 `createAuthenticatedTransport(baseUrl: string)` returns the resolver as
-`AuthenticatedTransport.sessionResolver`, alongside the HTTP client, the `SessionObserver` and the
-`SessionStarter` (see [Composition root](./composition-root.md)).
+`AuthenticatedTransport.sessionResolver`, one of that interface's five members alongside the HTTP
+client, the `SessionEnder`, the `SessionObserver` and the `SessionStarter` (see
+[Composition root](./composition-root.md)).
 
 **Copy.** The pending page's one string lives in the `common` namespace of each locale:
 
@@ -248,13 +260,28 @@ function createRouterBehindGuard(httpClient: HttpClient, verdict: SessionStatus)
 }
 ```
 
-Render `<RouterProvider router={router} />` inside `QueryClientProvider` and `HttpClientProvider` —
-plus `SessionStarterProvider` when the test follows the redirect, because `/sign-in` renders a form
-that calls `useSessionStarter()` — as `renderGuardedRoute` in
-`src/app/routes/_authenticated.test.tsx` does. Wait on a **named** heading: `ResolvingSessionPage`
-has an `<h1>` of its own, so an unnamed `findByRole('heading', { level: 1 })` resolves against it
-the instant it paints. Routes outside the guard need the stub too, because the context member is
-required; `sign-in.test.tsx` and `create-app-router.test.tsx` pass one that resolves `'anonymous'`.
+Render `<RouterProvider router={router} />` inside `QueryClientProvider` and `HttpClientProvider`,
+plus the session providers the rendered screens read:
+
+- `SessionStarterProvider` when the test follows the redirect, because `/sign-in` renders a form
+  that calls `useSessionStarter()`;
+- `SessionEnderProvider` when the test renders `/users/$userId`, because `UserProfilePage` renders
+  `SignOutButton`, whose `useSignOut` calls `useSessionEnder()` and throws with no provider above
+  it.
+
+`renderGuardedRoute` in `src/app/routes/_authenticated.test.tsx` mounts both — it starts at
+`/users/u_1` and its denied cases land on `/sign-in` — nesting `SessionEnderProvider` inside
+`SessionStarterProvider`, each satisfied by an inert object literal:
+
+```ts
+const sessionEnder = { signOut: () => Promise.resolve({ status: 'signed-out' } as const) };
+const sessionStarter = { signIn: () => Promise.resolve({ status: 'rejected' } as const) };
+```
+
+Wait on a **named** heading: `ResolvingSessionPage` has an `<h1>` of its own, so an unnamed
+`findByRole('heading', { level: 1 })` resolves against it the instant it paints. Routes outside the
+guard need the resolver stub too, because the context member is required; `sign-in.test.tsx` and
+`create-app-router.test.tsx` pass one that resolves `'anonymous'`.
 
 ### Replace the resolver
 
@@ -272,7 +299,11 @@ implementation is therefore bound on one line, the `sessionResolver` entry that
   join), so a guard's refresh and a `401` retry would send two refreshes instead of one;
 - **be constructible only at the composition root** — export its factory from `@/entities/session`
   and add the name to `SESSION_CONSTRUCTOR_NAMES` in `eslint.config.js`, the list that keeps
-  `createSessionResolver` out of route modules and lower layers today.
+  `createSessionResolver` out of route modules and lower layers today. It holds six names —
+  `createSessionApi`, `createSessionEnder`, `createSessionResolver`, `createSessionStarter`,
+  `createSessionStore` and `createSessionTokenSource` — and one constant feeds both the
+  lower-layer block and the `app/routes` / `app/router` block, so a name added once is banned in
+  both places.
 
 ## Design decisions & trade-offs
 
@@ -419,8 +450,13 @@ npm run test:e2e
 - **A session that ends mid-visit is not re-checked until the next navigation.** Nothing re-runs
   `beforeLoad` when the session leaves `authenticated`: `clearCacheOnSessionEnd` clears the query
   cache, but the visitor stays on the page they were on until they navigate (see
-  [Session management](./session-management.md)). Re-validating the matched routes on that edge is
-  deferred to sign-out, which does not exist yet.
+  [Session management](./session-management.md)). Sign-out neither closes this gap nor depends on
+  it being closed — `SignOutButton` notifies its caller `onSettled` and
+  `src/app/routes/_authenticated/users.$userId.tsx` answers with `navigate({ to: '/sign-in' })`, so
+  that screen leaves by an explicit navigation rather than by re-validation — but a session ended
+  any other way, such as a refresh the server answers with a `401`, still leaves the visitor where
+  they are. Re-validating the matched routes on that edge is deferred to the route-level
+  `errorComponent` and 401-redirect step.
 - **There is no back-off while the refresh endpoint is degraded.** Each navigation or intent preload
   into the subtree retries the refresh while the status is `unknown`, as described under Design
   decisions.

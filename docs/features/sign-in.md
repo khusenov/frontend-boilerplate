@@ -1,6 +1,6 @@
 # Sign-in
 
-> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `1c193c6`
+> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `19fe53b`
 
 ## Purpose
 
@@ -100,7 +100,8 @@ The flow depends on three seams and names none of their concretes. `useSignIn` p
 `SessionStarter` port — one method, `signIn(credentials): Promise<SignInOutcome>` — which it reads
 from React context with `useSessionStarter()`. Its only implementation, `createSessionStarter`,
 receives two deliberately narrow collaborators as options: a `SessionStartTarget`
-(`Pick<SessionStore, 'start'>`, so the starter can start a session but never read or end one) and a
+(`Pick<SessionStore, 'start'>`, so the starter can start a session but never read or end one —
+ending it is the separate `SessionEnder` port's job; see [Sign-out](./sign-out.md)) and a
 `requestSignIn` function. `createAuthenticatedTransport` binds both at the composition root — the
 single `createSessionStore()` instance as the store, `sessionApi.signIn` from a
 `createSessionApi(unauthenticatedClient)` instance as `requestSignIn` — and `AppProviders`
@@ -115,29 +116,29 @@ strictly downward through each slice's public `index.ts` — `app/routes/sign-in
 `@/entities/session` in every lower layer and in `app/routes` and `app/router`, so only
 `app/entrypoint` can construct a starter or reach the login endpoint around the port.
 
-| Component                                         | Layer                      | Responsibility                                                                                                                          | File                                                                               |
-| ------------------------------------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `Route`, `SignInRoute`                            | `app/routes`               | Registers `/sign-in` and supplies `onSignedIn` as `navigate({ to: '/' })`; the only module in the flow that knows navigation exists     | `src/app/routes/sign-in.tsx`                                                       |
-| `SignInPage`                                      | `pages/sign-in · ui`       | A `<main>` with the `signIn.title` heading around `SignInForm`; reads no route state                                                    | `src/pages/sign-in/ui/sign-in-page.tsx`                                            |
-| `SignInForm`                                      | `features/sign-in · ui`    | Container: wires `useSignIn` and `useCredentialsSchema` into the view                                                                   | `src/features/sign-in/ui/sign-in-form.tsx`                                         |
-| `SignInFormView`                                  | `features/sign-in · ui`    | Presentational form on `useAppForm`: two `TextField`s, a `SubmitButton` and an outcome slot, with schema and outcome passed in as props | `src/features/sign-in/ui/sign-in-form-view.tsx`                                    |
-| `SignInAlert`                                     | `features/sign-in · ui`    | Always-mounted `role="alert"` live region; maps a status to its message key                                                             | `src/features/sign-in/ui/sign-in-alert.tsx`                                        |
-| `useSignIn`                                       | `features/sign-in · model` | Drives `SessionStarter.signIn` through `useMutation` with `gcTime: 0`; returns `status`, `submit` and `dismissOutcome`                  | `src/features/sign-in/model/use-sign-in.ts`                                        |
-| `SignInStatus`, `toSignInStatus`, `isDismissible` | `features/sign-in · model` | One view status from the mutation lifecycle and the outcome; which statuses an edit dismisses                                           | `src/features/sign-in/model/sign-in-status.ts`                                     |
-| `createCredentialsSchema`, `CredentialsSchema`    | `features/sign-in · model` | Email-shape and password-presence rules, with their messages passed in as strings                                                       | `src/features/sign-in/model/credentials-schema.ts`                                 |
-| `useCredentialsSchema`                            | `features/sign-in · model` | Resolves the two validation messages with `t` and memoises the schema on `[t]`                                                          | `src/features/sign-in/model/use-credentials-schema.ts`                             |
-| `SessionStarter`, `createSessionStarter`          | `entities/session · model` | The port, and its implementation: request, then `store.start()`, then a token-free outcome                                              | `src/entities/session/model/session-starter.ts`                                    |
-| `useSessionStarter`, `SessionStarterContext`      | `entities/session · model` | Reads the published starter; throws outside a provider                                                                                  | `src/entities/session/model/session-starter-context.ts`                            |
-| `SessionStarterProvider`                          | `entities/session · model` | Publishes a starter to the tree below it                                                                                                | `src/entities/session/model/session-starter-provider.tsx`                          |
-| `Credentials`, `toNormalizedEmail`                | `entities/session · model` | The credentials model and the email rule: trim, then lowercase                                                                          | `src/entities/session/model/credentials.ts`                                        |
-| `SignInResult`, `SignInOutcome`                   | `entities/session · model` | The token-carrying transport result and the token-free outcome the UI sees                                                              | `src/entities/session/model/sign-in-result.ts`                                     |
-| `createSessionApi` (`signIn`)                     | `entities/session · api`   | `POST /auth/login` and the 401 / 429 / other classification                                                                             | `src/entities/session/api/session-api.ts`                                          |
-| `signInResponseDtoSchema`, `SignInRequestDto`     | `entities/session · api`   | Wire shapes of the login response and request                                                                                           | `src/entities/session/api/session-dto.ts`                                          |
-| `toSignInRequestDto`, `toIssuedAccessToken`       | `entities/session · api`   | Outbound mapper (normalised email) and inbound mapper (branded `AccessToken`)                                                           | `src/entities/session/api/session-mapper.ts`                                       |
-| `createAuthenticatedTransport`                    | `app/entrypoint`           | Builds the unauthenticated client and binds `createSessionStarter({ store: sessionStore, requestSignIn: sessionApi.signIn })`           | `src/app/entrypoint/create-authenticated-transport.ts`                             |
-| `AppProviders`                                    | `app/entrypoint`           | Mounts `SessionStarterProvider` with the transport's starter                                                                            | `src/app/entrypoint/app-providers.tsx`                                             |
-| `signIn.*` keys                                   | `shared/i18n`              | English and Russian copy for the screen, the form, the outcomes and the validation rules                                                | `src/shared/i18n/locales/en/common.json`, `src/shared/i18n/locales/ru/common.json` |
-| `fsd/insignificant-slice` override                | `outside layers`           | Keeps steiger from asking to merge `features/sign-in` into its single consumer                                                          | `steiger.config.ts`                                                                |
+| Component                                         | Layer                      | Responsibility                                                                                                                                                    | File                                                                               |
+| ------------------------------------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `Route`, `SignInRoute`                            | `app/routes`               | Registers `/sign-in` and supplies `onSignedIn` as `navigate({ to: '/' })`; the only module in the flow that knows navigation exists                               | `src/app/routes/sign-in.tsx`                                                       |
+| `SignInPage`                                      | `pages/sign-in · ui`       | A `<main>` with the `signIn.title` heading around `SignInForm`; reads no route state                                                                              | `src/pages/sign-in/ui/sign-in-page.tsx`                                            |
+| `SignInForm`                                      | `features/sign-in · ui`    | Container: wires `useSignIn` and `useCredentialsSchema` into the view                                                                                             | `src/features/sign-in/ui/sign-in-form.tsx`                                         |
+| `SignInFormView`                                  | `features/sign-in · ui`    | Presentational form on `useAppForm`: two `TextField`s, a `SubmitButton` and an outcome slot, with schema and outcome passed in as props                           | `src/features/sign-in/ui/sign-in-form-view.tsx`                                    |
+| `SignInAlert`                                     | `features/sign-in · ui`    | Always-mounted `role="alert"` live region; maps a status to its message key                                                                                       | `src/features/sign-in/ui/sign-in-alert.tsx`                                        |
+| `useSignIn`                                       | `features/sign-in · model` | Drives `SessionStarter.signIn` through `useMutation` with `gcTime: 0`; returns `status`, `submit` and `dismissOutcome`                                            | `src/features/sign-in/model/use-sign-in.ts`                                        |
+| `SignInStatus`, `toSignInStatus`, `isDismissible` | `features/sign-in · model` | One view status from the mutation lifecycle and the outcome; which statuses an edit dismisses                                                                     | `src/features/sign-in/model/sign-in-status.ts`                                     |
+| `createCredentialsSchema`, `CredentialsSchema`    | `features/sign-in · model` | Email-shape and password-presence rules, with their messages passed in as strings                                                                                 | `src/features/sign-in/model/credentials-schema.ts`                                 |
+| `useCredentialsSchema`                            | `features/sign-in · model` | Resolves the two validation messages with `t` and memoises the schema on `[t]`                                                                                    | `src/features/sign-in/model/use-credentials-schema.ts`                             |
+| `SessionStarter`, `createSessionStarter`          | `entities/session · model` | The port, and its implementation: request, then `store.start()`, then a token-free outcome                                                                        | `src/entities/session/model/session-starter.ts`                                    |
+| `useSessionStarter`, `SessionStarterContext`      | `entities/session · model` | Reads the published starter; throws outside a provider                                                                                                            | `src/entities/session/model/session-starter-context.ts`                            |
+| `SessionStarterProvider`                          | `entities/session · model` | Publishes a starter to the tree below it                                                                                                                          | `src/entities/session/model/session-starter-provider.tsx`                          |
+| `Credentials`, `toNormalizedEmail`                | `entities/session · model` | The credentials model and the email rule: trim, then lowercase                                                                                                    | `src/entities/session/model/credentials.ts`                                        |
+| `SignInResult`, `SignInOutcome`                   | `entities/session · model` | The token-carrying transport result and the token-free outcome the UI sees                                                                                        | `src/entities/session/model/sign-in-result.ts`                                     |
+| `createSessionApi` (`signIn`)                     | `entities/session · api`   | `POST /auth/login` and the 401 / 429 / other classification                                                                                                       | `src/entities/session/api/session-api.ts`                                          |
+| `signInResponseDtoSchema`, `SignInRequestDto`     | `entities/session · api`   | Wire shapes of the login response and request                                                                                                                     | `src/entities/session/api/session-dto.ts`                                          |
+| `toSignInRequestDto`, `toIssuedAccessToken`       | `entities/session · api`   | Outbound mapper (normalised email) and inbound mapper (branded `AccessToken`)                                                                                     | `src/entities/session/api/session-mapper.ts`                                       |
+| `createAuthenticatedTransport`                    | `app/entrypoint`           | Builds the unauthenticated client and binds `createSessionStarter({ store: sessionStore, requestSignIn: sessionApi.signIn })`                                     | `src/app/entrypoint/create-authenticated-transport.ts`                             |
+| `AppProviders`                                    | `app/entrypoint`           | Mounts `SessionStarterProvider` with the transport's starter                                                                                                      | `src/app/entrypoint/app-providers.tsx`                                             |
+| `signIn.*` keys                                   | `shared/i18n`              | English and Russian copy for the screen, the form, the outcomes and the validation rules                                                                          | `src/shared/i18n/locales/en/common.json`, `src/shared/i18n/locales/ru/common.json` |
+| `fsd/insignificant-slice` override                | `outside layers`           | Keeps steiger from asking to merge `features/sign-in` into its single consumer; the same override also covers `features/sign-out` and `features/update-user-name` | `steiger.config.ts`                                                                |
 
 ## Public surface
 
@@ -178,8 +179,9 @@ Everything else in the slice — `useSignIn`, `SignInStatus`, `createCredentials
 
 `CreateSessionStarterOptions`, `SessionStartTarget`, `SignInResult`, `SessionApi` and
 `SessionWriteClient` are not exported; the composition root satisfies them structurally. The rest of
-the barrel — the store, the observer, the token source and the resolver — is documented in
-[Session management](./session-management.md) and [Authenticated route guard](./route-guard.md).
+the barrel — the store, the observer, the token source, the resolver and the ender — is documented
+in [Session management](./session-management.md), [Authenticated route guard](./route-guard.md) and
+[Sign-out](./sign-out.md).
 
 ### HTTP contract
 
@@ -420,9 +422,11 @@ first edit the compiler lists most of the remaining ones.
   `This slice has only one reference in slice "pages/sign-in". Consider merging them.` The rule
   targets premature slicing, and a user action whose one home is a single screen is not that:
   keeping the action in the `features` layer keeps `pages/sign-in` a heading around a form and
-  leaves `SignInForm` reusable from any other host. The override in `steiger.config.ts` names this
-  slice's glob, and `update-user-name`'s, instead of switching the rule off for `src/features/**`,
-  so the next single-consumer slice is still flagged until someone makes the same decision for it.
+  leaves `SignInForm` reusable from any other host. The override in `steiger.config.ts` names one
+  glob per slice that has made this decision — `./src/features/sign-in/**`,
+  `./src/features/sign-out/**` and `./src/features/update-user-name/**`, every slice on the
+  `features` layer today — instead of switching the rule off for `src/features/**`, so the next
+  single-consumer slice is still flagged until someone makes the same decision for it.
 - **The bundle cost stays off the initial load.** In a production build (`npm run build`), the
   `/sign-in` route's own chunk, `sign-in-*.js`, is about 2.6 kB raw and 1.2 kB gzipped: the slice's
   schema, hooks and components, the page and the route component. The exchange itself is not in it —

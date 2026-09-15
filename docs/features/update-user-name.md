@@ -1,6 +1,6 @@
 # Update user name (write path)
 
-> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `1c193c6`
+> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `19fe53b`
 
 ## Purpose
 
@@ -124,7 +124,7 @@ path (see [Architecture boundaries](./architecture-boundaries.md)).
 | `useHttpClient`                    | `shared/api`                        | Reads the `HttpClient` published by `HttpClientProvider`                                                             | `src/shared/api/http-client-context.ts`                                            |
 | `useAppForm`                       | `shared/ui/form`                    | The form seam: `form.Form`, `form.SubmitButton`, `field.TextField`                                                   | `src/shared/ui/form/use-app-form.ts`                                               |
 | `updateUserName.*` copy            | `shared/i18n`                       | English and Russian strings for labels, states and messages                                                          | `src/shared/i18n/locales/en/common.json`, `src/shared/i18n/locales/ru/common.json` |
-| `fsd/insignificant-slice` override | `outside layers`                    | Turns the rule off for this slice and `features/sign-in`                                                             | `steiger.config.ts`                                                                |
+| `fsd/insignificant-slice` override | `outside layers`                    | Turns the rule off for this slice, `features/sign-in` and `features/sign-out`                                        | `steiger.config.ts`                                                                |
 | `createUserStub`                   | `outside layers`                    | Stateful `page.route` stub for `GET` and `PATCH` on `/v1/users/{id}`                                                 | `e2e/fixtures/user-stub.ts`                                                        |
 | `createUserProfilePageObject`      | `outside layers`                    | Role-, label- and text-based locators for the profile and the form                                                   | `e2e/page-objects/user-profile-page-object.ts`                                     |
 
@@ -332,9 +332,10 @@ The steps below add a hypothetical email change; nothing named `updateEmail` exi
    render `UpdateUserEmailForm` in `UserProfileContent`'s `ready` case in
    `src/pages/user-profile/ui/user-profile-page.tsx`; run `npm run arch` — a slice with a single
    consumer fails `fsd/insignificant-slice`, so either add its glob to the `steiger.config.ts`
-   override because it is a deliberate single-home action, or merge it into the page. For the
-   end-to-end suite, `e2e/fixtures/user-stub.ts` answers `400` to any `PATCH` body that is not
-   `{ first_name, last_name }`, so a new body shape needs its own pinned wire type and branch there.
+   override — beside the three already listed there — because it is a deliberate single-home
+   action, or merge it into the page. For the end-to-end suite, `e2e/fixtures/user-stub.ts` answers
+   `400` to any `PATCH` body that is not `{ first_name, last_name }`, so a new body shape needs its
+   own pinned wire type and branch there.
 
 The transport, the query client, the form seam and the composition root need no change: the new
 write reaches them through the same ports.
@@ -438,7 +439,8 @@ write reaches them through the same ports.
   and `pages/user-profile` is this slice's only importer by design. The rule targets premature
   slicing; a user action that genuinely has one home is not that, and merging it into the page would
   erase the template's example of where a write lives. The override in `steiger.config.ts` is scoped
-  to the globs `./src/features/sign-in/**` and `./src/features/update-user-name/**`, so every other
+  to the globs `./src/features/sign-in/**`, `./src/features/sign-out/**` and
+  `./src/features/update-user-name/**` — one per slice that has made this decision — so every other
   slice is still checked. The `recommended` preset raises the rule as an error, so removing the
   override fails `npm run arch`; once a second slice imports this one, the rule no longer applies
   and the glob can go.

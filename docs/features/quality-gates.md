@@ -1,7 +1,6 @@
 # Quality gates
 
-> **Status:** Complete · **Layers:** outside layers · **Verified against:** `1c193c6`, plus three
-> files still uncommitted at that SHA — see [Known limitations](#known-limitations)
+> **Status:** Complete · **Layers:** outside layers · **Verified against:** `19fe53b`
 
 ## Purpose
 
@@ -119,30 +118,30 @@ and together they enforce the architecture rules on `src` from outside it: steig
 coverage (see [Unit and component testing](./unit-testing.md)) and Playwright the built bundle (see
 [End-to-end testing](./e2e-testing.md)). Every file below lives outside the layers.
 
-| Component                                | Layer                        | Responsibility                                                                                           | File                                                           |
-| ---------------------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `audit`                                  | outside layers · root config | The ordered gate list, and the only one; `pre-push` and `Quality gates` run it by name                   | `package.json`                                                 |
-| `engines`, `packageManager`              | outside layers · root config | Declare Node `>=24.0.0` and npm `11.16.0`                                                                | `package.json`                                                 |
-| `engine-strict`                          | outside layers · root config | Turns an `engines` mismatch into an install failure                                                      | `.npmrc`                                                       |
-| `.nvmrc`                                 | outside layers · root config | Node major `24`, read by `nvm` and by `actions/setup-node`                                               | `.nvmrc`                                                       |
-| `pre-commit`                             | outside layers · root config | The five staged-file jobs: `format`, `lint`, `a11y`, `a11y-rules-drift`, `lockfile`                      | `lefthook.yml`                                                 |
-| `pre-push`                               | outside layers · root config | The `audit` job: `npm run audit`                                                                         | `lefthook.yml`                                                 |
-| `install`                                | outside layers · vendor      | lefthook's `postinstall`: runs `lefthook install -f`, skipped under `CI`                                 | `node_modules/lefthook/postinstall.js`                         |
-| `quality-gates`                          | outside layers · CI          | `Quality gates`: `npm ci`, `npm run audit`, the `coverage` artifact                                      | `.github/workflows/ci.yml`                                     |
-| `e2e`                                    | outside layers · CI          | `End-to-end tests`: Chromium, `npm run test:e2e`, the `playwright-report` artifact                       | `.github/workflows/ci.yml`                                     |
-| `dependency-audit`                       | outside layers · CI          | `Dependency audit`: `npm run audit:deps` on pushes, pull requests and the weekly schedule                | `.github/workflows/ci.yml`                                     |
-| `updates`                                | outside layers · CI          | Grouped npm (weekly) and GitHub Actions (monthly) update pull requests                                   | `.github/dependabot.yml`                                       |
-| `tseslint.config`                        | outside layers · root config | The ESLint flat config: type-aware rules, React, TanStack, Vitest, import order, import fences           | `eslint.config.js`                                             |
-| `rules`                                  | outside layers · root config | The 36 `jsx-a11y` rules at `error`, with oxlint's `correctness` category off                             | `.oxlintrc.json`                                               |
-| `schemaRuleNames`, `generate`, `check`   | outside layers · scripts     | Derives `.oxlintrc.json` from oxlint's JSON schema; `--check` fails on drift                             | `scripts/a11y-rules.mjs`                                       |
-| `measurableSourceFiles`, `measuredFiles` | outside layers · scripts     | Diffs the source tree against `coverage/lcov.info`                                                       | `scripts/verify-coverage-scope.mjs`                            |
-| `defineConfig`                           | outside layers · root config | steiger with `fsd.configs.recommended` and one `fsd/insignificant-slice` override                        | `steiger.config.ts`                                            |
-| `.prettierrc.json`                       | outside layers · root config | Formatting options and the Tailwind class-sorting plugin                                                 | `.prettierrc.json`                                             |
-| `.prettierignore`                        | outside layers · root config | Keeps tool-owned files out of Prettier; the uncommitted `docs/*` allow-list re-admits the published docs | `.prettierignore`                                              |
-| `references`                             | outside layers · root config | Solution file that ties the three TypeScript projects together for `tsc -b`                              | `tsconfig.json`                                                |
-| `include`                                | outside layers · root config | One TypeScript project each: the app, the Node-side config and scripts, the end-to-end suite             | `tsconfig.app.json`, `tsconfig.node.json`, `tsconfig.e2e.json` |
-| `test.coverage`                          | outside layers · root config | v8 coverage, the `lcov` reporter and the 90% per-file thresholds `test:coverage` enforces                | `vite.config.ts`                                               |
-| `arch:graph`                             | outside layers · root config | Regenerates `docs/architecture-graph.md` with dependency-cruiser; not a gate, and not yet committed      | `package.json`                                                 |
+| Component                                | Layer                        | Responsibility                                                                                 | File                                                           |
+| ---------------------------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `audit`                                  | outside layers · root config | The ordered gate list, and the only one; `pre-push` and `Quality gates` run it by name         | `package.json`                                                 |
+| `engines`, `packageManager`              | outside layers · root config | Declare Node `>=24.0.0` and npm `11.16.0`                                                      | `package.json`                                                 |
+| `engine-strict`                          | outside layers · root config | Turns an `engines` mismatch into an install failure                                            | `.npmrc`                                                       |
+| `.nvmrc`                                 | outside layers · root config | Node major `24`, read by `nvm` and by `actions/setup-node`                                     | `.nvmrc`                                                       |
+| `pre-commit`                             | outside layers · root config | The five staged-file jobs: `format`, `lint`, `a11y`, `a11y-rules-drift`, `lockfile`            | `lefthook.yml`                                                 |
+| `pre-push`                               | outside layers · root config | The `audit` job: `npm run audit`                                                               | `lefthook.yml`                                                 |
+| `install`                                | outside layers · vendor      | lefthook's `postinstall`: runs `lefthook install -f`, skipped under `CI`                       | `node_modules/lefthook/postinstall.js`                         |
+| `quality-gates`                          | outside layers · CI          | `Quality gates`: `npm ci`, `npm run audit`, the `coverage` artifact                            | `.github/workflows/ci.yml`                                     |
+| `e2e`                                    | outside layers · CI          | `End-to-end tests`: Chromium, `npm run test:e2e`, the `playwright-report` artifact             | `.github/workflows/ci.yml`                                     |
+| `dependency-audit`                       | outside layers · CI          | `Dependency audit`: `npm run audit:deps` on pushes, pull requests and the weekly schedule      | `.github/workflows/ci.yml`                                     |
+| `updates`                                | outside layers · CI          | Grouped npm (weekly) and GitHub Actions (monthly) update pull requests                         | `.github/dependabot.yml`                                       |
+| `tseslint.config`                        | outside layers · root config | The ESLint flat config: type-aware rules, React, TanStack, Vitest, import order, import fences | `eslint.config.js`                                             |
+| `rules`                                  | outside layers · root config | The 36 `jsx-a11y` rules at `error`, with oxlint's `correctness` category off                   | `.oxlintrc.json`                                               |
+| `schemaRuleNames`, `generate`, `check`   | outside layers · scripts     | Derives `.oxlintrc.json` from oxlint's JSON schema; `--check` fails on drift                   | `scripts/a11y-rules.mjs`                                       |
+| `measurableSourceFiles`, `measuredFiles` | outside layers · scripts     | Diffs the source tree against `coverage/lcov.info`                                             | `scripts/verify-coverage-scope.mjs`                            |
+| `defineConfig`                           | outside layers · root config | steiger with `fsd.configs.recommended` and one `fsd/insignificant-slice` override              | `steiger.config.ts`                                            |
+| `.prettierrc.json`                       | outside layers · root config | Formatting options and the Tailwind class-sorting plugin                                       | `.prettierrc.json`                                             |
+| `.prettierignore`                        | outside layers · root config | Keeps tool-owned files out of Prettier; the `docs/*` allow-list re-admits the published docs   | `.prettierignore`                                              |
+| `references`                             | outside layers · root config | Solution file that ties the three TypeScript projects together for `tsc -b`                    | `tsconfig.json`                                                |
+| `include`                                | outside layers · root config | One TypeScript project each: the app, the Node-side config and scripts, the end-to-end suite   | `tsconfig.app.json`, `tsconfig.node.json`, `tsconfig.e2e.json` |
+| `test.coverage`                          | outside layers · root config | v8 coverage, the `lcov` reporter and the 90% per-file thresholds `test:coverage` enforces      | `vite.config.ts`                                               |
+| `arch:graph`                             | outside layers · root config | Regenerates `docs/architecture-graph.md` with dependency-cruiser; not a gate                   | `package.json`                                                 |
 
 ## Public surface
 
@@ -175,7 +174,7 @@ Every script in `package.json`:
 | `test:e2e:ui`           | `playwright test --ui`                                              | Playwright's interactive runner                                                                              |
 | `test:e2e:report`       | `playwright show-report`                                            | Opens the HTML report of the last `test:e2e` run                                                             |
 | `arch`                  | `steiger ./src`                                                     | Gate 6                                                                                                       |
-| `arch:graph`            | Below                                                               | Regenerates `docs/architecture-graph.md`; working tree only, not in `1c193c6`                                |
+| `arch:graph`            | Below                                                               | Regenerates `docs/architecture-graph.md`; not a gate                                                         |
 | `audit`                 | Below                                                               | Runs gates 1 to 9 in order                                                                                   |
 
 `audit`:
@@ -195,11 +194,6 @@ It runs dependency-cruiser without a rule file (`--no-config`) — the graph is 
 files, and collapses every module into its `src/<layer>/<slice-or-segment>` folder, so the graph
 shows edges between slices and segments; files directly under a layer or `src/` (`src/main.tsx`,
 `src/app/index.ts`) stay as their own nodes. The Mermaid fence makes GitHub render the result.
-
-`arch:graph` and the `dependency-cruiser` devDependency it calls are the one row of the script table
-above that `1c193c6` does not contain: both are working-tree additions awaiting a commit, so a fresh
-checkout of that SHA has neither the script nor the `depcruise` binary (see
-[Known limitations](#known-limitations)). Every other script listed is committed.
 
 ### Git hooks
 
@@ -249,8 +243,8 @@ Both uploads use `actions/upload-artifact@v7` with `if: ${{ !cancelled() }}` and
 
 `scripts/verify-coverage-scope.mjs` (run as `npm run verify:coverage-scope`) cross-checks
 `coverage/lcov.info` against the source tree so a `coverage.exclude` pattern that swallows a
-file cannot hide it from the 90% threshold; a clean run at `1c193c6` prints
-`Coverage scope verified: 118 source files measured.`
+file cannot hide it from the 90% threshold; a clean run at `19fe53b` prints
+`Coverage scope verified: 126 source files measured.`
 [Unit and component testing](./unit-testing.md) owns the gate's full contract, including its
 failure output.
 
@@ -314,32 +308,32 @@ The `github-actions` entry (`directory: /`) runs monthly, without groups.
 No `VITE_*` variable changes what a gate checks. The environment variables and options below are
 everything the pipeline reads; `VITE_API_BASE_URL` matters only when recording the bundle baseline.
 
-| Variable / option                                                                                                 | Default                                                                          | Meaning                                                                                                                                                                                                                                     |
-| ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CI` (environment)                                                                                                | `true` on GitHub Actions; unset locally                                          | lefthook's `postinstall` skips `lefthook install` while it is truthy, unless `LEFTHOOK` is truthy too; Playwright also reads it (see [End-to-end testing](./e2e-testing.md))                                                                |
-| `LEFTHOOK` (environment)                                                                                          | Unset                                                                            | `LEFTHOOK=0` makes both installed hooks exit 0 without running a job                                                                                                                                                                        |
-| `VITE_API_BASE_URL` (environment or `.env`)                                                                       | Unset                                                                            | Inlined into the bundle by Vite; leave it unset when recording the baseline (see [Configuration and environment](./configuration.md))                                                                                                       |
-| `engines.node` (`package.json`)                                                                                   | `>=24.0.0`                                                                       | The declared Node floor                                                                                                                                                                                                                     |
-| `engine-strict` (`.npmrc`)                                                                                        | `true` (npm's own default is `false`)                                            | Any installed package whose `engines` rejects the running Node fails `npm install` and `npm ci` with `EBADENGINE`; it does not gate `npm run <script>`, so a Node downgrade after install is caught only on the next fresh install or in CI |
-| `.nvmrc`                                                                                                          | `24`                                                                             | The Node major for `nvm use` and for CI's `node-version-file`                                                                                                                                                                               |
-| `packageManager` (`package.json`)                                                                                 | `npm@11.16.0`                                                                    | The declared npm version                                                                                                                                                                                                                    |
-| `typescript` (`devDependencies`)                                                                                  | `~6.0.2`                                                                         | Held inside typescript-eslint's peer range; see [Design decisions](#design-decisions--trade-offs)                                                                                                                                           |
-| `min_version` (`lefthook.yml`)                                                                                    | `2.1.0`                                                                          | The oldest lefthook binary allowed to run the hooks                                                                                                                                                                                         |
-| `assert_lefthook_installed` (`lefthook.yml`)                                                                      | `true`                                                                           | A hook that cannot find the lefthook binary exits 1 instead of letting the commit or push through                                                                                                                                           |
-| `glob_matcher` (`lefthook.yml`)                                                                                   | Unset, so `gobwas`                                                               | The engine for every job's `glob`                                                                                                                                                                                                           |
-| `stage_fixed` (`format` job)                                                                                      | `true`                                                                           | Re-stage the files Prettier rewrote                                                                                                                                                                                                         |
-| `--max-warnings 0` (ESLint), `--deny-warnings` (oxlint)                                                           | Always passed                                                                    | A warning fails the gate                                                                                                                                                                                                                    |
-| `linterOptions.reportUnusedDisableDirectives` (`eslint.config.js`)                                                | `'error'`                                                                        | An `eslint-disable` comment that suppresses nothing fails `lint`                                                                                                                                                                            |
-| `semi`, `singleQuote`, `trailingComma`, `printWidth`, `tabWidth`, `arrowParens`, `endOfLine` (`.prettierrc.json`) | `true`, `true`, `'all'`, `100`, `2`, `'always'`, `'lf'`                          | The house formatting                                                                                                                                                                                                                        |
-| `plugins`, `tailwindStylesheet`, `tailwindFunctions` (`.prettierrc.json`)                                         | `['prettier-plugin-tailwindcss']`, `./src/app/styles/index.css`, `['cn', 'cva']` | Sorts Tailwind classes in `className` attributes and inside `cn(...)` and `cva(...)` calls, against the app's stylesheet                                                                                                                    |
-| `coverage.thresholds` (`vite.config.ts`)                                                                          | `perFile: true`; `lines`, `functions`, `branches`, `statements` at `90`          | What `test:coverage` enforces (see [Unit and component testing](./unit-testing.md))                                                                                                                                                         |
-| `fsd/insignificant-slice` (`steiger.config.ts`)                                                                   | `'off'` for `./src/features/sign-in/**` and `./src/features/update-user-name/**` | The one override of the `recommended` preset (see [Architecture boundaries](./architecture-boundaries.md))                                                                                                                                  |
-| `on.schedule` (`ci.yml`)                                                                                          | `cron: '0 6 * * 1'`                                                              | The weekly run: Mondays at 06:00 UTC, `Dependency audit` only                                                                                                                                                                               |
-| `timeout-minutes` (`ci.yml`)                                                                                      | `15`, `20`, `10`                                                                 | Caps for `quality-gates`, `e2e` and `dependency-audit`                                                                                                                                                                                      |
-| `retention-days` (`ci.yml`)                                                                                       | `7`                                                                              | How long the `coverage` and `playwright-report` artifacts are kept                                                                                                                                                                          |
-| `--omit=dev`, `--audit-level=high` (`audit:deps`)                                                                 | Always passed                                                                    | Audit production dependencies only; fail on a `high` or `critical` advisory                                                                                                                                                                 |
-| `schedule.interval` (`dependabot.yml`)                                                                            | `weekly` on `monday` for npm; `monthly` for GitHub Actions                       | Update cadence                                                                                                                                                                                                                              |
-| `open-pull-requests-limit` (`dependabot.yml`)                                                                     | `5`, which is also Dependabot's default                                          | The most npm update pull requests open at once                                                                                                                                                                                              |
+| Variable / option                                                                                                 | Default                                                                                                        | Meaning                                                                                                                                                                                                                                     |
+| ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CI` (environment)                                                                                                | `true` on GitHub Actions; unset locally                                                                        | lefthook's `postinstall` skips `lefthook install` while it is truthy, unless `LEFTHOOK` is truthy too; Playwright also reads it (see [End-to-end testing](./e2e-testing.md))                                                                |
+| `LEFTHOOK` (environment)                                                                                          | Unset                                                                                                          | `LEFTHOOK=0` makes both installed hooks exit 0 without running a job                                                                                                                                                                        |
+| `VITE_API_BASE_URL` (environment or `.env`)                                                                       | Unset                                                                                                          | Inlined into the bundle by Vite; leave it unset when recording the baseline (see [Configuration and environment](./configuration.md))                                                                                                       |
+| `engines.node` (`package.json`)                                                                                   | `>=24.0.0`                                                                                                     | The declared Node floor                                                                                                                                                                                                                     |
+| `engine-strict` (`.npmrc`)                                                                                        | `true` (npm's own default is `false`)                                                                          | Any installed package whose `engines` rejects the running Node fails `npm install` and `npm ci` with `EBADENGINE`; it does not gate `npm run <script>`, so a Node downgrade after install is caught only on the next fresh install or in CI |
+| `.nvmrc`                                                                                                          | `24`                                                                                                           | The Node major for `nvm use` and for CI's `node-version-file`                                                                                                                                                                               |
+| `packageManager` (`package.json`)                                                                                 | `npm@11.16.0`                                                                                                  | The declared npm version                                                                                                                                                                                                                    |
+| `typescript` (`devDependencies`)                                                                                  | `~6.0.2`                                                                                                       | Held inside typescript-eslint's peer range; see [Design decisions](#design-decisions--trade-offs)                                                                                                                                           |
+| `min_version` (`lefthook.yml`)                                                                                    | `2.1.0`                                                                                                        | The oldest lefthook binary allowed to run the hooks                                                                                                                                                                                         |
+| `assert_lefthook_installed` (`lefthook.yml`)                                                                      | `true`                                                                                                         | A hook that cannot find the lefthook binary exits 1 instead of letting the commit or push through                                                                                                                                           |
+| `glob_matcher` (`lefthook.yml`)                                                                                   | Unset, so `gobwas`                                                                                             | The engine for every job's `glob`                                                                                                                                                                                                           |
+| `stage_fixed` (`format` job)                                                                                      | `true`                                                                                                         | Re-stage the files Prettier rewrote                                                                                                                                                                                                         |
+| `--max-warnings 0` (ESLint), `--deny-warnings` (oxlint)                                                           | Always passed                                                                                                  | A warning fails the gate                                                                                                                                                                                                                    |
+| `linterOptions.reportUnusedDisableDirectives` (`eslint.config.js`)                                                | `'error'`                                                                                                      | An `eslint-disable` comment that suppresses nothing fails `lint`                                                                                                                                                                            |
+| `semi`, `singleQuote`, `trailingComma`, `printWidth`, `tabWidth`, `arrowParens`, `endOfLine` (`.prettierrc.json`) | `true`, `true`, `'all'`, `100`, `2`, `'always'`, `'lf'`                                                        | The house formatting                                                                                                                                                                                                                        |
+| `plugins`, `tailwindStylesheet`, `tailwindFunctions` (`.prettierrc.json`)                                         | `['prettier-plugin-tailwindcss']`, `./src/app/styles/index.css`, `['cn', 'cva']`                               | Sorts Tailwind classes in `className` attributes and inside `cn(...)` and `cva(...)` calls, against the app's stylesheet                                                                                                                    |
+| `coverage.thresholds` (`vite.config.ts`)                                                                          | `perFile: true`; `lines`, `functions`, `branches`, `statements` at `90`                                        | What `test:coverage` enforces (see [Unit and component testing](./unit-testing.md))                                                                                                                                                         |
+| `fsd/insignificant-slice` (`steiger.config.ts`)                                                                   | `'off'` for `./src/features/sign-in/**`, `./src/features/sign-out/**` and `./src/features/update-user-name/**` | The one override of the `recommended` preset (see [Architecture boundaries](./architecture-boundaries.md))                                                                                                                                  |
+| `on.schedule` (`ci.yml`)                                                                                          | `cron: '0 6 * * 1'`                                                                                            | The weekly run: Mondays at 06:00 UTC, `Dependency audit` only                                                                                                                                                                               |
+| `timeout-minutes` (`ci.yml`)                                                                                      | `15`, `20`, `10`                                                                                               | Caps for `quality-gates`, `e2e` and `dependency-audit`                                                                                                                                                                                      |
+| `retention-days` (`ci.yml`)                                                                                       | `7`                                                                                                            | How long the `coverage` and `playwright-report` artifacts are kept                                                                                                                                                                          |
+| `--omit=dev`, `--audit-level=high` (`audit:deps`)                                                                 | Always passed                                                                                                  | Audit production dependencies only; fail on a `high` or `critical` advisory                                                                                                                                                                 |
+| `schedule.interval` (`dependabot.yml`)                                                                            | `weekly` on `monday` for npm; `monthly` for GitHub Actions                                                     | Update cadence                                                                                                                                                                                                                              |
+| `open-pull-requests-limit` (`dependabot.yml`)                                                                     | `5`, which is also Dependabot's default                                                                        | The most npm update pull requests open at once                                                                                                                                                                                              |
 
 ## Usage & extension
 
@@ -524,60 +518,51 @@ apply to it.
 ### Regenerate the architecture graph
 
 After changing which slices or segments import each other, run `npm run arch:graph` and commit
-`docs/architecture-graph.md` rather than editing it by hand. Both the script and the
-`dependency-cruiser` devDependency it shells out to are working-tree additions that `1c193c6` does
-not have; on a checkout of that SHA, add them first:
+`docs/architecture-graph.md` rather than editing it by hand. The script and the
+`dependency-cruiser` devDependency it shells out to are both committed, so a fresh clone runs it
+straight after `npm ci`:
 
 ```sh
-npm install --save-dev dependency-cruiser
+npm run arch:graph
 ```
 
-then add the script to `package.json` beside `arch` (the value as JSON stores it, backslashes
-escaped):
-
-````json
-{
-  "scripts": {
-    "arch:graph": "{ echo '```mermaid'; depcruise src --no-config --ts-config tsconfig.app.json --include-only '^src' --exclude '\\.test\\.tsx?$' --output-type mermaid --collapse '^src/[^/]+/[^/]+'; echo '```'; } > docs/architecture-graph.md"
-  }
-}
-````
-
-The generated output is already Prettier-clean, so once the `docs/*` allow-list in `.prettierignore`
-is committed too, `format:check` passes on the regenerated file instead of skipping it.
+The generated output is already Prettier-clean, and the `docs/*` allow-list in `.prettierignore`
+re-admits the file, so `format:check` holds the regenerated graph to the same formatting as code
+instead of skipping it.
 
 ### Measure the bundle
 
 No gate limits bundle size; the baseline below makes growth visible, and a jump against it is a
-review item, not a failure. It was recorded from `npm run build` at `1c193c6` with no `.env` present
-— Vite 8.2.2, production mode, 591 modules transformed, eleven files emitted:
+review item, not a failure. It was recorded from `npm run build` at `19fe53b` with no `.env` present
+— Vite 8.2.2, production mode, 598 modules transformed, ten entries in Vite's size table beside the
+copied `public/favicon.svg`:
 
-| Asset                | Raw       | Gzip      | Loaded                                                             |
-| -------------------- | --------- | --------- | ------------------------------------------------------------------ |
-| `index-*.js`         | 329.40 kB | 108.66 kB | Up front: the entry script                                         |
-| `button-*.js`        | 103.10 kB | 34.15 kB  | Up front (`modulepreload`): the `shared/ui` primitives and i18next |
-| `schemas-*.js`       | 28.76 kB  | 10.04 kB  | Up front (`modulepreload`): `zod/mini`                             |
-| `app-config-*.js`    | 0.08 kB   | 0.10 kB   | Up front (`modulepreload`): `appConfig`                            |
-| `index-*.css`        | 19.99 kB  | 4.39 kB   | Up front: the single stylesheet                                    |
-| `index.html`         | 0.70 kB   | 0.37 kB   | The document                                                       |
-| `form-*.js`          | 74.03 kB  | 19.06 kB  | With `/sign-in` or `/users/$userId`: TanStack Form and the fields  |
-| `routes-*.js`        | 12.05 kB  | 5.12 kB   | With `/`: the home page                                            |
-| `users._userId-*.js` | 12.28 kB  | 4.37 kB   | With `/users/$userId`                                              |
-| `sign-in-*.js`       | 2.60 kB   | 1.15 kB   | With `/sign-in`                                                    |
-| `home-*.js`          | 0.63 kB   | 0.31 kB   | On demand: the Russian `home` namespace                            |
+| Asset                | Raw       | Gzip      | Loaded                                                                               |
+| -------------------- | --------- | --------- | ------------------------------------------------------------------------------------ |
+| `index-*.js`         | 326.48 kB | 107.76 kB | Up front: the entry script                                                           |
+| `button-*.js`        | 103.30 kB | 34.25 kB  | Up front (`modulepreload`): the `shared/ui` primitives and i18next                   |
+| `session-*.js`       | 32.44 kB  | 11.21 kB  | Up front (`modulepreload`): `zod/mini`, TanStack Query's core and `entities/session` |
+| `index-*.css`        | 20.02 kB  | 4.40 kB   | Up front: the single stylesheet                                                      |
+| `index.html`         | 0.62 kB   | 0.34 kB   | The document                                                                         |
+| `form-*.js`          | 74.04 kB  | 19.06 kB  | With `/sign-in` or `/users/$userId`: TanStack Form and the fields                    |
+| `routes-*.js`        | 12.01 kB  | 5.11 kB   | With `/`: the home page                                                              |
+| `users._userId-*.js` | 12.97 kB  | 4.60 kB   | With `/users/$userId`                                                                |
+| `sign-in-*.js`       | 2.58 kB   | 1.14 kB   | With `/sign-in`                                                                      |
+| `home-*.js`          | 0.63 kB   | 0.31 kB   | On demand: the Russian `home` namespace                                              |
 
-The four chunks `dist/index.html` loads up front total 461.34 kB raw and 152.95 kB gzip, plus the
+The three chunks `dist/index.html` loads up front total 462.22 kB raw and 153.22 kB gzip, plus the
 stylesheet. The rest is fetched on navigation: `autoCodeSplitting` gives each route component a
 chunk of its own, and modules that two routes share are hoisted into shared chunks — `form-*.js` is
 imported by both `sign-in-*.js` and `users._userId-*.js`. Why each chunk weighs what it does belongs
 to the capability that owns it: [Design system](./design-system.md), [Forms](./forms.md),
-[Internationalization](./internationalization.md), [Routing](./routing.md).
+[Internationalization](./internationalization.md), [Routing](./routing.md) and
+[Session management](./session-management.md).
 
 To re-measure, build without a `.env` and read Vite's size table. Vite inlines `VITE_API_BASE_URL`,
-so a value changes the bytes and even the chunk layout — with it set to `/v1` the build emits
-`config-*.js` in place of `app-config-*.js`. The second command lists what `index.html` loads up
-front; the third finds the chunk that carries a module by grepping for a string unique to it
-(`submissionAttempts` is TanStack Form's, and matches `form-*.js` only):
+so a value changes the bytes and can change the chunk layout — with it set to `/v1` at `19fe53b` the
+layout holds, but every content hash moves and `button-*.js` grows to 103.32 kB. The second command
+lists what `index.html` loads up front; the third finds the chunk that carries a module by grepping
+for a string unique to it (`submissionAttempts` is TanStack Form's, and matches `form-*.js` only):
 
 ```sh
 npm run build
@@ -722,22 +707,21 @@ has not been added: CI is advisory here, and `pre-push` is the real gate.
   `EBADENGINE` and installs anyway, and the mismatch surfaces later as an obscure runtime error. With
   it the install stops at once. `.nvmrc` holds only the major, `24`, so CI's `setup-node` takes the
   newest 24.x release.
-- **Prettier owns every tracked text file except two, and the docs are meant to join them.**
+- **Prettier owns every tracked text file except two, and the published docs have joined them.**
   Prettier 3 reads `.gitignore` as well as `.prettierignore`, so git-ignored paths such as `.env` or
   `docs/next-step.md` are skipped anyway, and the build-output, editor and agent entries in
   `.prettierignore` restate `.gitignore`. The entries that change behaviour are the tracked files
   another tool writes and would rewrite on its next run — `package-lock.json` (npm) and
-  `src/app/router/route-tree.gen.ts` (the router plugin). `docs` is the third, and the one in
-  motion: `1c193c6` ignores it as a bare directory entry, so `format` and `format:check` skip the
-  whole tree, published documentation included. The working tree replaces that line with a `docs/*`
-  allow-list plus four negations — `!docs/README.md`, `!docs/architecture-graph.md`,
-  `!docs/features/` and `!docs/features/**` — which holds the published documentation to the
-  formatting gate like code while leaving any other file dropped into `docs/` out of it.
-  `!docs/features/` is the load-bearing negation: a pattern cannot re-admit a file inside a
-  directory an earlier pattern excluded, so the directory has to be un-ignored before its contents
-  can be — drop that line and every file under `docs/features/` falls back out of the gate, while
-  dropping the broader `!docs/features/**` changes nothing. That replacement is not committed yet
-  (see [Known limitations](#known-limitations)).
+  `src/app/router/route-tree.gen.ts` (the router plugin). `docs` is the third, and the one that
+  moved most recently: as a bare directory entry, which is what `1c193c6` still had, it makes
+  `format` and `format:check` skip the whole tree, published documentation included. `5cd3351`
+  replaced that line with a `docs/*` allow-list plus four negations — `!docs/README.md`,
+  `!docs/architecture-graph.md`, `!docs/features/` and `!docs/features/**` — which holds the
+  published documentation to the formatting gate like code while leaving any other file dropped
+  into `docs/` out of it. `!docs/features/` is the load-bearing negation: a pattern cannot re-admit
+  a file inside a directory an earlier pattern excluded, so the directory has to be un-ignored
+  before its contents can be — drop that line and every file under `docs/features/` falls back out
+  of the gate, while dropping the broader `!docs/features/**` changes nothing.
 
 ## Testing
 
@@ -756,7 +740,7 @@ and its coverage policy in [Unit and component testing](./unit-testing.md), the 
 | `npx lefthook run pre-push`                     | The push hook passes                                                                               |
 | `node scripts/a11y-rules.mjs --check`           | `.oxlintrc.json` matches the installed oxlint: `.oxlintrc.json is in sync: 36 jsx-a11y rules.`     |
 | `npm run test:coverage`                         | The suite passes with 90% per file, and writes `coverage/lcov.info`                                |
-| `npm run verify:coverage-scope`                 | Every source file was measured: `Coverage scope verified: 118 source files measured.` at `1c193c6` |
+| `npm run verify:coverage-scope`                 | Every source file was measured: `Coverage scope verified: 126 source files measured.` at `19fe53b` |
 | `npm test`                                      | The unit and component suite, without coverage                                                     |
 | `npx vitest run src/shared/lib/format-duration` | One folder or file of it                                                                           |
 | `npm run test:e2e`                              | Playwright over the production build                                                               |
@@ -771,18 +755,6 @@ In CI, the `coverage` and `playwright-report` artifacts keep each run's evidence
 
 ## Known limitations
 
-- **Three files this document describes are not committed at `1c193c6`.** `git status` still shows
-  `package.json`, `package-lock.json` and `.prettierignore` modified in the working tree, and
-  `docs/` is untracked, so a clean checkout of `1c193c6` differs from what is described here in two
-  places. First, `git cat-file -p 1c193c6:package.json` lists neither an `arch:graph` script nor a
-  `dependency-cruiser` devDependency, and that commit's `package-lock.json` does not contain the
-  package either, so nothing there can regenerate `docs/architecture-graph.md` — see
-  [Regenerate the architecture graph](#regenerate-the-architecture-graph) for how to add both.
-  Second, `git show 1c193c6:.prettierignore` holds a bare `docs` line with no allow-list, so at that
-  commit `format` and `format:check` skip the whole directory, published documentation included —
-  the reverse of what the working tree's `docs/*` allow-list does. Everything else in this document
-  is verified against `1c193c6`; both become true at the commit that lands those files, and this
-  bullet retires with it.
 - **Nothing in the repository makes CI blocking.** Required status checks live in the GitHub
   repository settings, not in code; until `main` requires `Quality gates` and `End-to-end tests`, a
   red run does not stop a merge. Requiring them needs GitHub Pro or a public repository, and this one
@@ -793,15 +765,14 @@ In CI, the `coverage` and `playwright-report` artifacts keep each run's evidence
   at all.
 - **`engines.node` understates the real Node floor.** `engine-strict` enforces the `engines` field of
   every installed package, not only the root's (`#checkEngineAndPlatform` in npm's
-  `@npmcli/arborist`), and at `1c193c6` one dev dependency is narrower than `>=24.0.0`: `jsdom`
+  `@npmcli/arborist`), and at `19fe53b` one dev dependency is narrower than `>=24.0.0`: `jsdom`
   30.0.1, which declares `^22.22.2 || ^24.15.0 || >=26.0.0`. `npm ci` therefore fails with
-  `EBADENGINE` on Node 24.0 to 24.14 and on every Node 25 release. The uncommitted
-  `dependency-cruiser` 18.2.0 (`^22||^24||>=26`) and its dependency `watskeburt` 6.0.0
-  (`^22.13||^24||>=26`) reject Node 25 as well, but accept every 24.x, so installing them does not
-  move the floor. CI's `setup-node` resolves `.nvmrc`'s `24` to the newest 24.x, which passes;
-  locally, `nvm use` picks the newest 24.x you have installed, which may not — and because
-  `engine-strict` gates installs rather than `npm run`, an already-populated `node_modules` hides the
-  mismatch until the next `npm install` or `npm ci`.
+  `EBADENGINE` on Node 24.0 to 24.14 and on every Node 25 release. `dependency-cruiser` 18.2.0
+  (`^22||^24||>=26`) and its dependency `watskeburt` 6.0.0 (`^22.13||^24||>=26`) reject Node 25 as
+  well, but accept every 24.x, so they do not move the floor. CI's `setup-node` resolves `.nvmrc`'s
+  `24` to the newest 24.x, which passes; locally, `nvm use` picks the newest 24.x you have
+  installed, which may not — and because `engine-strict` gates installs rather than `npm run`, an
+  already-populated `node_modules` hides the mismatch until the next `npm install` or `npm ci`.
 - **The npm version is declared, not enforced.** `engines` names no `npm` range, so `engine-strict`
   never checks it, and `packageManager` (`npm@11.16.0`) has effect only where Corepack is enabled.
 - **`pre-push` audits the working tree, not the commits being pushed.** lefthook sets unstaged
@@ -825,9 +796,9 @@ In CI, the `coverage` and `playwright-report` artifacts keep each run's evidence
   there — such as a Claude Code worktree under `.claude/worktrees/` — against that copy's own
   `tsconfig.json`, and a broken copy fails the gate.
 - **The architecture graph can go stale.** No gate checks that `docs/architecture-graph.md` matches
-  the imports (see [Add a gate](#add-a-gate) for one way to add it); the file is untracked today, so
-  nothing even records what it last said. `arch:graph` also needs a POSIX shell: its `{ …; } > file`
-  group is not valid in `cmd.exe`, the script shell npm uses by default on Windows.
+  the imports (see [Add a gate](#add-a-gate) for one way to add it), so it can drift from them
+  between two runs. `arch:graph` also needs a POSIX shell: its `{ …; } > file` group is not valid in
+  `cmd.exe`, the script shell npm uses by default on Windows.
 - **Bundle size is not gated.** No script compares the build against a budget; the baseline under
   [Measure the bundle](#measure-the-bundle) is informational and must be re-recorded by hand.
 - **Nothing but review holds the TypeScript pin.** `.github/dependabot.yml` has no `ignore` entry for
