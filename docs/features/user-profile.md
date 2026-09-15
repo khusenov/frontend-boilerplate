@@ -1,6 +1,6 @@
 # User profile (read path)
 
-> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `19fe53b`
+> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `65a99bc`
 
 ## Purpose
 
@@ -752,9 +752,10 @@ two referencing locations, the route module in `app` and `pages/project-overview
 route module steiger reports
 `This slice has only one reference in slice "pages/project-overview". Consider merging them.` An
 entity therefore lands together with its first consumers. A slice of the `features` layer has no
-such second consumer to find: `steiger.config.ts` turns the rule off for exactly three of them —
-`./src/features/sign-in/**`, `./src/features/sign-out/**` and `./src/features/update-user-name/**` —
-each consumed by one page, which is what the rule flags. Add a new feature slice's glob to that
+such second consumer to find: `steiger.config.ts` turns the rule off for all four of them —
+`./src/features/sign-in/**`, `./src/features/sign-out/**`, `./src/features/switch-locale/**` and
+`./src/features/update-user-name/**` — each with exactly one consuming slice, which is what the rule
+flags. Add a new feature slice's glob to that
 override rather than inventing a second consumer for it; an entity gets no such waiver.
 
 For the browser suite, a second resource stub is a new file beside `e2e/fixtures/user-stub.ts` —

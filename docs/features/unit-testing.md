@@ -1,6 +1,6 @@
 # Unit and component testing
 
-> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `19fe53b`
+> **Status:** Complete · **Layers:** app, pages, widgets, features, entities, shared, outside layers · **Verified against:** `65a99bc`
 
 ## Purpose
 
@@ -141,6 +141,8 @@ the rule set as a whole.
 | Test scripts                                                   | `outside layers`            | `test`, `test:watch`, `test:coverage`, `verify:coverage-scope`; `audit` ends with the last two                                                  | `package.json`                                                                                                  |
 | Entry-point test                                               | `outside layers`            | The `#root` fail-fast guard and a real mount of `App` under `act` and `waitFor`                                                                 | `src/main.test.ts`                                                                                              |
 | `createAuthenticatedTransport` test                            | `app/entrypoint`            | Node environment and MSW: the two-client composition end to end, with a real Web Lock                                                           | `src/app/entrypoint/create-authenticated-transport.test.ts`                                                     |
+| `LocaleSwitcher` test                                          | `features/switch-locale`    | One control per supported locale under its endonym, the pressed state following the active locale, and the `lang` tag on each button            | `src/features/switch-locale/ui/locale-switcher.test.tsx`                                                        |
+| `AppHeader` test                                               | `widgets/app-header`        | The `banner` landmark naming the app, and the switcher reachable `within` it — composition, not co-presence                                     | `src/widgets/app-header/ui/app-header.test.tsx`                                                                 |
 | `createAppRouter` test                                         | `app/router`                | The real route tree over a memory history; asserts the routing policy; the `@ts-expect-error` link gate                                         | `src/app/router/create-app-router.test.tsx`                                                                     |
 | `HomePage` test                                                | `pages/home · ui`           | A router-free, provider-free component test: the proof that a page reads no route state                                                         | `src/pages/home/ui/home-page.test.tsx`                                                                          |
 | `SignInForm` test                                              | `features/sign-in · ui`     | Collaborators injected through providers; validation, outcomes and a keyboard-only sign-in                                                      | `src/features/sign-in/ui/sign-in-form.test.tsx`                                                                 |
@@ -801,10 +803,10 @@ swallowed by accident.
 
 ## Testing
 
-The harness has no test file of its own; the suite is its test. At `19fe53b` that suite is **66
-test files and 454 tests**; `npm run test:coverage` reports 100% statements, branches, functions
+The harness has no test file of its own; the suite is its test. At `65a99bc` that suite is **68
+test files and 461 tests**; `npm run test:coverage` reports 100% statements, branches, functions
 and lines, and `npm run verify:coverage-scope` then prints
-`Coverage scope verified: 126 source files measured.` The 90% per-file thresholds are the floor the
+`Coverage scope verified: 130 source files measured.` The 90% per-file thresholds are the floor the
 gate enforces, not a description of where the suite stands.
 
 Each setup responsibility is load-bearing for specific files:

@@ -1,7 +1,7 @@
 export { createI18n } from './create-i18n';
 export type { CreateI18nOptions, LocaleDetectionOptions } from './create-i18n';
 export { I18nProvider } from './i18n-provider';
-export { DEFAULT_LOCALE } from './registry';
+export { DEFAULT_LOCALE, LOCALES, SUPPORTED_LOCALES } from './registry';
 export type { Locale } from './registry';
 export { useLocale } from './use-locale';
 export type { UseLocaleResult } from './use-locale';

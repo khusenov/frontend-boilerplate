@@ -1,6 +1,6 @@
 # End-to-end testing
 
-> **Status:** Complete · **Layers:** outside layers · **Verified against:** `1c193c6`
+> **Status:** Complete · **Layers:** outside layers · **Verified against:** `65a99bc`
 
 ## Purpose
 
@@ -107,7 +107,7 @@ and `http-contract.ts`; the stubs → `http-contract.ts`; nothing imports a spec
 | `restoreSession`                                                        | `outside layers` | Answers `POST /v1/auth/refresh` with a pinned `{ accessToken }`; falls back on everything else                                                                                                             | `e2e/fixtures/session-stub.ts`                      |
 | `createUserStub`, `UserStub`, `UserWireRecord`                          | `outside layers` | Stateful stub for `GET` and `PATCH /v1/users/{id}`, with a pinned copy of the wire record                                                                                                                  | `e2e/fixtures/user-stub.ts`                         |
 | `createUserProfilePageObject`, `UserProfilePageObject`                  | `outside layers` | The profile screen's locators, navigation and English copy                                                                                                                                                 | `e2e/page-objects/user-profile-page-object.ts`      |
-| `application shell` suite                                               | `outside layers` | One scenario: the not-found page and its link home                                                                                                                                                         | `e2e/app-shell.spec.ts`                             |
+| `application shell` suite                                               | `outside layers` | One scenario: the not-found page, its link home, and the app-shell banner surviving the navigation                                                                                                         | `e2e/app-shell.spec.ts`                             |
 | `user profile` suite                                                    | `outside layers` | Seven scenarios over the guarded profile screen                                                                                                                                                            | `e2e/user-profile.spec.ts`                          |
 | `e2e` job (`End-to-end tests`)                                          | `outside layers` | Installs Chromium, runs `npm run test:e2e`, uploads `playwright-report/`                                                                                                                                   | `.github/workflows/ci.yml`                          |
 | `no-restricted-imports` block for `e2e/**/*.ts`, `playwright.config.ts` | `outside layers` | Rejects any `@/**` or `**/src/**` import from the suite                                                                                                                                                    | `eslint.config.js`                                  |
@@ -694,7 +694,7 @@ The pinned copies change first, by hand:
   keeps a label from matching elsewhere on the page. Strings move into a page object once a second
   call site appears: `'Save name'` is used by five scenarios and `'First name'` by four, while
   `e2e/app-shell.spec.ts` uses `'Page not found'` and `'Back to home'` once each and keeps them
-  inline. The page object finds and navigates; assertions stay in the spec. `TextField`'s
+  inline; its banner check needs no copy at all, since `getByRole('banner')` names a landmark. The page object finds and navigates; assertions stay in the spec. `TextField`'s
   generated ids belong to the form seam ([Forms](./forms.md)).
 - **Every test gets a restorable session.** `restoreSession` is registered for every test and always
   issues a token, but it fires only when something asks for a session — today the seven profile

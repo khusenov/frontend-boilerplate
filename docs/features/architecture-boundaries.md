@@ -1,6 +1,6 @@
 # Architecture boundaries
 
-> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `19fe53b`
+> **Status:** Complete · **Layers:** app, pages, widgets, features, entities, shared, outside layers · **Verified against:** `65a99bc`
 
 ## Purpose
 
@@ -146,14 +146,14 @@ public APIs those scripts protect, the fences, and the naming and import convent
 
 ### Layers
 
-| Layer      | Path           | Holds                                                                                                                                                                                                                                                | May import                                                          | Today                                                                     |
-| ---------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `app`      | `src/app`      | The composition root, as segments: `entrypoint`, `router`, `routes`, `styles`; and `index.ts`, the layer's public API                                                                                                                                | Every layer below                                                   | Four segments                                                             |
-| `pages`    | `src/pages`    | One slice per screen, assembled from lower layers; a page takes props and callbacks and reads no route state                                                                                                                                         | `widgets`, `features`, `entities`, `shared`                         | `home`, `not-found`, `resolving-session`, `sign-in`, `user-profile`       |
-| `widgets`  | `src/widgets`  | Self-contained page blocks composed from features and entities and shown on more than one screen                                                                                                                                                     | `features`, `entities`, `shared`                                    | Absent; see [Introduce the `widgets` layer](#introduce-the-widgets-layer) |
-| `features` | `src/features` | One slice per user action that changes state: its UI, its validation schema where it has one, and the hook that drives it                                                                                                                            | `entities`, `shared`                                                | `sign-in`, `sign-out`, `update-user-name`                                 |
-| `entities` | `src/entities` | One slice per business noun: frontend-owned models and ports in `model/`; DTOs, wire schemas, mappers, HTTP calls and query option factories in `api/`                                                                                               | `shared`                                                            | `session`, `user`                                                         |
-| `shared`   | `src/shared`   | Business-free building blocks, as segments: `api`, `config`, `i18n`, `observability`, and the grouped `lib` (`cn`, `format-duration`, `single-flight`) and `ui` (`button`, `error-boundary`, `form`, `input`, `label`, beside the loose `theme.css`) | Nothing above `shared`; another segment only through its public API | Six segments                                                              |
+| Layer      | Path           | Holds                                                                                                                                                                                                                                                | May import                                                          | Today                                                               |
+| ---------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `app`      | `src/app`      | The composition root, as segments: `entrypoint`, `router`, `routes`, `styles`; and `index.ts`, the layer's public API                                                                                                                                | Every layer below                                                   | Four segments                                                       |
+| `pages`    | `src/pages`    | One slice per screen, assembled from lower layers; a page takes props and callbacks and reads no route state                                                                                                                                         | `widgets`, `features`, `entities`, `shared`                         | `home`, `not-found`, `resolving-session`, `sign-in`, `user-profile` |
+| `widgets`  | `src/widgets`  | Self-contained page blocks composed from features and entities and shown on more than one screen                                                                                                                                                     | `features`, `entities`, `shared`                                    | `app-header`                                                        |
+| `features` | `src/features` | One slice per user action that changes state: its UI, its validation schema where it has one, and the hook that drives it                                                                                                                            | `entities`, `shared`                                                | `sign-in`, `sign-out`, `switch-locale`, `update-user-name`          |
+| `entities` | `src/entities` | One slice per business noun: frontend-owned models and ports in `model/`; DTOs, wire schemas, mappers, HTTP calls and query option factories in `api/`                                                                                               | `shared`                                                            | `session`, `user`                                                   |
+| `shared`   | `src/shared`   | Business-free building blocks, as segments: `api`, `config`, `i18n`, `observability`, and the grouped `lib` (`cn`, `format-duration`, `single-flight`) and `ui` (`button`, `error-boundary`, `form`, `input`, `label`, beside the loose `theme.css`) | Nothing above `shared`; another segment only through its public API | Six segments                                                        |
 
 Three things sit outside every layer: `src/main.tsx`, which mounts `<App />` inside `StrictMode` and
 which steiger does not analyse; `e2e/`, which observes the built app through a browser; and root
@@ -177,14 +177,16 @@ else under `@/` may be imported across a boundary.
 | `@/pages/resolving-session`    | `pages`      | `ResolvingSessionPage`                                                                                                                                                                                                                                                                                      | None                                                                                                                                                                                                                                                         | [Authenticated route guard](./route-guard.md)                                                                                                                                              |
 | `@/pages/sign-in`              | `pages`      | `SignInPage`                                                                                                                                                                                                                                                                                                | None                                                                                                                                                                                                                                                         | [Sign-in](./sign-in.md)                                                                                                                                                                    |
 | `@/pages/user-profile`         | `pages`      | `UserProfilePage`                                                                                                                                                                                                                                                                                           | None                                                                                                                                                                                                                                                         | [User profile (read path)](./user-profile.md)                                                                                                                                              |
+| `@/widgets/app-header`         | `widgets`    | `AppHeader`                                                                                                                                                                                                                                                                                                 | None                                                                                                                                                                                                                                                         | [App shell](./app-shell.md)                                                                                                                                                                |
 | `@/features/sign-in`           | `features`   | `SignInForm`                                                                                                                                                                                                                                                                                                | None                                                                                                                                                                                                                                                         | [Sign-in](./sign-in.md)                                                                                                                                                                    |
+| `@/features/switch-locale`     | `features`   | `LocaleSwitcher`                                                                                                                                                                                                                                                                                            | None                                                                                                                                                                                                                                                         | [App shell](./app-shell.md); [Internationalization](./internationalization.md)                                                                                                             |
 | `@/features/sign-out`          | `features`   | `SignOutButton`                                                                                                                                                                                                                                                                                             | None                                                                                                                                                                                                                                                         | [Sign-out](./sign-out.md)                                                                                                                                                                  |
 | `@/features/update-user-name`  | `features`   | `UpdateUserNameForm`                                                                                                                                                                                                                                                                                        | None                                                                                                                                                                                                                                                         | [Update user name (write path)](./update-user-name.md)                                                                                                                                     |
 | `@/entities/session`           | `entities`   | `createSessionApi`, `createSessionEnder`, `createSessionResolver`, `createSessionStarter`, `createSessionStore`, `createSessionTokenSource`, `toSessionObserver`, `SessionEnderProvider`, `useSessionEnder`, `SessionResolverProvider`, `useSessionResolver`, `SessionStarterProvider`, `useSessionStarter` | `Credentials`, `SessionEnder`, `SessionObserver`, `SessionResolver`, `SessionStarter`, `SessionStatus`, `SignInOutcome`, `SignOutOutcome`                                                                                                                    | [Session management](./session-management.md); [Authenticated route guard](./route-guard.md) (`createSessionResolver`, `SessionResolver`, `useSessionResolver`, `SessionResolverProvider`) |
 | `@/entities/user`              | `entities`   | `createUserMutations`, `createUserQueries`, `toUserId`                                                                                                                                                                                                                                                      | `User`, `UserId`, `UserNameChange`, `UserRole`                                                                                                                                                                                                               | [User profile (read path)](./user-profile.md)                                                                                                                                              |
 | `@/shared/api`                 | `shared`     | `createHttpClient`, `createQueryClient`, `HttpClientProvider`, `useHttpClient`, `HttpError`, `isHttpError`, `toHttpError`, `noContentSchema`                                                                                                                                                                | `BearerTokenSource`, `CreateHttpClientOptions`, `HttpBodyRequestConfig`, `HttpClient`, `HttpQueryParams`, `HttpQueryParamValue`, `HttpRequestConfig`, `HttpRequestOptions`, `HttpErrorDetails`, `HttpErrorKind`, `ResponseValidationIssue`, `ResponseSchema` | [HTTP transport](./http-transport.md)                                                                                                                                                      |
 | `@/shared/config`              | `shared`     | `appConfig`                                                                                                                                                                                                                                                                                                 | None                                                                                                                                                                                                                                                         | [Configuration and environment](./configuration.md)                                                                                                                                        |
-| `@/shared/i18n`                | `shared`     | `createI18n`, `I18nProvider`, `DEFAULT_LOCALE`, `useLocale`, `Trans`, `useTranslation`                                                                                                                                                                                                                      | `CreateI18nOptions`, `LocaleDetectionOptions`, `Locale`, `UseLocaleResult`                                                                                                                                                                                   | [Internationalization](./internationalization.md)                                                                                                                                          |
+| `@/shared/i18n`                | `shared`     | `createI18n`, `I18nProvider`, `DEFAULT_LOCALE`, `LOCALES`, `SUPPORTED_LOCALES`, `useLocale`, `Trans`, `useTranslation`                                                                                                                                                                                      | `CreateI18nOptions`, `LocaleDetectionOptions`, `Locale`, `UseLocaleResult`                                                                                                                                                                                   | [Internationalization](./internationalization.md)                                                                                                                                          |
 | `@/shared/observability`       | `shared`     | `createConsoleErrorReporter`, `toSafeErrorReporter`                                                                                                                                                                                                                                                         | `ErrorReport`, `ErrorReporter`                                                                                                                                                                                                                               | [Error handling and reporting](./error-handling.md)                                                                                                                                        |
 | `@/shared/lib/cn`              | `shared/lib` | `cn`                                                                                                                                                                                                                                                                                                        | None                                                                                                                                                                                                                                                         | [Design system](./design-system.md)                                                                                                                                                        |
 | `@/shared/lib/format-duration` | `shared/lib` | `formatDuration`                                                                                                                                                                                                                                                                                            | None                                                                                                                                                                                                                                                         | Worked example; [Internationalization](./internationalization.md)                                                                                                                          |
@@ -240,7 +242,7 @@ plugin ships three more — `fsd/no-cross-imports`, `fsd/no-higher-level-imports
 | `fsd/no-public-api-sidestep`       | An import from another layer or another slice that lands past the target's `index` file — for `shared/lib` and `shared/ui`, past the group's                                                                                                                                                                                                                                                                                         |
 | `fsd/public-api`                   | A slice without an `index` file; a `shared` segment without one, except `lib` and `ui`; a group folder in `shared/lib` or `shared/ui` without one. `app` is exempt                                                                                                                                                                                                                                                                   |
 | `fsd/no-layer-public-api`          | An `index` file directly in a layer other than `app`, such as `src/shared/index.ts`                                                                                                                                                                                                                                                                                                                                                  |
-| `fsd/insignificant-slice`          | An `entities`, `features` or `widgets` slice that no other layer imports, or that exactly one other slice imports. A single importer in `app` passes, and `pages` slices are never checked. Off for `./src/features/sign-in/**`, `./src/features/sign-out/**` and `./src/features/update-user-name/**`                                                                                                                               |
+| `fsd/insignificant-slice`          | An `entities`, `features` or `widgets` slice that no other layer imports, or that exactly one other slice imports. A single importer in `app` passes, and `pages` slices are never checked. Off for `./src/features/sign-in/**`, `./src/features/sign-out/**`, `./src/features/switch-locale/**` and `./src/features/update-user-name/**`                                                                                            |
 | `fsd/segments-by-purpose`          | A segment — any direct child of a slice, of `shared` or of `app`, folder or file — named for what it contains rather than what it is for: 69 names, among them `components`, `hooks`, `types`, `utils`, `helpers`, `constants`, `store`, `context`, `providers`, `services`, `schemas`, `validation`, `mutations` and `resolvers`. The `BAD_NAMES` set in `node_modules/@feature-sliced/steiger-plugin/dist/index.js` lists them all |
 | `fsd/no-segmentless-slices`        | A folder on a sliced layer with no conventional segment inside (`ui`, `api`, `lib`, `model`, `config`) that is not a group of slices either                                                                                                                                                                                                                                                                                          |
 | `fsd/no-segments-on-sliced-layers` | A conventional segment name used directly under `entities`, `features`, `widgets` or `pages`                                                                                                                                                                                                                                                                                                                                         |
@@ -446,7 +448,7 @@ No `VITE_*` variable affects these checks. They read the options below.
 | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `steiger ./src` (`arch` in `package.json`)                        | `./src`                                                                                                                                                             | The root steiger analyses: its direct child folders named after a layer are the layers; files beside them, `src/main.tsx` and `src/main.test.ts`, are not analysed                                                                                                                                                                            |
 | `fsd.configs.recommended` (`steiger.config.ts`)                   | 17 rules at `error`                                                                                                                                                 | The FSD rule set (see [steiger rules](#steiger-rules))                                                                                                                                                                                                                                                                                        |
-| `files` of the override block (`steiger.config.ts`)               | `['./src/features/sign-in/**', './src/features/sign-out/**', './src/features/update-user-name/**']`                                                                 | The slices for which `'fsd/insignificant-slice': 'off'` holds                                                                                                                                                                                                                                                                                 |
+| `files` of the override block (`steiger.config.ts`)               | `['./src/features/sign-in/**', './src/features/sign-out/**', './src/features/switch-locale/**', './src/features/update-user-name/**']`                              | The slices for which `'fsd/insignificant-slice': 'off'` holds                                                                                                                                                                                                                                                                                 |
 | `paths` (`tsconfig.app.json`)                                     | `"@/*": ["./src/*"]`                                                                                                                                                | The alias for `src/`, `env.d.ts` and `vitest.setup.ts`: `tsc -b`, ESLint's type-aware rules through `projectService`, and dependency-cruiser (`--ts-config tsconfig.app.json`) resolve through it                                                                                                                                             |
 | `baseUrl`, `paths` (`tsconfig.json`)                              | `"."`, `"@/*": ["./src/*"]`                                                                                                                                         | The same alias on the solution-style root, for tools that read only that file — the shadcn CLI, which follows `extends` but not `references` (see [Design system](./design-system.md)). steiger resolves through the configuration nearest `src/`, which is this file, and then the projects it references. `tsc -b` compiles nothing from it |
 | `resolve.tsconfigPaths` (`vite.config.ts`)                        | `true`; Vite's own default is `false`                                                                                                                               | Vite, and Vitest through the same config, resolve `@/` from the tsconfig paths                                                                                                                                                                                                                                                                |
@@ -479,7 +481,7 @@ code between slices, keep `npx steiger ./src --watch` open in a second terminal.
 | `Forbidden import from higher layer "<layer>".`                                                                                                                                                                                | `fsd/forbidden-imports`      | Invert the dependency: the higher layer passes what the lower one needs as a prop, callback or factory argument — `onSignedIn` travels from `src/app/routes/sign-in.tsx` through `SignInPage` into `SignInForm` — or move the shared code down a layer |
 | `Forbidden cross-import from slice "<slice>".`                                                                                                                                                                                 | `fsd/forbidden-imports`      | Compose the two slices in a higher layer, move what both need into a lower one, or, between two entities, publish it through an `@x` file ([below](#import-across-entities-with-x))                                                                    |
 | `Forbidden sidestep of public API when importing from "<specifier>".`                                                                                                                                                          | `fsd/no-public-api-sidestep` | Import the barrel instead; if it lacks the name, add the name to the barrel                                                                                                                                                                            |
-| `This slice has only one reference in slice "<slice>". Consider merging them.`                                                                                                                                                 | `fsd/insignificant-slice`    | Merge the code into its one importer or, for a `features` slice that one page composes, add the slice to the override ([step 7](#add-a-slice))                                                                                                         |
+| `This slice has only one reference in slice "<slice>". Consider merging them.`                                                                                                                                                 | `fsd/insignificant-slice`    | Merge the code into its one importer or, for a `features` slice with exactly one consuming slice, add the slice to the override ([step 8](#add-a-slice))                                                                                               |
 | `This slice has no references. Consider removing it.`                                                                                                                                                                          | `fsd/insignificant-slice`    | Commit the slice together with its first importer                                                                                                                                                                                                      |
 | `This segment's name should describe the purpose of its contents, not what the contents are.`                                                                                                                                  | `fsd/segments-by-purpose`    | Move the files into `ui`, `model`, `api`, `lib`, `config`, or a folder named for its purpose                                                                                                                                                           |
 | `This slice has no segments. Consider dividing the code inside into segments.`                                                                                                                                                 | `fsd/no-segmentless-slices`  | Give the slice at least one of `ui`, `api`, `lib`, `model` or `config`                                                                                                                                                                                 |
@@ -493,9 +495,9 @@ configured at `error`, and any diagnostic makes `npm run arch` exit 1.
 
 ### Add a slice
 
-The steps add `features/switch-locale`, a language switcher — the control
-[Internationalization](./internationalization.md#add-a-language-switcher) describes and no screen
-renders yet — and compose it into the sign-in page. Every snippet below passes `npm run lint`,
+The steps below are how `features/switch-locale` — the language switcher — and `widgets/app-header`
+— the app-shell banner that hosts it — were added, in one commit that also opened the `widgets`
+layer. Every snippet is the shipped file's exact contents, and the whole change passes `npm run lint`,
 `npm run typecheck`, `npm run arch`, `npm run lint:a11y` and `npm run test:coverage` as written.
 
 1. **Choose the layer.**
@@ -505,7 +507,7 @@ renders yet — and compose it into the sign-in page. Every snippet below passes
    | A screen reached by a URL                                             | `pages`                     | [Routing — Add a public screen](./routing.md#add-a-public-screen)                 |
    | One user action that changes state                                    | `features`                  | This walkthrough; for a form, [Forms](./forms.md#build-a-form-in-a-feature-slice) |
    | A business noun: a model, its wire mapping, its HTTP calls            | `entities`                  | [User profile — Add the next entity](./user-profile.md#add-the-next-entity)       |
-   | A block composed from features and entities that several screens show | `widgets`                   | [Introduce the `widgets` layer](#introduce-the-widgets-layer)                     |
+   | A block composed from features and entities that several screens show | `widgets`                   | This walkthrough, from step 6                                                     |
    | Business-free code any layer may reuse                                | a `shared` segment or group | [Add a `shared` segment or group](#add-a-shared-segment-or-group)                 |
    | The construction and binding of concretes                             | `app/entrypoint`            | [Composition root](./composition-root.md)                                         |
 
@@ -516,7 +518,7 @@ renders yet — and compose it into the sign-in page. Every snippet below passes
 
 2. **Export what you need from the layer below.** The switcher needs the list of locales and each
    one's label: `SUPPORTED_LOCALES` and `LOCALES` in `src/shared/i18n/registry.ts`, which the
-   barrel does not export. Add them to `src/shared/i18n/index.ts` rather than importing
+   barrel did not export. Add them to `src/shared/i18n/index.ts` rather than importing
    `@/shared/i18n/registry`, which steiger rejects from a `features` slice as a sidestep:
 
    ```diff
@@ -537,21 +539,25 @@ renders yet — and compose it into the sign-in page. Every snippet below passes
      const { locale, setLocale } = useLocale();
 
      return (
-       <div className="flex gap-2">
-         {SUPPORTED_LOCALES.map((code) => (
-           <Button
-             key={code}
-             aria-pressed={code === locale}
-             lang={code}
-             size="sm"
-             variant={code === locale ? 'default' : 'outline'}
-             onClick={() => {
-               setLocale(code);
-             }}
-           >
-             {LOCALES[code].label}
-           </Button>
-         ))}
+       <div className="flex items-center gap-1">
+         {SUPPORTED_LOCALES.map((candidate) => {
+           const isActive = candidate === locale;
+
+           return (
+             <Button
+               key={candidate}
+               variant={isActive ? 'default' : 'outline'}
+               size="sm"
+               aria-pressed={isActive}
+               lang={candidate}
+               onClick={() => {
+                 setLocale(candidate);
+               }}
+             >
+               {LOCALES[candidate].label}
+             </Button>
+           );
+         })}
        </div>
      );
    }
@@ -560,37 +566,48 @@ renders yet — and compose it into the sign-in page. Every snippet below passes
    It reaches the layer below only through public APIs: the `@/shared/i18n` segment and the
    `@/shared/ui/button` group. The labels are the endonyms in `LOCALES` — registry data rather than
    copy — so the slice adds no translation key, and `lang` on each button tells a screen reader to
-   pronounce the label in its own language. A slice that grows a hook would put it in `model/` and
-   import it from `ui/` by relative path, as `features/sign-in` does.
+   pronounce the label in its own language. The `default`/`outline` pair is deliberate: `secondary`
+   over `ghost` would give the selected button about 1.09:1 contrast against the page and fail
+   WCAG 2.2 SC 1.4.11. A slice that grows a hook would put it in `model/` and import it from `ui/`
+   by relative path, as `features/sign-in` does; this one needs none, because `useLocale` is already
+   the published abstraction.
 
 4. **Test it beside the module**, in `src/features/switch-locale/ui/locale-switcher.test.tsx`. It
    needs no provider, because `vitest.setup.ts` registers an English i18n instance globally (see
    [Unit and component testing](./unit-testing.md)):
 
    ```tsx
-   import { render, screen } from '@testing-library/react';
+   import { render, screen, waitFor } from '@testing-library/react';
    import userEvent from '@testing-library/user-event';
    import { describe, expect, it } from 'vitest';
 
    import { LocaleSwitcher } from './locale-switcher';
 
    describe('LocaleSwitcher', () => {
-     it('marks the active locale as pressed', () => {
+     it('offers every supported locale under its own name, with the active one pressed', () => {
        render(<LocaleSwitcher />);
 
        expect(screen.getByRole('button', { name: 'English', pressed: true })).toBeInTheDocument();
        expect(screen.getByRole('button', { name: 'Русский', pressed: false })).toBeInTheDocument();
      });
 
-     it('switches the locale when another one is chosen', async () => {
+     it('moves the pressed state when another locale is chosen', async () => {
        const user = userEvent.setup();
        render(<LocaleSwitcher />);
 
        await user.click(screen.getByRole('button', { name: 'Русский' }));
 
-       expect(
-         await screen.findByRole('button', { name: 'Русский', pressed: true }),
-       ).toBeInTheDocument();
+       await waitFor(() => {
+         expect(screen.getByRole('button', { name: 'Русский', pressed: true })).toBeInTheDocument();
+       });
+       expect(screen.getByRole('button', { name: 'English', pressed: false })).toBeInTheDocument();
+     });
+
+     it('tags each control with the language it names', () => {
+       render(<LocaleSwitcher />);
+
+       expect(screen.getByRole('button', { name: 'English' })).toHaveAttribute('lang', 'en');
+       expect(screen.getByRole('button', { name: 'Русский' })).toHaveAttribute('lang', 'ru');
      });
    });
    ```
@@ -602,36 +619,99 @@ renders yet — and compose it into the sign-in page. Every snippet below passes
    export { LocaleSwitcher } from './ui/locale-switcher';
    ```
 
-6. **Compose it from a higher layer, through the barrel.** `src/pages/sign-in/ui/sign-in-page.tsx`
-   becomes:
+6. **Compose it from a higher layer — here, a new one.** A widget is a self-contained block of a
+   screen — a header, a sidebar, a feed — composed from `features` and `entities` slices and shown
+   on more than one screen. A block that only one page renders stays in that page's `ui/` segment,
+   and steiger enforces the difference. A header carrying the switcher appears on every route, so it
+   is a widget rather than page-local, and `src/widgets` is created now, in the same commit as its
+   first slice, never as an empty folder: a directory holding only a `.gitkeep` passes steiger, but
+   it advertises structure that does not exist.
+
+   Nothing needs configuring: every `eslint.config.js` glob and the slice public-API pattern already
+   name `widgets`, steiger knows the layer, and `npm run arch:graph` draws it. The component is
+   `src/widgets/app-header/ui/app-header.tsx`:
 
    ```tsx
-   import { SignInForm } from '@/features/sign-in';
    import { LocaleSwitcher } from '@/features/switch-locale';
-   import { useTranslation } from '@/shared/i18n';
 
-   interface SignInPageProps {
-     readonly onSignedIn: () => void;
+   interface AppHeaderProps {
+     readonly appName: string;
    }
 
-   export function SignInPage({ onSignedIn }: SignInPageProps) {
-     const { t } = useTranslation();
-
+   export function AppHeader({ appName }: AppHeaderProps) {
      return (
-       <main className="mx-auto flex w-full max-w-sm flex-col gap-6 p-8">
+       <header className="flex items-center justify-between gap-4 border-b px-8 py-4">
+         <span className="text-sm font-semibold tracking-tight">{appName}</span>
          <LocaleSwitcher />
-         <h1 className="text-3xl font-semibold tracking-tight">{t('signIn.title')}</h1>
-         <SignInForm onSignedIn={onSignedIn} />
-       </main>
+       </header>
      );
    }
    ```
 
-7. **Run the architecture check.** `npm run arch` now fails:
+   `<header>` carries the implicit `banner` role, so no `role` attribute is written — oxlint's
+   `no-redundant-roles` and `prefer-tag-over-role` both require the semantic tag. The widget takes
+   the application name as a prop rather than importing `appConfig`, because configuration is read
+   at the composition seam and passed down (see
+   [Configuration and environment](./configuration.md)).
+
+   Its test, `src/widgets/app-header/ui/app-header.test.tsx`, asserts composition — that the feature
+   is reachable _through_ the banner, not merely co-present on the page:
+
+   ```tsx
+   import { render, screen, within } from '@testing-library/react';
+   import { describe, expect, it } from 'vitest';
+
+   import { AppHeader } from './app-header';
+
+   describe('AppHeader', () => {
+     it('renders a banner naming the application', () => {
+       render(<AppHeader appName="frontend-boilerplate" />);
+
+       expect(screen.getByRole('banner')).toHaveTextContent('frontend-boilerplate');
+     });
+
+     it('offers the locale switcher inside the banner', () => {
+       render(<AppHeader appName="frontend-boilerplate" />);
+
+       const banner = screen.getByRole('banner');
+
+       expect(within(banner).getByRole('button', { name: 'English' })).toBeInTheDocument();
+     });
+   });
+   ```
+
+   and its public API, `src/widgets/app-header/index.ts`:
+
+   ```ts
+   export { AppHeader } from './ui/app-header';
+   ```
+
+7. **Mount it from the composition seam.** The root layout in `src/app/routes/__root.tsx` renders it
+   above every route, feeding it the configured name:
+
+   ```diff
+    import { NotFoundPage } from '@/pages/not-found';
+   +import { appConfig } from '@/shared/config';
+   +import { AppHeader } from '@/widgets/app-header';
+
+    import type { AppRouterContext } from '../router/app-router-context';
+
+    function RootLayout() {
+      return (
+        <>
+   +      <AppHeader appName={appConfig.name} />
+          <Outlet />
+          <TanStackRouterDevtools position="bottom-left" initialIsOpen={false} />
+        </>
+      );
+    }
+   ```
+
+8. **Run the architecture check.** `npm run arch` now fails:
 
    ```text
    ┌ src/features/switch-locale
-   ✘ This slice has only one reference in slice "pages/sign-in". Consider merging them.
+   ✘ This slice has only one reference in slice "widgets/app-header". Consider merging them.
    │
    └ fsd/insignificant-slice: https://github.com/feature-sliced/steiger/tree/master/packages/steiger-plugin-fsd/src/insignificant-slice
 
@@ -639,10 +719,11 @@ renders yet — and compose it into the sign-in page. Every snippet below passes
     Found 1 error (none can be fixed automatically)
    ```
 
-   `fsd/insignificant-slice` targets premature slicing, and a feature that one page composes is
-   this repo's accepted exception — `features/sign-in`, `features/sign-out` and
-   `features/update-user-name` are listed for that reason — so add the slice to the override in
-   `steiger.config.ts`:
+   `widgets/app-header` itself is not flagged, because its only importer sits in `app`, an unsliced
+   layer the rule never counts. `fsd/insignificant-slice` targets premature slicing, and a feature
+   with exactly one genuine consuming slice is this repo's accepted exception —
+   `features/sign-in`, `features/sign-out` and `features/update-user-name` are listed for that
+   reason — so add the slice to the override in `steiger.config.ts`:
 
    ```diff
       {
@@ -658,94 +739,22 @@ renders yet — and compose it into the sign-in page. Every snippet below passes
    `npm run arch` then prints `✔ No problems found!`. Once a second slice imports the feature,
    delete its entry, so the rule guards it again.
 
-8. **Run the remaining gates and refresh the graph.**
+9. **Pin the composition, then run the remaining gates and refresh the graph.** Mounting in
+   `__root.tsx` leaves a gap no slice-level test closes: delete the `<AppHeader />` line and every
+   test still passes, because `RootLayout` is still invoked. The regression is caught in
+   `src/app/entrypoint/app.test.tsx`, the layer where the seam is exercised (see
+   [Composition root](./composition-root.md)).
 
    ```sh
    npm run lint
    npm run typecheck
-   npx vitest run src/features/switch-locale
+   npx vitest run src/features/switch-locale src/widgets/app-header
    npm run arch:graph
    npm run audit
    ```
 
-   `npm run arch:graph` adds the `switch-locale` node and its edges to
-   [`docs/architecture-graph.md`](../architecture-graph.md); commit the graph with the slice.
-
-### Introduce the `widgets` layer
-
-`src/widgets` does not exist yet. Create it in the same commit as its first slice, never as an empty
-folder: a directory holding only a `.gitkeep` passes steiger, but it advertises structure that does
-not exist. A widget is a self-contained block of a page — a header, a sidebar, a feed — composed
-from `features` and `entities` slices and shown on more than one screen. A block that only one page
-renders stays in that page's `ui/` segment, and steiger enforces the difference:
-`fsd/insignificant-slice` flags a widget that exactly one page imports
-(`This slice has only one reference in slice "pages/<slice>". Consider merging them.`). A widget
-that the root layout renders passes, because a single importer in `app` is never flagged.
-
-Nothing needs configuring: every `eslint.config.js` glob and the slice public-API pattern already
-name `widgets`, steiger knows the layer, and `npm run arch:graph` draws it once that script is
-committed. The likely first widget is an application header that shows the language switcher on
-every screen. Its component is
-`src/widgets/app-header/ui/app-header.tsx`:
-
-```tsx
-import { LocaleSwitcher } from '@/features/switch-locale';
-
-export function AppHeader() {
-  return (
-    <header className="flex justify-end p-4">
-      <LocaleSwitcher />
-    </header>
-  );
-}
-```
-
-its test, `src/widgets/app-header/ui/app-header.test.tsx`:
-
-```tsx
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
-
-import { AppHeader } from './app-header';
-
-describe('AppHeader', () => {
-  it('renders a banner that offers every locale', () => {
-    render(<AppHeader />);
-
-    expect(screen.getByRole('banner')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'English' })).toBeInTheDocument();
-  });
-});
-```
-
-and its public API, `src/widgets/app-header/index.ts`:
-
-```ts
-export { AppHeader } from './ui/app-header';
-```
-
-The root layout in `src/app/routes/__root.tsx` renders it above every route:
-
-```diff
- import { NotFoundPage } from '@/pages/not-found';
-+import { AppHeader } from '@/widgets/app-header';
-
- import type { AppRouterContext } from '../router/app-router-context';
-
- function RootLayout() {
-   return (
-     <>
-+      <AppHeader />
-       <Outlet />
-       <TanStackRouterDevtools position="bottom-left" initialIsOpen={false} />
-     </>
-   );
- }
-```
-
-Delete `<LocaleSwitcher />` and its import from `SignInPage`. `features/switch-locale` then has a
-single importer, `widgets/app-header`, so it keeps its override entry. The whole change passes
-`npm run audit`.
+   `npm run arch:graph` adds the `widgets` subgraph and the `app-header → switch-locale` edge to
+   [`docs/architecture-graph.md`](../architecture-graph.md); commit the graph with the slices.
 
 ### Import across entities with `@x`
 
@@ -871,8 +880,9 @@ rendered graph, not the diff. The graph follows JavaScript and TypeScript import
   default. The override names each exempt slice's path rather than switching
   `fsd/insignificant-slice` off for `./src/features/**`: every new slice is judged by the rule until
   someone adds it to the list, in a line a reviewer sees. The exemption exists because each
-  reference feature is consumed by exactly one page, which is what the rule flags; the rule targets
-  premature slicing, and a user action with one home screen is not that.
+  reference feature has exactly one consuming slice — a page for three of them, `widgets/app-header`
+  for `switch-locale` — which is what the rule flags; the rule targets premature slicing, and a user
+  action with one genuine host is not that.
 - **The slice public-API pattern duplicates steiger on purpose.** It catches two things steiger
   cannot see: an absolute import of a module inside the importer's own slice, and a re-export past a
   barrel. To watch the first one, in `src/pages/user-profile/ui/user-profile-page.tsx` rewrite
@@ -932,9 +942,9 @@ rendered graph, not the diff. The graph follows JavaScript and TypeScript import
   layers, so a lint block stands in: every `@/` path but `@/app`, and every relative path into a
   directory, is banned. The mount point cannot bind anything, which leaves all composition to
   `app/entrypoint` ([Composition root](./composition-root.md)).
-- **A layer arrives with its first slice.** An empty `src/widgets/` passes steiger but advertises
-  structure that does not exist, and the ESLint globs already name `widgets`, so adding the
-  directory later costs nothing.
+- **A layer arrives with its first slice.** An empty `src/widgets/` would have passed steiger while
+  advertising structure that did not exist, and the ESLint globs already named `widgets`, so the
+  directory cost nothing to defer. It arrived with `app-header`, its first tenant, in one commit.
 - **One casing for every file.** Two conventions — PascalCase for components, kebab-case for the
   rest — made naming a lookup rather than something a contributor already knows. Mixed casing is
   also a portability hazard: APFS and NTFS are case-insensitive by default, so `from './App'` finds

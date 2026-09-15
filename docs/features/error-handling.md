@@ -1,6 +1,6 @@
 # Error handling and reporting
 
-> **Status:** Complete · **Layers:** app, shared, outside layers · **Verified against:** `1c193c6`
+> **Status:** Complete · **Layers:** app, shared, outside layers · **Verified against:** `65a99bc`
 
 ## Purpose
 
@@ -36,7 +36,9 @@ App                                  src/app/entrypoint/app.tsx
       └─ AppRouterProvider           useState initializer: createAppRouter({ context })
          └─ RouterProvider → Matches → MatchesInner
             └─ CatchBoundary         TanStack Router's global boundary: built-in ErrorComponent
-               └─ RootLayout → Outlet → route components: pages, forms, pending, not-found
+               └─ RootLayout         the app shell: banner, then the outlet
+                  ├─ AppHeader       widgets/app-header, hosting the locale switcher
+                  └─ Outlet → route components: pages, forms, pending, not-found
 ```
 
 **Binding at start-up.** When `app.tsx` is evaluated it takes `reportError` — which

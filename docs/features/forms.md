@@ -1,6 +1,6 @@
 # Forms
 
-> **Status:** Complete · **Layers:** features, shared, outside layers · **Verified against:** `19fe53b`
+> **Status:** Complete · **Layers:** features, shared, outside layers · **Verified against:** `65a99bc`
 
 ## Purpose
 
@@ -415,10 +415,11 @@ Four things the sketch leaves to the caller, and how the shipped slices handle t
   validate once more itself inside `onSubmit`, as the bullet on transforms under
   [Design decisions & trade-offs](#design-decisions--trade-offs) sets out; both shipped form slices
   avoid the question by normalising in their outbound mapper instead.
-- **The architecture check.** steiger's `fsd/insignificant-slice` flags a slice consumed by a
-  single page; `steiger.config.ts` switches it off by path for the three slices the `features`
-  layer holds today — `sign-in`, `sign-out` and `update-user-name` — and a new single-consumer
-  slice needs the same entry (see [Architecture boundaries](./architecture-boundaries.md)).
+- **The architecture check.** steiger's `fsd/insignificant-slice` flags a slice with exactly one
+  consuming slice; `steiger.config.ts` switches it off by path for the four slices the `features`
+  layer holds today — `sign-in`, `sign-out`, `switch-locale` and `update-user-name` — and a new
+  single-consumer slice needs the same entry (see
+  [Architecture boundaries](./architecture-boundaries.md)).
 
 ### Add a field component to the seam
 

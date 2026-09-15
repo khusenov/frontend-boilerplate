@@ -1,6 +1,6 @@
 # Design system
 
-> **Status:** Complete · **Layers:** app, pages, features, shared, outside layers · **Verified against:** `19fe53b`
+> **Status:** Complete · **Layers:** app, pages, widgets, features, shared, outside layers · **Verified against:** `65a99bc`
 
 ## Purpose
 
@@ -76,27 +76,30 @@ and components that emit class strings at render time.
 ## Architecture
 
 In Feature-Sliced Design (FSD) a _layer_ is a top-level folder under `src/` — `app`, `pages`,
-`features`, `entities`, `shared`, top to bottom — and a module imports only from the layers below
-its own; a _slice_ is one screen or business noun inside a layer (`pages/home`, `entities/user`); a
-_segment_ is a purpose-named folder holding one kind of code (`ui/` for components, `lib/` for
-helpers, `model/`, `api/`); and a _public API_ is an `index.ts` barrel, the only file other modules
-may import through. The kit lives in `shared`, the bottom layer. `shared` is divided into segments
-and has no slices; its `ui` and `lib` segments are divided further into _groups_, one folder per
-primitive or helper, and each group's `index.ts` barrel is its public API: the only path other
-modules may import (`@/shared/ui/button`, never a file inside the group and never the bare
-`@/shared/ui`). The kit defines no runtime port and needs no provider. Its contract with consumers
-is those barrels plus a vocabulary of token names that components consume as class strings; the
-concretes behind it — Radix's `Slot` and `Label` from the `radix-ui` package, CVA, clsx and
-tailwind-merge — are imported directly inside the groups, and Tailwind v4 is a build-time compiler.
-The _composition root_ (`src/app/entrypoint/**`, where the app constructs its concretes and binds
-them to seams; see [Composition root](./composition-root.md)) therefore binds nothing here: its one
-part is `app.tsx` importing the global stylesheet. Dependencies point downward in both languages —
-`app/styles/index.css` imports `shared/ui/theme.css`, the primitives import `@/shared/lib/cn`, and
-consumers import the primitives' barrels — and the one edge no tool sees, a class name such as
-`bg-primary` tying a component to a token, points downward too, because the tokens live in `shared`
-(see [Design decisions](#design-decisions--trade-offs)). `eslint.config.js` enforces the group paths
-with `no-restricted-imports` patterns; [Architecture boundaries](./architecture-boundaries.md)
-covers those fences.
+`widgets`, `features`, `entities`, `shared`, top to bottom — and a module imports only from the
+layers below its own; a _slice_ is one screen, reusable block or business noun inside a layer
+(`pages/home`, `widgets/app-header`, `entities/user`); a _segment_ is a purpose-named folder holding
+one kind of code (`ui/` for components, `lib/` for helpers, `model/`, `api/`); and a _public API_ is
+an `index.ts` barrel, the only file other modules may import through. The kit lives in `shared`, the
+bottom layer, and every layer above it draws on it: `app`, `pages` and `features` import its groups
+directly, while `widgets` — the layer this repository opened with `widgets/app-header` — reaches
+them one step removed, by composing the `features/switch-locale` slice that renders the `Button`s.
+`shared` is divided into segments and has no slices; its `ui` and `lib` segments are divided further
+into _groups_, one folder per primitive or helper, and each group's `index.ts` barrel is its public
+API: the only path other modules may import (`@/shared/ui/button`, never a file inside the group and
+never the bare `@/shared/ui`). The kit defines no runtime port and needs no provider. Its contract
+with consumers is those barrels plus a vocabulary of token names that components consume as class
+strings; the concretes behind it — Radix's `Slot` and `Label` from the `radix-ui` package, CVA, clsx
+and tailwind-merge — are imported directly inside the groups, and Tailwind v4 is a build-time
+compiler. The _composition root_ (`src/app/entrypoint/**`, where the app constructs its concretes
+and binds them to seams; see [Composition root](./composition-root.md)) therefore binds nothing
+here: its one part is `app.tsx` importing the global stylesheet. Dependencies point downward in both
+languages — `app/styles/index.css` imports `shared/ui/theme.css`, the primitives import
+`@/shared/lib/cn`, and consumers import the primitives' barrels — and the one edge no tool sees, a
+class name such as `bg-primary` tying a component to a token, points downward too, because the
+tokens live in `shared` (see [Design decisions](#design-decisions--trade-offs)). `eslint.config.js`
+enforces the group paths with `no-restricted-imports` patterns;
+[Architecture boundaries](./architecture-boundaries.md) covers those fences.
 
 In the table below, the `Layer` column names a module's layer and, where it helps, its segment
 (`shared/ui`, `app/entrypoint`) or its slice and segment (`pages/home · ui` is the `ui` segment of
@@ -104,39 +107,46 @@ the `pages/home` slice). `outside layers` marks a file that sits outside the `sr
 layers describe — for this feature, the root configuration files that compile, sort and generate its
 code; the same value covers `src/main.tsx` and `e2e/`, which belong to no layer either.
 
-| Component                                   | Layer                    | Responsibility                                                                                                                                                                        | File                                                                        |
-| ------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Token sets, `dark` variant, `@theme inline` | `shared/ui`              | Imports Tailwind with detection scoped to `src/`, declares the light (`:root`) and dark (`.dark`) tokens, redefines `dark:` and registers the tokens as Tailwind theme values         | `src/shared/ui/theme.css`                                                   |
-| Global stylesheet                           | `app/styles`             | Imports the theme by relative path and adds the base layer: token border and outline colours on every element, page background and text colour on `body`                              | `src/app/styles/index.css`                                                  |
-| `App`                                       | `app/entrypoint`         | Loads the stylesheet with a side-effect import at bootstrap                                                                                                                           | `src/app/entrypoint/app.tsx`                                                |
-| `Button`, `ButtonProps`                     | `shared/ui/button`       | A `<button type="button">` or, with `asChild`, a Radix `Slot.Root`, carrying `buttonVariants` classes resolved through `cn` and the `data-slot`, `data-variant` and `data-size` hooks | `src/shared/ui/button/button.tsx`                                           |
-| `buttonVariants`                            | `shared/ui/button`       | The CVA class map: base classes, six variants, eight sizes, `default` for both                                                                                                        | `src/shared/ui/button/button-variants.ts`                                   |
-| `Input`, `InputProps`                       | `shared/ui/input`        | An `<input>` defaulting to `type="text"`, styled inline, with focus, disabled and `aria-invalid` states                                                                               | `src/shared/ui/input/input.tsx`                                             |
-| `Label`, `LabelProps`                       | `shared/ui/label`        | Radix's `Label.Root` — a `<label>` — with the kit's text classes                                                                                                                      | `src/shared/ui/label/label.tsx`                                             |
-| `cn`                                        | `shared/lib/cn`          | `twMerge(clsx(inputs))`: conditional class composition with Tailwind conflict resolution                                                                                              | `src/shared/lib/cn/cn.ts`                                                   |
-| `tailwindcss()`                             | `outside layers`         | The `@tailwindcss/vite` plugin that compiles the stylesheet, registered in every mode                                                                                                 | `vite.config.ts`                                                            |
-| Tailwind Prettier options                   | `outside layers`         | Loads `prettier-plugin-tailwindcss` and points it at the entry stylesheet and at the `cn` and `cva` calls it sorts                                                                    | `.prettierrc.json`                                                          |
-| shadcn CLI settings                         | `outside layers`         | Tells the registry CLI where the tokens live and which groups its components and `cn` import map to                                                                                   | `components.json`                                                           |
-| `baseUrl`, `paths`                          | `outside layers`         | A root-level `@/*` alias for the shadcn CLI; `tsc -b` compiles nothing from this solution-style file                                                                                  | `tsconfig.json`                                                             |
-| Group import patterns                       | `outside layers`         | Ban a bare `@/shared/ui` or `@/shared/lib` import and any import of a file inside a group                                                                                             | `eslint.config.js`                                                          |
-| `AppCrashFallback`                          | `app/entrypoint`         | Consumer: the crash screen's retry `Button`, which is why `Button` ships in the eager bundle (see [Error handling and reporting](./error-handling.md))                                | `src/app/entrypoint/app-crash-fallback.tsx`                                 |
-| `HomePage`                                  | `pages/home · ui`        | Consumer: the home screen's `Button` and token text colours                                                                                                                           | `src/pages/home/ui/home-page.tsx`                                           |
-| `SignOutButtonView`                         | `features/sign-out · ui` | Consumer: the profile screen's sign-out control, the one `Button` that asks for a `variant`; internal to the slice, which exports `SignOutButton`                                     | `src/features/sign-out/ui/sign-out-button-view.tsx`                         |
-| `SubmitButton`, `TextField`                 | `shared/ui/form`         | Consumers: the form seam's submit control is a `Button`; its text field renders `Label` and `Input` (see [Forms](./forms.md))                                                         | `src/shared/ui/form/submit-button.tsx`, `src/shared/ui/form/text-field.tsx` |
+| Component                                   | Layer                         | Responsibility                                                                                                                                                                                                                              | File                                                                        |
+| ------------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Token sets, `dark` variant, `@theme inline` | `shared/ui`                   | Imports Tailwind with detection scoped to `src/`, declares the light (`:root`) and dark (`.dark`) tokens, redefines `dark:` and registers the tokens as Tailwind theme values                                                               | `src/shared/ui/theme.css`                                                   |
+| Global stylesheet                           | `app/styles`                  | Imports the theme by relative path and adds the base layer: token border and outline colours on every element, page background and text colour on `body`                                                                                    | `src/app/styles/index.css`                                                  |
+| `App`                                       | `app/entrypoint`              | Loads the stylesheet with a side-effect import at bootstrap                                                                                                                                                                                 | `src/app/entrypoint/app.tsx`                                                |
+| `Button`, `ButtonProps`                     | `shared/ui/button`            | A `<button type="button">` or, with `asChild`, a Radix `Slot.Root`, carrying `buttonVariants` classes resolved through `cn` and the `data-slot`, `data-variant` and `data-size` hooks                                                       | `src/shared/ui/button/button.tsx`                                           |
+| `buttonVariants`                            | `shared/ui/button`            | The CVA class map: base classes, six variants, eight sizes, `default` for both                                                                                                                                                              | `src/shared/ui/button/button-variants.ts`                                   |
+| `Input`, `InputProps`                       | `shared/ui/input`             | An `<input>` defaulting to `type="text"`, styled inline, with focus, disabled and `aria-invalid` states                                                                                                                                     | `src/shared/ui/input/input.tsx`                                             |
+| `Label`, `LabelProps`                       | `shared/ui/label`             | Radix's `Label.Root` — a `<label>` — with the kit's text classes                                                                                                                                                                            | `src/shared/ui/label/label.tsx`                                             |
+| `cn`                                        | `shared/lib/cn`               | `twMerge(clsx(inputs))`: conditional class composition with Tailwind conflict resolution                                                                                                                                                    | `src/shared/lib/cn/cn.ts`                                                   |
+| `tailwindcss()`                             | `outside layers`              | The `@tailwindcss/vite` plugin that compiles the stylesheet, registered in every mode                                                                                                                                                       | `vite.config.ts`                                                            |
+| Tailwind Prettier options                   | `outside layers`              | Loads `prettier-plugin-tailwindcss` and points it at the entry stylesheet and at the `cn` and `cva` calls it sorts                                                                                                                          | `.prettierrc.json`                                                          |
+| shadcn CLI settings                         | `outside layers`              | Tells the registry CLI where the tokens live and which groups its components and `cn` import map to                                                                                                                                         | `components.json`                                                           |
+| `baseUrl`, `paths`                          | `outside layers`              | A root-level `@/*` alias for the shadcn CLI; `tsc -b` compiles nothing from this solution-style file                                                                                                                                        | `tsconfig.json`                                                             |
+| Group import patterns                       | `outside layers`              | Ban a bare `@/shared/ui` or `@/shared/lib` import and any import of a file inside a group                                                                                                                                                   | `eslint.config.js`                                                          |
+| `AppCrashFallback`                          | `app/entrypoint`              | Consumer: the crash screen's retry `Button`, which is why `Button` ships in the eager bundle (see [Error handling and reporting](./error-handling.md))                                                                                      | `src/app/entrypoint/app-crash-fallback.tsx`                                 |
+| `HomePage`                                  | `pages/home · ui`             | Consumer: the home screen's `Button` and token text colours                                                                                                                                                                                 | `src/pages/home/ui/home-page.tsx`                                           |
+| `AppHeader`                                 | `widgets/app-header · ui`     | Consumer at one remove: the app-shell banner `__root.tsx` mounts above the `<Outlet />`, composing `LocaleSwitcher` and so putting the kit's `Button` on every route; it imports no primitive itself (see [App shell](./app-shell.md))      | `src/widgets/app-header/ui/app-header.tsx`                                  |
+| `LocaleSwitcher`                            | `features/switch-locale · ui` | Consumer: one `size="sm"` `Button` per supported locale — the kit's only caller of a non-default size — with `variant` switched between `default` (active) and `outline` (inactive) (see [Internationalization](./internationalization.md)) | `src/features/switch-locale/ui/locale-switcher.tsx`                         |
+| `SignOutButtonView`                         | `features/sign-out · ui`      | Consumer: the profile screen's sign-out control, fixed to `variant="outline"`; internal to the slice, which exports `SignOutButton`                                                                                                         | `src/features/sign-out/ui/sign-out-button-view.tsx`                         |
+| `SubmitButton`, `TextField`                 | `shared/ui/form`              | Consumers: the form seam's submit control is a `Button`; its text field renders `Label` and `Input` (see [Forms](./forms.md))                                                                                                               | `src/shared/ui/form/submit-button.tsx`, `src/shared/ui/form/text-field.tsx` |
 
 ## Public surface
 
 The design system serves no route of its own. The base layer in `index.css` styles every screen, and
-the primitives render on these routes:
+`AppHeader` — the `widgets/app-header` banner that `src/app/routes/__root.tsx` mounts above the
+`<Outlet />` — puts `LocaleSwitcher`'s row of `Button`s at the top of every route, the kit's first
+component to render on every screen. Each route then adds its own:
 
-| Path             | Auth          | Purpose                                                                                                                                                              |
-| ---------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/`              | public        | `HomePage` renders a `Button`                                                                                                                                        |
-| `/sign-in`       | public        | The sign-in form renders `Label` and `Input` through `field.TextField`, and a `Button` through `form.SubmitButton`                                                   |
-| `/users/$userId` | authenticated | `SignOutButtonView` renders a `Button` with `variant="outline"` above the profile content, and the name form renders the same components once the profile has loaded |
+| Path               | Auth                     | Purpose                                                                                                                                                                             |
+| ------------------ | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| every route        | public and authenticated | `LocaleSwitcher`, inside the `AppHeader` banner, renders one `size="sm"` `Button` per supported locale: `variant="default"` for the active locale, `variant="outline"` for the rest |
+| `/`                | public                   | `HomePage` renders a `Button` below the header                                                                                                                                      |
+| `/sign-in`         | public                   | The sign-in form renders `Label` and `Input` through `field.TextField`, and a `Button` through `form.SubmitButton`                                                                  |
+| `/users/$userId`   | authenticated            | `SignOutButtonView` renders a `Button` with `variant="outline"` above the profile content, and the name form renders the same components once the profile has loaded                |
+| anything unmatched | public                   | `NotFoundPage`, the root route's `notFoundComponent`, renders no primitive of its own, so the header's locale `Button`s are the only kit components on the screen                   |
 
 Outside the route tree, `AppCrashFallback` renders a `Button` when the root error boundary catches a
-crash.
+crash — in place of the whole tree, header included, because the boundary in
+`src/app/entrypoint/app.tsx` wraps the router.
 
 Four group barrels are the whole programmatic contract:
 
@@ -529,6 +539,17 @@ a `dark:` utility on the element that carries the class does not apply to that e
   a bordered control (`Input`, the `outline` variant); the 3px `ring-ring/50` halo was judged
   decorative. No gate can see colour, so nothing would have caught the registry's value. The
   borderless variants are the gap (see [Known limitations](#known-limitations)).
+- **The locale switcher marks its selection with `default` over `outline`, not `secondary` over
+  `ghost`.** `LocaleSwitcher` asks for a `variant` in both directions —
+  `variant={isActive ? 'default' : 'outline'}` — where the obvious pairing for a selected chip would
+  be `secondary` over `ghost`. That pairing fails in this theme: `--secondary` is `oklch(0.97 0 0)`
+  against a `--background` of `oklch(1 0 0)`, about 1.09:1, far below the 3:1 that WCAG 2.2 success
+  criterion 1.4.11 (Non-text Contrast) requires of a control's state, so the selected language would
+  be effectively invisible to a sighted user and `aria-pressed` would carry the selection for
+  assistive technology alone. `default` is `bg-primary`, about 18:1 against the same background, and
+  `outline` gives the unselected locales a visible box without a fill. The cost is geometric:
+  `outline` carries a border that `default` does not, so an unselected button is about two pixels
+  wider than the selected one and the row's controls shift by that much as the selection moves.
 - **Three corrections to the registry's `Button`.** First, `type` defaults to `'button'`: the
   registry sets none, so a bare `<Button>` inside a `<form>` would be `type="submit"` and submit it;
   `button.test.tsx` pins the inversion. Second, `ButtonProps` is a discriminated union on `asChild`.
@@ -582,8 +603,9 @@ a `dark:` utility on the element that carries the class does not apply to that e
   are in `index.css` from the first visit (+1.86 kB raw / +0.27 kB gzip together with `TextField`'s
   when the form seam landed). Unused variants ship too — `bg-secondary`, `size-10` and the `dark:`
   rules are all in the stylesheet — and so do classes that appear only in tests: `h-12` (in
-  `input.test.tsx`) and `px-8` (in `button.test.tsx`). At `1c193c6` the stylesheet is 19.99 kB raw /
-  4.39 kB gzip. The trade is one cacheable file and no per-route CSS request.
+  `input.test.tsx`) and `px-8` (in `button.test.tsx`). With the app-shell header rendering on every
+  route, the stylesheet is 20.19 kB raw / 4.44 kB gzip. The trade is one cacheable file and no
+  per-route CSS request.
 - **The JavaScript is a fixed cost, paid in the eager bundle.** When the kit landed (`59a4d2c`),
   rendering `/` cost +14.4 kB gzip: the shared routes chunk grew from 5.00 to 15.57 kB gzip, about
   7 kB of it tailwind-merge, and the stylesheet from 0.42 to 4.07 kB gzip. The vendors are paid
@@ -634,11 +656,14 @@ Consumers exercise the primitives in context: `src/shared/ui/form/submit-button.
 that a caller `variant` reaches the rendered `Button`, `src/pages/home/ui/home-page.test.tsx` and
 `src/app/entrypoint/app-crash-fallback.test.tsx` click their `Button` by role and name,
 `src/features/sign-out/ui/sign-out-button.test.tsx` finds its `Button` by role and name and pins the
-pending state — disabled, `aria-busy="true"`, the label now `Signing out…` — and
-`e2e/user-profile.spec.ts` ("keeps the form operable by keyboard alone") tabs from an `Input` to the
-save `Button` and presses Enter in Chromium, over the production build. See
-[Unit and component testing](./unit-testing.md) and [End-to-end testing](./e2e-testing.md) for the
-harnesses.
+pending state — disabled, `aria-busy="true"`, the label now `Signing out…` —
+`src/features/switch-locale/ui/locale-switcher.test.tsx` reads each locale's `Button` by role, name
+and `pressed` state, `src/widgets/app-header/ui/app-header.test.tsx` looks one of them up inside the
+`banner` role, `src/app/entrypoint/app.test.tsx` clicks the header's `Русский` button on a mounted
+app and waits for the language to change, and `e2e/user-profile.spec.ts` ("keeps the form operable
+by keyboard alone") tabs from an `Input` to the save `Button` and presses Enter in Chromium, over
+the production build. See [Unit and component testing](./unit-testing.md) and
+[End-to-end testing](./e2e-testing.md) for the harnesses.
 
 The 90% per-file coverage thresholds in `vite.config.ts` apply to `button.tsx`,
 `button-variants.ts`, `input.tsx`, `label.tsx` and `cn.ts`; the stylesheets are not measured. Branch
@@ -665,11 +690,14 @@ Commands:
   element in `index.html` carries only `lang`, and no module in `src/` changes the root element's
   classes (`I18nProvider` sets only `lang` and `dir`, see
   [Internationalization](./internationalization.md)). No test renders under `.dark`.
-- **Most of `Button`'s API has no runtime caller.** The five call sites — `HomePage`,
-  `AppCrashFallback`, `SignOutButtonView`, and `SubmitButton` as rendered by `SignInFormView` and
-  `UpdateUserNameFormView` — pass no `size`, and one passes `variant="outline"`, so no runtime path
-  renders the four other variants or the seven other sizes. Tests render only `secondary` among them
-  (`button.test.tsx`, `submit-button.test.tsx`). `asChild` has no runtime caller either
+- **Most of `Button`'s API still has no runtime caller.** The six call sites — `HomePage`,
+  `AppCrashFallback`, `LocaleSwitcher`, `SignOutButtonView`, and `SubmitButton` as rendered by
+  `SignInFormView` and `UpdateUserNameFormView` — reach two of the six variants (`default`, and
+  `outline` from `SignOutButtonView` and from `LocaleSwitcher`'s inactive locales) and two of the
+  eight sizes (`default`, and `sm` from `LocaleSwitcher`), so no runtime path renders `destructive`,
+  `secondary`, `ghost` or `link`, nor the six remaining sizes — `xs`, `lg`, `icon`, `icon-xs`,
+  `icon-sm` and `icon-lg`. Tests render only `secondary` among them (`button.test.tsx`,
+  `submit-button.test.tsx`) and no size but the default. `asChild` has no runtime caller either
   (`SubmitButtonProps` omits it) and only `button.test.tsx` exercises it, and `buttonVariants` is
   imported nowhere outside its group. Their classes still ship: the strings in the eager
   `button-*.js` chunk, the utilities in `index.css`.
@@ -679,16 +707,17 @@ Commands:
   `[&_svg]` rules in `buttonVariants` and the `icon`, `icon-xs`, `icon-sm` and `icon-lg` sizes have
   no icon to style today.
 - **Focus is faint on borderless buttons and on invalid inputs.** Only `Input` and the `outline`
-  variant have a border, so on `default` — the variant four of the five shipped call sites use — and
-  on `destructive`, `secondary`, `ghost` and `link`, `focus-visible:border-ring` colours a
-  zero-width border. The visible indicator there is the 3px `ring-ring/50` halo: about 2.3:1
-  against the white `--background` and 7.7:1 against the `default` fill, by the same computation
-  that gives `--ring` its 7.4:1. `59a4d2c` calls the 1px border the compliant indicator and the halo
-  decorative; on these variants the halo is the only one. `SignOutButtonView` is the exception among
-  the shipped buttons: its `outline` variant carries `border`, so `focus-visible:border-ring` has a
-  real 1px border to colour. On an `Input` with `aria-invalid`, the
-  `aria-invalid:border-destructive` rule comes after `focus-visible:border-ring` in the stylesheet
-  with equal specificity, so focus leaves the border destructive and adds only a
+  variant have a border, so on `default` — the variant every shipped call site but
+  `SignOutButtonView` renders, `LocaleSwitcher` included for the active locale — and on
+  `destructive`, `secondary`, `ghost` and `link`, `focus-visible:border-ring` colours a zero-width
+  border. The visible indicator there is the 3px `ring-ring/50` halo: about 2.3:1 against the white
+  `--background` and 7.7:1 against the `default` fill, by the same computation that gives `--ring`
+  its 7.4:1. `59a4d2c` calls the 1px border the compliant indicator and the halo decorative; on
+  these variants the halo is the only one. `SignOutButtonView` and `LocaleSwitcher`'s inactive
+  locales are the exceptions among the shipped buttons: the `outline` variant carries `border`, so
+  `focus-visible:border-ring` has a real 1px border to colour. On an `Input` with `aria-invalid`,
+  the `aria-invalid:border-destructive` rule comes after `focus-visible:border-ring` in the
+  stylesheet with equal specificity, so focus leaves the border destructive and adds only a
   `ring-destructive/20` halo, about 1.4:1 against white.
 - **One literal colour.** The `destructive` variant sets `text-white`, a palette value and the one
   exception to the tokens-only rule, because the theme declares no `--destructive-foreground`. It

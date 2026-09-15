@@ -1,6 +1,6 @@
 # Routing
 
-> **Status:** Complete · **Layers:** app, pages, entities, shared, outside layers · **Verified against:** `19fe53b`
+> **Status:** Complete · **Layers:** app, pages, widgets, entities, shared, outside layers · **Verified against:** `65a99bc`
 
 ## Purpose
 
@@ -32,11 +32,13 @@ src/main.tsx → <App />
    └─ AppProviders           app/entrypoint: QueryClient, i18n, HttpClient, SessionResolver, SessionStarter, SessionEnder
       └─ AppRouterProvider   app/router: router context from hooks, router from a useState initializer
          └─ RouterProvider
-            └─ RootLayout    app/routes/__root.tsx: <Outlet /> and <TanStackRouterDevtools />
-               ├─ /                          HomeRoute → HomePage
-               ├─ /sign-in                   SignInRoute → SignInPage
-               ├─ /_authenticated (no URL)   the guard → /users/$userId: UserProfileRoute → UserProfilePage
-               └─ any other URL              NotFoundPage, the root route's notFoundComponent
+            └─ RootLayout    app/routes/__root.tsx: the banner, the outlet and the devtools
+               ├─ AppHeader      widgets/app-header: the <header> banner, on every route
+               └─ <Outlet />     the matched route's component:
+                  ├─ /                          HomeRoute → HomePage
+                  ├─ /sign-in                   SignInRoute → SignInPage
+                  ├─ /_authenticated (no URL)   the guard → /users/$userId: UserProfileRoute → UserProfilePage
+                  └─ any other URL              NotFoundPage, the root route's notFoundComponent
 ```
 
 [Composition root](./composition-root.md) builds and publishes everything above `AppRouterProvider`
@@ -51,8 +53,9 @@ the router follows the browser's address bar through TanStack's default, `create
 
 **A navigation.** The router matches the URL against the tree, calls `beforeLoad` on each matched
 route from the root down, then runs the matched `loader`s — both receive the router context as
-`context` — and loads the matched route's component chunk. It then renders `RootLayout` with that
-route's component in the `<Outlet />`. At `/`, `HomeRoute` reads `appConfig` and renders `HomePage`
+`context` — and loads the matched route's component chunk. It then renders `RootLayout`, whose
+`AppHeader` banner is mounted once and survives every navigation, with that route's component in the
+`<Outlet />` beneath it. At `/`, `HomeRoute` reads `appConfig` and renders `HomePage`
 with its `name`, `mode` and `apiBaseUrl` as props. A navigation still pending after 300 ms
 (`defaultPendingMs`) shows the nearest `pendingComponent` — only the guard's layout route declares
 one — for at least 300 ms (`defaultPendingMinMs`); [Authenticated route guard](./route-guard.md)
@@ -68,8 +71,9 @@ click runs the loader again and TanStack Query's own cache decides whether a req
 
 **No route matches.** For an unknown URL the router renders the `notFoundComponent` of the deepest
 matched route that declares one. Only the root route declares one, so every unknown URL renders
-`NotFoundPage` inside `RootLayout`: the heading "Page not found", one sentence, and a "Back to home"
-`<Link>` to `/`. This relies on the server answering an unknown path with the app's `index.html`:
+`NotFoundPage` in `RootLayout`'s `<Outlet />`, under the same `AppHeader` banner every matched route
+shows: the heading "Page not found", one sentence, and a "Back to home" `<Link>` to `/`. This relies
+on the server answering an unknown path with the app's `index.html`:
 the dev server and `vite preview` do, and a production host has to be configured to (see
 [Deploy behind a static host](#deploy-behind-a-static-host)).
 
@@ -84,7 +88,7 @@ redirect, stops at TanStack Router's own error boundary, because no route declar
 
 Feature-Sliced Design (FSD) splits `src/` into layers — `app`, `pages`, `widgets`, `features`,
 `entities`, `shared`, top to bottom — and a module imports only from layers below its own. `pages`,
-`features` and `entities` hold _slices_, one concept each (`pages/not-found`), divided into
+`widgets`, `features` and `entities` hold _slices_, one concept each (`pages/not-found`), divided into
 purpose-named _segments_ (`ui`, `model`, `api`) and reached from outside only through the slice's
 `index.ts`, its _public API_; `app` and `shared` have segments but no slices. Routing lives almost
 entirely in `app`, the layer that holds the repo's _composition root_ (`app/entrypoint`, the only
@@ -99,32 +103,36 @@ guards and `loader`s receive, because they run outside React, where no hook can 
 route module only ever sees `context`. Two `app` segments split the rest by axis of change:
 `app/routes` holds URL-to-screen wiring — thin _adapters_ that read route state or config and hand
 plain props and callbacks to a page — and `app/router` holds construction, policy, mounting and the
-generated tree. Every import points downward: `app/routes` imports `pages` slices, `entities/user`
-and `shared/config`; `app/router` imports `entities/session` and `shared/api`; and below `app` the
-router's only importable export is `Link`, which `pages/not-found` alone uses.
+generated tree. The root route is the one route module that renders markup of its own: it mounts
+`AppHeader` from `widgets/app-header` above the `<Outlet />`, so the app-shell banner is part of
+every screen rather than something each page repeats. Every import points downward: `app/routes`
+imports `pages` slices, `widgets/app-header`, `entities/user` and `shared/config`; `app/router`
+imports `entities/session` and `shared/api`; and below `app` the router's only importable export is
+`Link`, which `pages/not-found` alone uses.
 
-| Component                                                       | Layer                      | Responsibility                                                                                                                                                                                                             | File                                                                                                       |
-| --------------------------------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `createAppRouter`, `CreateAppRouterOptions`, `AppRouter`        | `app/router`               | Builds the router from `routeTree` with the app's routing policy, and registers `AppRouter` with TanStack's `Register` interface so links and redirects are type-checked                                                   | `src/app/router/create-app-router.ts`                                                                      |
-| `AppRouterContext`                                              | `app/router`               | The router context type: `httpClient`, `queryClient` and `sessionResolver`, all required                                                                                                                                   | `src/app/router/app-router-context.ts`                                                                     |
-| `AppRouterProvider`                                             | `app/router`               | Reads the three ports from React context, creates the router once, renders `RouterProvider` and re-supplies the context on every render                                                                                    | `src/app/router/app-router-provider.tsx`                                                                   |
-| `routeTree`                                                     | `app/router` (generated)   | The route tree and the `FileRoutesByPath` type augmentation, written by the router plugin and never edited by hand                                                                                                         | `src/app/router/route-tree.gen.ts`                                                                         |
-| `Route` (id `__root__`), `RootLayout`                           | `app/routes`               | The root route: types the context with `createRootRouteWithContext<AppRouterContext>()`, renders `<Outlet />` and the router devtools, and sets `notFoundComponent: NotFoundPage`                                          | `src/app/routes/__root.tsx`                                                                                |
-| `Route` (id `/`), `HomeRoute`                                   | `app/routes`               | The index route: passes `appConfig.name`, `appConfig.mode` and `appConfig.apiBaseUrl` to `HomePage`                                                                                                                        | `src/app/routes/index.tsx`                                                                                 |
-| `NotFoundPage`                                                  | `pages/not-found · ui`     | The 404 screen, and the one module below `app` that imports from the router (`Link`)                                                                                                                                       | `src/pages/not-found/ui/not-found-page.tsx`                                                                |
-| `HomePage`                                                      | `pages/home · ui`          | The worked example the index route renders, documented in [Internationalization](./internationalization.md)                                                                                                                | `src/pages/home/ui/home-page.tsx`                                                                          |
-| `App`                                                           | `app/entrypoint`           | Mounts `AppRouterProvider` inside `AppProviders` and the root `ErrorBoundary`                                                                                                                                              | `src/app/entrypoint/app.tsx`                                                                               |
-| `AppProviders`                                                  | `app/entrypoint`           | Publishes what `AppRouterProvider` reads: `QueryClientProvider`, `HttpClientProvider`, `SessionResolverProvider` (see [Composition root](./composition-root.md))                                                           | `src/app/entrypoint/app-providers.tsx`                                                                     |
-| `SessionResolver`, `useSessionResolver`                         | `entities/session · model` | The guard's port and the hook that reads it into the router context, owned by [Authenticated route guard](./route-guard.md)                                                                                                | `src/entities/session/model/session-resolver.ts`, `src/entities/session/model/session-resolver-context.ts` |
-| `HttpClient`, `useHttpClient`                                   | `shared/api`               | The transport port and the hook that reads it into the router context, owned by [HTTP transport](./http-transport.md)                                                                                                      | `src/shared/api/http-client.ts`, `src/shared/api/http-client-context.ts`                                   |
-| `appConfig`                                                     | `shared/config`            | The configuration the index route reads, owned by [Configuration and environment](./configuration.md)                                                                                                                      | `src/shared/config/app-config.ts`                                                                          |
-| `notFound.title`, `notFound.description`, `notFound.backToHome` | `shared/i18n`              | The not-found page's copy, in `en` and `ru`                                                                                                                                                                                | `src/shared/i18n/locales/en/common.json`, `src/shared/i18n/locales/ru/common.json`                         |
-| `routerPlugin`                                                  | `outside layers`           | The `tanstackRouter` plugin instance: generates the tree and code-splits route components; absent from the plugin list when `mode === 'test'`                                                                              | `vite.config.ts`                                                                                           |
-| Router import fence and route rules                             | `outside layers`           | `no-restricted-imports` allows only `Link` from `@tanstack/react-router` below `app`; `@tanstack/eslint-plugin-router`'s recommended rules; `react-refresh/only-export-components` off for route modules; the tree ignored | `eslint.config.js`                                                                                         |
-| `src/app/router/route-tree.gen.ts` entry                        | `outside layers`           | Keeps Prettier off the generated tree                                                                                                                                                                                      | `.prettierignore`                                                                                          |
-| `vi.stubGlobal('scrollTo', vi.fn())`                            | `outside layers`           | Stubs the global `scrollTo` the router calls after every navigation, which jsdom does not implement                                                                                                                        | `vitest.setup.ts`                                                                                          |
-| `GENERATED_ROUTE_TREE`                                          | `outside layers`           | Exempts the tree from the coverage-scope guard                                                                                                                                                                             | `scripts/verify-coverage-scope.mjs`                                                                        |
-| `application shell` spec                                        | `outside layers`           | The not-found page and its link home, in the production build                                                                                                                                                              | `e2e/app-shell.spec.ts`                                                                                    |
+| Component                                                       | Layer                      | Responsibility                                                                                                                                                                                                                                         | File                                                                                                       |
+| --------------------------------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `createAppRouter`, `CreateAppRouterOptions`, `AppRouter`        | `app/router`               | Builds the router from `routeTree` with the app's routing policy, and registers `AppRouter` with TanStack's `Register` interface so links and redirects are type-checked                                                                               | `src/app/router/create-app-router.ts`                                                                      |
+| `AppRouterContext`                                              | `app/router`               | The router context type: `httpClient`, `queryClient` and `sessionResolver`, all required                                                                                                                                                               | `src/app/router/app-router-context.ts`                                                                     |
+| `AppRouterProvider`                                             | `app/router`               | Reads the three ports from React context, creates the router once, renders `RouterProvider` and re-supplies the context on every render                                                                                                                | `src/app/router/app-router-provider.tsx`                                                                   |
+| `routeTree`                                                     | `app/router` (generated)   | The route tree and the `FileRoutesByPath` type augmentation, written by the router plugin and never edited by hand                                                                                                                                     | `src/app/router/route-tree.gen.ts`                                                                         |
+| `Route` (id `__root__`), `RootLayout`                           | `app/routes`               | The root route: types the context with `createRootRouteWithContext<AppRouterContext>()`, mounts `AppHeader` above `<Outlet />`, renders the router devtools, and sets `notFoundComponent: NotFoundPage`                                                | `src/app/routes/__root.tsx`                                                                                |
+| `Route` (id `/`), `HomeRoute`                                   | `app/routes`               | The index route: passes `appConfig.name`, `appConfig.mode` and `appConfig.apiBaseUrl` to `HomePage`                                                                                                                                                    | `src/app/routes/index.tsx`                                                                                 |
+| `NotFoundPage`                                                  | `pages/not-found · ui`     | The 404 screen, and the one module below `app` that imports from the router (`Link`)                                                                                                                                                                   | `src/pages/not-found/ui/not-found-page.tsx`                                                                |
+| `HomePage`                                                      | `pages/home · ui`          | The worked example the index route renders, documented in [Internationalization](./internationalization.md)                                                                                                                                            | `src/pages/home/ui/home-page.tsx`                                                                          |
+| `AppHeader`                                                     | `widgets/app-header · ui`  | The app-shell `<header>` banner `RootLayout` mounts on every route: the application name in a `<span>`, and the `LocaleSwitcher` from `features/switch-locale` (see [App shell](./app-shell.md) and [Internationalization](./internationalization.md)) | `src/widgets/app-header/ui/app-header.tsx`                                                                 |
+| `App`                                                           | `app/entrypoint`           | Mounts `AppRouterProvider` inside `AppProviders` and the root `ErrorBoundary`                                                                                                                                                                          | `src/app/entrypoint/app.tsx`                                                                               |
+| `AppProviders`                                                  | `app/entrypoint`           | Publishes what `AppRouterProvider` reads: `QueryClientProvider`, `HttpClientProvider`, `SessionResolverProvider` (see [Composition root](./composition-root.md))                                                                                       | `src/app/entrypoint/app-providers.tsx`                                                                     |
+| `SessionResolver`, `useSessionResolver`                         | `entities/session · model` | The guard's port and the hook that reads it into the router context, owned by [Authenticated route guard](./route-guard.md)                                                                                                                            | `src/entities/session/model/session-resolver.ts`, `src/entities/session/model/session-resolver-context.ts` |
+| `HttpClient`, `useHttpClient`                                   | `shared/api`               | The transport port and the hook that reads it into the router context, owned by [HTTP transport](./http-transport.md)                                                                                                                                  | `src/shared/api/http-client.ts`, `src/shared/api/http-client-context.ts`                                   |
+| `appConfig`                                                     | `shared/config`            | The configuration the index route reads, owned by [Configuration and environment](./configuration.md)                                                                                                                                                  | `src/shared/config/app-config.ts`                                                                          |
+| `notFound.title`, `notFound.description`, `notFound.backToHome` | `shared/i18n`              | The not-found page's copy, in `en` and `ru`                                                                                                                                                                                                            | `src/shared/i18n/locales/en/common.json`, `src/shared/i18n/locales/ru/common.json`                         |
+| `routerPlugin`                                                  | `outside layers`           | The `tanstackRouter` plugin instance: generates the tree and code-splits route components; absent from the plugin list when `mode === 'test'`                                                                                                          | `vite.config.ts`                                                                                           |
+| Router import fence and route rules                             | `outside layers`           | `no-restricted-imports` allows only `Link` from `@tanstack/react-router` below `app`; `@tanstack/eslint-plugin-router`'s recommended rules; `react-refresh/only-export-components` off for route modules; the tree ignored                             | `eslint.config.js`                                                                                         |
+| `src/app/router/route-tree.gen.ts` entry                        | `outside layers`           | Keeps Prettier off the generated tree                                                                                                                                                                                                                  | `.prettierignore`                                                                                          |
+| `vi.stubGlobal('scrollTo', vi.fn())`                            | `outside layers`           | Stubs the global `scrollTo` the router calls after every navigation, which jsdom does not implement                                                                                                                                                    | `vitest.setup.ts`                                                                                          |
+| `GENERATED_ROUTE_TREE`                                          | `outside layers`           | Exempts the tree from the coverage-scope guard                                                                                                                                                                                                         | `scripts/verify-coverage-scope.mjs`                                                                        |
+| `application shell` spec                                        | `outside layers`           | The not-found page, its link home and the app-shell banner, in the production build                                                                                                                                                                    | `e2e/app-shell.spec.ts`                                                                                    |
 
 ## Public surface
 
@@ -136,14 +144,14 @@ router's only importable export is `Link`, which `pages/not-found` alone uses.
 | `/sign-in`                              | `public`        | `src/app/routes/sign-in.tsx`: renders `SignInPage` and navigates to `/` after a sign-in — see [Sign-in](./sign-in.md)                                                                                                                                              |
 | `/users/$userId`                        | `authenticated` | `src/app/routes/_authenticated/users.$userId.tsx`: prefetches the user in its `loader`, renders `UserProfilePage`, and sends the visitor to `/sign-in` once the session is ended — see [User profile (read path)](./user-profile.md) and [Sign-out](./sign-out.md) |
 | _(pathless)_ route id `/_authenticated` | —               | `src/app/routes/_authenticated.tsx`: the layout route whose `beforeLoad` guards every module under `src/app/routes/_authenticated/` — see [Authenticated route guard](./route-guard.md)                                                                            |
-| _(root)_ route id `__root__`            | —               | `src/app/routes/__root.tsx`: wraps every route in `RootLayout` and owns not-found handling                                                                                                                                                                         |
+| _(root)_ route id `__root__`            | —               | `src/app/routes/__root.tsx`: wraps every route in `RootLayout` — the `AppHeader` banner above the `<Outlet />` — and owns not-found handling                                                                                                                       |
 | any other URL                           | `public`        | No route matches, so the root route's `notFoundComponent` renders `NotFoundPage`                                                                                                                                                                                   |
 
 **`pages/not-found`** — its public API, `src/pages/not-found/index.ts`, exports one component:
 
-| Export         | Kind      | Contract                                                                                                                                                                                                                                                                            |
-| -------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `NotFoundPage` | component | No props. Renders one `<main>` holding an `<h1>` (`notFound.title`), a `<p>` (`notFound.description`) and `<Link to="/">` (`notFound.backToHome`). It needs a `RouterProvider` ancestor, because `Link` reads the router, and an i18n instance, because it calls `useTranslation()` |
+| Export         | Kind      | Contract                                                                                                                                                                                                                                                                                                                                                                                         |
+| -------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `NotFoundPage` | component | No props. Renders one `<main>` holding an `<h1>` (`notFound.title`), a `<p>` (`notFound.description`) and `<Link to="/">` (`notFound.backToHome`). The root route renders it in the `<Outlet />`, so a 404 screen is the `AppHeader` banner plus this `<main>`. It needs a `RouterProvider` ancestor, because `Link` reads the router, and an i18n instance, because it calls `useTranslation()` |
 
 **The router contract inside `app`.** `app` has segments rather than slices, and its public API,
 `src/app/index.ts`, exports only `App`; route modules, router modules and their tests reach the
@@ -175,8 +183,10 @@ generated tree; without it, TanStack falls back to an untyped router and every `
 string.
 
 **What a route module may use.** Anything from `@tanstack/react-router` — `createFileRoute`,
-`Outlet`, `redirect`, `useNavigate`, `Route.useParams()` — and `@/shared/config`, read at this
-composition seam and passed down as props. Its `beforeLoad` and `loader` receive
+`Outlet`, `redirect`, `useNavigate`, `Route.useParams()` — and the public API of any slice on a
+layer below: `@/pages/*` and `@/widgets/*` (`__root.tsx` imports `@/pages/not-found` and
+`@/widgets/app-header`), plus `@/shared/config`, read at this composition seam and passed down as
+props. Its `beforeLoad` and `loader` receive
 `context: AppRouterContext`. `eslint.config.js` keeps construction and vendors out of
 `src/app/routes/**` and `src/app/router/**`: `createHttpClient`, `createQueryClient`, `createI18n`,
 the six session constructors (`SESSION_CONSTRUCTOR_NAMES`) and value imports from
@@ -220,6 +230,7 @@ comes from `VITE_API_BASE_URL`, and everything else is an option in `create-app-
 | Plugin list (`vite.config.ts`)                                                   | `mode === 'test' ? [] : [routerPlugin]`                                        | Vitest runs without the plugin, against the committed tree                                                                                                                                                         |
 | `position`, `initialIsOpen` (`TanStackRouterDevtools`)                           | `'bottom-left'`, `false`                                                       | Where the devtools toggle sits and whether the panel starts open. Both equal the package's own defaults; the TanStack Query devtools toggle defaults to the bottom-right corner, so the two do not overlap         |
 | `appConfig.name`, `appConfig.mode`, `appConfig.apiBaseUrl` (read by `index.tsx`) | `'frontend-boilerplate'`, `import.meta.env.MODE`, `VITE_API_BASE_URL` or `/v1` | Passed to `HomePage` as `name`, `mode` and `apiBaseUrl`. See [Configuration and environment](./configuration.md)                                                                                                   |
+| `appConfig.name` (read by `__root.tsx`)                                          | `'frontend-boilerplate'`                                                       | Passed to `AppHeader` as `appName`, so the app-shell banner names the application on every route. See [Configuration and environment](./configuration.md)                                                          |
 | `appType` (Vite)                                                                 | not set: Vite's `'spa'`                                                        | The dev server and `vite preview` answer any unknown path with `index.html`, which is what lets a deep link reach the router                                                                                       |
 
 ## Usage & extension
@@ -242,7 +253,9 @@ A screen is a page slice plus a route module. For an `/about` screen:
    ```
 
 2. Create the page slice. A page takes props and callbacks, reads no route state, and renders
-   exactly one `<main>` and one `<h1>`. `src/pages/about/ui/about-page.tsx`:
+   exactly one `<main>` and one `<h1>`; the `banner` landmark above it belongs to `RootLayout`, not
+   to the page, so the finished screen is that banner plus this `<main>`.
+   `src/pages/about/ui/about-page.tsx`:
 
    ```tsx
    import { useTranslation } from '@/shared/i18n';
@@ -448,8 +461,8 @@ every deep link and every reload off `/` then gets the host's 404 instead of the
   opt-in per call site, and Wouter, at about 1.5 kB, has no typed params, loaders or router context,
   so every guard and prefetch would have been hand-written. It also belongs to the ecosystem
   TanStack Query and its ESLint plugin had already brought in. The price is weight: in a production
-  build at `19fe53b`, the router's runtime — `@tanstack/router-core`, `@tanstack/react-router`,
-  `@tanstack/history` and the `@tanstack/store` pair it depends on — is about 74 kB of the 326 kB
+  build at `65a99bc`, the router's runtime — `@tanstack/router-core`, `@tanstack/react-router`,
+  `@tanstack/history` and the `@tanstack/store` pair it depends on — is about 74 kB of the 327 kB
   entry chunk (attributed with the build's source map), roughly 27 kB gzipped on its own. Typed
   links, typed params, a typed router context and per-route code-splitting are what that buys.
 - **Route state stops at `app`; below it, `Link` is the whole router API.** The fence is an
@@ -527,16 +540,17 @@ every deep link and every reload off `/` then gets the host's 404 instead of the
   with `vi.stubGlobal('scrollTo', vi.fn())`.
 - **Not-found belongs to the root route, and the root route is never split.** Only `__root.tsx`
   declares a `notFoundComponent`, so under TanStack's default `notFoundMode` every unknown URL
-  renders `NotFoundPage` inside `RootLayout`, with no per-subtree variants to keep consistent. The
-  router plugin treats `createRootRouteWithContext` as unsplittable, so `RootLayout` and
-  `NotFoundPage` ship in the entry chunk and a mistyped URL renders without fetching another chunk.
+  renders `NotFoundPage` in `RootLayout`'s `<Outlet />`, under the same `AppHeader` banner as every
+  matched route and with no per-subtree variants to keep consistent. The router plugin treats
+  `createRootRouteWithContext` as unsplittable, so `RootLayout`, `AppHeader` and `NotFoundPage` ship
+  in the entry chunk and a mistyped URL renders without fetching another chunk.
   Unlike `pages/home`, which is a worked example to replace, `pages/not-found` is a permanent slice.
 - **`autoCodeSplitting` splits route components, not the work that runs before them.** The plugin's
   default groupings split `component`, `errorComponent` and `notFoundComponent` only, so every
   `loader`, `beforeLoad` and `pendingComponent` stays in its route module, which the tree imports
-  eagerly. A production build at `19fe53b` (598 modules) emits one chunk per routed component —
-  `routes-*.js` for `/` (12.01 kB, 5.11 kB gzip), `sign-in-*.js` (2.58 kB, 1.14 kB gzip) and
-  `users._userId-*.js` (12.97 kB, 4.60 kB gzip) — beside the 326.48 kB (107.76 kB gzip) entry chunk.
+  eagerly. A production build at `65a99bc` (602 modules) emits one chunk per routed component —
+  `routes-*.js` for `/` (12.01 kB, 5.09 kB gzip), `sign-in-*.js` (2.57 kB, 1.14 kB gzip) and
+  `users._userId-*.js` (12.96 kB, 4.59 kB gzip) — beside the 327.03 kB (107.92 kB gzip) entry chunk.
   Styling is one `index-*.css`: components carry Tailwind utilities, so no route chunk emits CSS.
   `dist/index.html` modulepreloads the two shared chunks the entry imports statically
   (`button-*.js` and `session-*.js`) but no route chunk, so the landing route always costs one extra
@@ -568,10 +582,15 @@ every deep link and every reload off `/` then gets the host's 404 instead of the
   for `src/app/routes/**/*.tsx`. `@tanstack/router/create-route-property-order` enforces the order
   of a route's options (`beforeLoad` before `loader`, for example), because each option's types are
   inferred from the ones before it; it is a warning, which `--max-warnings 0` makes blocking.
-- **Pages own their landmarks.** `RootLayout` renders no markup of its own, so each page renders
-  exactly one `<main>` and one `<h1>`. `home-page.test.tsx` queries `heading, { level: 1 }` with no
-  name and would throw on a second `<h1>`; a second `<main>` is a landmark ambiguity no gate
-  catches.
+- **The root layout owns the banner; pages own everything under it.** `RootLayout` contributes one
+  landmark of its own — `AppHeader`'s `<header>`, the implicit `banner`
+  ([App shell](./app-shell.md)) — so a rendered route is
+  that banner plus the page's markup, and each page still renders exactly one `<main>` and one
+  `<h1>`. The banner names the application in a `<span>`, not a heading, so it never competes with
+  the page's `<h1>`: `home-page.test.tsx` queries `heading, { level: 1 }` with no name and would
+  throw on a second `<h1>`; a second `<main>` is a landmark ambiguity no gate catches. Putting the
+  banner in the root route rather than in each page is what keeps that rule affordable — a page
+  that rendered its own header would own two landmarks and repeat the markup on every screen.
 
 ## Testing
 
@@ -589,7 +608,8 @@ Unit and component tests sit beside the code they cover; the browser suite lives
   and `SessionResolverProvider`, `AppRouterProvider` calls `createAppRouter` once across a
   re-render.
 - `src/app/entrypoint/app.test.tsx` — the whole `App`, providers and router included, renders the
-  home page.
+  home page beneath a `banner` carrying the configured application name, and switches the language
+  from that banner's locale switcher.
 - `src/main.test.ts` — the mount test wraps the import in `act()` and its assertion in `waitFor`,
   because the router resolves the first match asynchronously.
 - `src/pages/home/ui/home-page.test.tsx` — deliberately stands up no router. `pages/not-found` has
@@ -602,7 +622,8 @@ Unit and component tests sit beside the code they cover; the browser suite lives
   `src/app/routes/_authenticated/users.$userId.test.tsx`
   ([User profile (read path)](./user-profile.md)).
 - `e2e/app-shell.spec.ts` — Playwright against the production build served by `vite preview`: it
-  opens `/no-such-page`, sees "Page not found", clicks "Back to home" and lands on `/`. It runs the
+  opens `/no-such-page`, sees "Page not found", clicks "Back to home", lands on `/` and asserts the
+  app-shell `banner` is visible there. It runs the
   tree and the chunks exactly as the router plugin emits them, which no Vitest test does, and it
   depends on the preview server answering an unknown path with `index.html`; the seven specs in
   `e2e/user-profile.spec.ts` do the same for the guarded route. See

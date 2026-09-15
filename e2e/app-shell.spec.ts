@@ -9,5 +9,7 @@ test.describe('application shell', () => {
     await page.getByRole('link', { name: 'Back to home' }).click();
 
     await expect(page).toHaveURL('/');
+
+    await expect(page.getByRole('banner')).toBeVisible();
   });
 });
