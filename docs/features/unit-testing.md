@@ -1,6 +1,6 @@
 # Unit and component testing
 
-> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `1c193c6`
+> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `19fe53b`
 
 ## Purpose
 
@@ -95,14 +95,29 @@ the _composition root_ — `src/app/entrypoint`, the only code in `src/` that co
 objects and publishes them to the rest of the tree (see [Composition root](./composition-root.md)) —
 binds implementations to _ports_ (the repo's word, used interchangeably with _seam_, for a type that
 consumers program against while the implementation is chosen elsewhere): `HttpClient`,
-`SessionStarter`, `SessionResolver`. It publishes them through providers, factory arguments and the
-router context. A test is a small composition root of its own: it passes test doubles through those
-same channels — a plain object typed as `HttpClient` inside `HttpClientProvider`, a recording
-`SessionStarter` inside `SessionStarterProvider`, a `context` and a memory history passed to
+`SessionStarter`, `SessionEnder`, `SessionResolver`. It publishes them through providers, factory
+arguments and the router context. A test is a small composition root of its own: it passes test
+doubles through those same channels — a plain object typed as `HttpClient` inside
+`HttpClientProvider`, a recording `SessionStarter` inside `SessionStarterProvider`, an object with a
+`signOut` method inside `SessionEnderProvider`, a `context` and a memory history passed to
 `createAppRouter` — so a port change breaks its doubles at compile time, exactly as it breaks the
-concretes. Each test file sits
-in the same Feature-Sliced Design (FSD) _slice_ (a per-screen or per-entity folder of a layer) or
-_segment_ (a purpose-named folder such as `ui/` or `api/`) as the
+concretes.
+
+A double satisfies the port's _type_, not its behavioural contract, and `SessionEnder` is where that
+gap is widest. Its type is one member, `signOut: () => Promise<SignOutOutcome>`, so the inert literal
+the route tests use — `{ signOut: () => Promise.resolve({ status: 'signed-out' } as const) }` —
+compiles, and is enough for a test that only needs the tree to mount. The real port promises more:
+the local session is ended before the promise settles, down every path, including the one where the
+request rejects. That is what the `finally` in `createSessionEnder`
+(`src/entities/session/model/session-ender.ts`) exists for, and no stub can show it. It is proven
+where the real implementation runs — `src/entities/session/model/session-ender.test.ts` counts the
+`end()` calls on a resolving, an `unavailable` and a rejecting request, and
+`src/app/entrypoint/create-authenticated-transport.test.ts` signs in against MSW and asserts the
+observer moves `authenticated` → `anonymous` even when `/auth/logout` answers `500`. Read a stub as
+scaffolding for the unit under test, never as evidence about the port it stands in for.
+
+Each test file sits in the same Feature-Sliced Design (FSD) _slice_ (a per-screen or per-entity
+folder of a layer) or _segment_ (a purpose-named folder such as `ui/` or `api/`) as the
 module it covers, and is held to that layer's import rules: it imports its unit by relative path,
 reaches other slices only through their _public API_ (the slice's `index.ts` barrel), and the
 ESLint fences apply to it, with three test-specific carve-outs listed under
@@ -113,25 +128,28 @@ lets the setup file import `setI18n` from `react-i18next` and call `createI18n`,
 rejects in every layer below `app`. [Architecture boundaries](./architecture-boundaries.md) covers
 the rule set as a whole.
 
-| Component                                                      | Layer                   | Responsibility                                                                                                                              | File                                                                               |
-| -------------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `test` block                                                   | `outside layers`        | jsdom by default, `globals: false`, the setup file, collection from `src/`, `v8` coverage with 90% per-file thresholds                      | `vite.config.ts`                                                                   |
-| `mode === 'test'` plugin gate                                  | `outside layers`        | Leaves `routerPlugin` out of every Vitest run                                                                                               | `vite.config.ts`                                                                   |
-| `routeFileIgnorePattern`                                       | `outside layers`        | `'\\.test\\.tsx?$'` keeps route tests co-located in `src/app/routes/` out of the generated route tree                                       | `vite.config.ts`                                                                   |
-| Setup file                                                     | `outside layers`        | jest-dom matchers, the `scrollTo` stub, a per-test `localStorage` reset and English i18n instance, `cleanup()`, the `<html lang dir>` reset | `vitest.setup.ts`                                                                  |
-| Coverage-scope gate (`measuredFiles`, `measurableSourceFiles`) | `outside layers`        | Fails when a source file is missing from `coverage/lcov.info`                                                                               | `scripts/verify-coverage-scope.mjs`                                                |
-| Vitest lint block                                              | `outside layers`        | `vitest.configs.recommended` over `src/**/*.test.{ts,tsx}`                                                                                  | `eslint.config.js`                                                                 |
-| Test-file import carve-outs                                    | `outside layers`        | The `src/shared/api/**/*.test.{ts,tsx}` block and the `ignores` on the `shared/ui/form` and `shared/ui/error-boundary` blocks               | `eslint.config.js`                                                                 |
-| `include` (`src`, `env.d.ts`, `vitest.setup.ts`)               | `outside layers`        | Puts tests and the setup file — and with it the jest-dom matcher types — under `npm run typecheck`                                          | `tsconfig.app.json`                                                                |
-| Test scripts                                                   | `outside layers`        | `test`, `test:watch`, `test:coverage`, `verify:coverage-scope`; `audit` ends with the last two                                              | `package.json`                                                                     |
-| Entry-point test                                               | `outside layers`        | The `#root` fail-fast guard and a real mount of `App` under `act` and `waitFor`                                                             | `src/main.test.ts`                                                                 |
-| `createAuthenticatedTransport` test                            | `app/entrypoint`        | Node environment and MSW: the two-client composition end to end, with a real Web Lock                                                       | `src/app/entrypoint/create-authenticated-transport.test.ts`                        |
-| `createAppRouter` test                                         | `app/router`            | The real route tree over a memory history; asserts the routing policy; the `@ts-expect-error` link gate                                     | `src/app/router/create-app-router.test.tsx`                                        |
-| `HomePage` test                                                | `pages/home · ui`       | A router-free, provider-free component test: the proof that a page reads no route state                                                     | `src/pages/home/ui/home-page.test.tsx`                                             |
-| `SignInForm` test                                              | `features/sign-in · ui` | Collaborators injected through providers; validation, outcomes and a keyboard-only sign-in                                                  | `src/features/sign-in/ui/sign-in-form.test.tsx`                                    |
-| `toUser` and `toUpdateUserNameDto` test                        | `entities/user · api`   | A pure unit test of the DTO mappers                                                                                                         | `src/entities/user/api/user-mapper.test.ts`                                        |
-| `createHttpClient` and `attachBearerToken` tests               | `shared/api`            | Node environment and MSW: a real axios stack, from headers to error normalization                                                           | `src/shared/api/http-client.test.ts`, `src/shared/api/attach-bearer-token.test.ts` |
-| `appConfig` test                                               | `shared/config`         | `vi.stubEnv`, `vi.resetModules()` and a dynamic `import()` around the one module that reads `import.meta.env`                               | `src/shared/config/app-config.test.ts`                                             |
+| Component                                                      | Layer                       | Responsibility                                                                                                                                  | File                                                                                                            |
+| -------------------------------------------------------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `test` block                                                   | `outside layers`            | jsdom by default, `globals: false`, the setup file, collection from `src/`, `v8` coverage with 90% per-file thresholds                          | `vite.config.ts`                                                                                                |
+| `mode === 'test'` plugin gate                                  | `outside layers`            | Leaves `routerPlugin` out of every Vitest run                                                                                                   | `vite.config.ts`                                                                                                |
+| `routeFileIgnorePattern`                                       | `outside layers`            | `'\\.test\\.tsx?$'` keeps route tests co-located in `src/app/routes/` out of the generated route tree                                           | `vite.config.ts`                                                                                                |
+| Setup file                                                     | `outside layers`            | jest-dom matchers, the `scrollTo` stub, a per-test `localStorage` reset and English i18n instance, `cleanup()`, the `<html lang dir>` reset     | `vitest.setup.ts`                                                                                               |
+| Coverage-scope gate (`measuredFiles`, `measurableSourceFiles`) | `outside layers`            | Fails when a source file is missing from `coverage/lcov.info`                                                                                   | `scripts/verify-coverage-scope.mjs`                                                                             |
+| Vitest lint block                                              | `outside layers`            | `vitest.configs.recommended` over `src/**/*.test.{ts,tsx}`                                                                                      | `eslint.config.js`                                                                                              |
+| Test-file import carve-outs                                    | `outside layers`            | The `src/shared/api/**/*.test.{ts,tsx}` block and the `ignores` on the `shared/ui/form` and `shared/ui/error-boundary` blocks                   | `eslint.config.js`                                                                                              |
+| `include` (`src`, `env.d.ts`, `vitest.setup.ts`)               | `outside layers`            | Puts tests and the setup file — and with it the jest-dom matcher types — under `npm run typecheck`                                              | `tsconfig.app.json`                                                                                             |
+| Test scripts                                                   | `outside layers`            | `test`, `test:watch`, `test:coverage`, `verify:coverage-scope`; `audit` ends with the last two                                                  | `package.json`                                                                                                  |
+| Entry-point test                                               | `outside layers`            | The `#root` fail-fast guard and a real mount of `App` under `act` and `waitFor`                                                                 | `src/main.test.ts`                                                                                              |
+| `createAuthenticatedTransport` test                            | `app/entrypoint`            | Node environment and MSW: the two-client composition end to end, with a real Web Lock                                                           | `src/app/entrypoint/create-authenticated-transport.test.ts`                                                     |
+| `createAppRouter` test                                         | `app/router`                | The real route tree over a memory history; asserts the routing policy; the `@ts-expect-error` link gate                                         | `src/app/router/create-app-router.test.tsx`                                                                     |
+| `HomePage` test                                                | `pages/home · ui`           | A router-free, provider-free component test: the proof that a page reads no route state                                                         | `src/pages/home/ui/home-page.test.tsx`                                                                          |
+| `SignInForm` test                                              | `features/sign-in · ui`     | Collaborators injected through providers; validation, outcomes and a keyboard-only sign-in                                                      | `src/features/sign-in/ui/sign-in-form.test.tsx`                                                                 |
+| `useSignOut` test                                              | `features/sign-out · model` | `renderHook` with a `wrapper`: the caller is notified `onSettled`, so even a rejecting port resolves                                            | `src/features/sign-out/model/use-sign-out.test.tsx`                                                             |
+| `SignOutButton` test                                           | `features/sign-out · ui`    | A `SessionEnder` stubbed through `SessionEnderProvider`: the idle label, the busy disabled button, and no second request while one is in flight | `src/features/sign-out/ui/sign-out-button.test.tsx`                                                             |
+| `createSessionEnder` and `useSessionEnder` tests               | `entities/session · model`  | The factory's `finally` counted on every path; the context/provider pair and its throw outside a provider                                       | `src/entities/session/model/session-ender.test.ts`, `src/entities/session/model/session-ender-context.test.tsx` |
+| `toUser` and `toUpdateUserNameDto` test                        | `entities/user · api`       | A pure unit test of the DTO mappers                                                                                                             | `src/entities/user/api/user-mapper.test.ts`                                                                     |
+| `createHttpClient` and `attachBearerToken` tests               | `shared/api`                | Node environment and MSW: a real axios stack, from headers to error normalization                                                               | `src/shared/api/http-client.test.ts`, `src/shared/api/attach-bearer-token.test.ts`                              |
+| `appConfig` test                                               | `shared/config`             | `vi.stubEnv`, `vi.resetModules()` and a dynamic `import()` around the one module that reads `import.meta.env`                                   | `src/shared/config/app-config.test.ts`                                                                          |
 
 ## Public surface
 
@@ -425,7 +443,22 @@ The pattern generalizes:
   `createAppRouter({ context, history: createMemoryHistory({ initialEntries: ['/sign-in'] }) })` and
   render `<RouterProvider router={router} />`, so the URL, the guards and the page are the ones the
   app ships. Only `app/routes` and `app/router` tests can do this: below `app`, lint allows `Link`
-  alone from `@tanstack/react-router`.
+  alone from `@tanstack/react-router`. Because the real screens mount, the render tree owes them
+  their providers — every hook any reachable screen calls needs one above the `RouterProvider`,
+  or the render throws:
+
+  | Provider                 | Needed when the test…                         | Because                                                                           |
+  | ------------------------ | --------------------------------------------- | --------------------------------------------------------------------------------- |
+  | `QueryClientProvider`    | renders any route that queries or mutates     | A fresh `QueryClient`, so no cache state crosses tests                            |
+  | `HttpClientProvider`     | renders any route below the guard             | `useUserProfile` reads the transport with `useHttpClient()`                       |
+  | `SessionStarterProvider` | follows the redirect to `/sign-in`            | `/sign-in` renders `SignInForm`, whose `useSignIn` calls `useSessionStarter()`    |
+  | `SessionEnderProvider`   | renders `/users/$userId` or `UserProfilePage` | The profile renders `SignOutButton`, whose `useSignOut` calls `useSessionEnder()` |
+
+  `src/app/routes/_authenticated.test.tsx` and
+  `src/app/routes/_authenticated/users.$userId.test.tsx` mount all four, nesting
+  `SessionEnderProvider` innermost, exactly as `AppProviders` does; a missing
+  `SessionEnderProvider` surfaces as `useSessionEnder must be called inside a SessionEnderProvider`
+  thrown out of the first render, not as a failed assertion.
 
 ### Drive real HTTP through MSW
 
@@ -768,8 +801,13 @@ swallowed by accident.
 
 ## Testing
 
-The harness has no test file of its own; the suite is its test, and each setup responsibility is
-load-bearing for specific files:
+The harness has no test file of its own; the suite is its test. At `19fe53b` that suite is **66
+test files and 454 tests**; `npm run test:coverage` reports 100% statements, branches, functions
+and lines, and `npm run verify:coverage-scope` then prints
+`Coverage scope verified: 126 source files measured.` The 90% per-file thresholds are the floor the
+gate enforces, not a description of where the suite stands.
+
+Each setup responsibility is load-bearing for specific files:
 
 - The jest-dom import: every `toBeInTheDocument`-style assertion, and the matcher types that
   `npm run typecheck` checks.

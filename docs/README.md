@@ -2,7 +2,7 @@
 
 A React + TypeScript single-page-application template built on **Vite**, organised by **Feature-Sliced Design**, with **TanStack Router / Query / Form**, **axios** behind an `HttpClient` port, **Zod** response validation and **i18next**. This directory is the documentation index; every capability is explained in its own document under [`features/`](./features/).
 
-> **Verified against:** `1c193c6`
+> **Verified against:** `19fe53b`
 
 ## Getting started
 
@@ -19,7 +19,7 @@ Install, copy `.env.example`, run `npm run dev` — the full sequence, plus what
 | `app`      | `src/app/**`      | The **composition root**, in segments: `entrypoint/` constructs every client and binds it to its seam, `router/` builds the router and fills `AppRouterContext`, `routes/` holds the file-based route modules, `styles/` the global stylesheet | Every layer below. Only `app/entrypoint` constructs clients and names concretes |
 | `pages`    | `src/pages/**`    | Route-level screens, one slice per screen (`sign-in`, `user-profile`); they take props and callbacks and read no route state                                                                                                                   | `widgets`, `features`, `entities`, `shared`                                     |
 | `widgets`  | `src/widgets/**`  | **Absent today** — the directory is created in the same commit as its first slice. Self-contained page blocks composed from entities and features                                                                                              | `features`, `entities`, `shared`                                                |
-| `features` | `src/features/**` | Single user actions that change state (`sign-in`, `update-user-name`): the form UI, its validation schema, the hook that drives the action                                                                                                     | `entities`, `shared`                                                            |
+| `features` | `src/features/**` | Single user actions that change state (`sign-in`, `sign-out`, `update-user-name`): the action's UI, its validation schema where it takes input, the hook that drives the action                                                                | `entities`, `shared`                                                            |
 | `entities` | `src/entities/**` | Business nouns (`user`, `session`): frontend-owned models and ports in `model/`; DTOs, wire schemas, mappers, HTTP calls and query option factories in `api/`                                                                                  | `shared`                                                                        |
 | `shared`   | `src/shared/**`   | Segments, no slices: `api`, `config`, `i18n`, `lib`, `observability`, `ui`                                                                                                                                                                     | Nothing above `shared`; one segment uses another only through its public API    |
 
@@ -47,11 +47,12 @@ One row per document under [`features/`](./features/), grouped by concern. Each 
 
 ### Session and access
 
-| Feature                   | Doc                                                       | Summary                                                                                                                                                                                                                                                                    |
-| ------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Session management        | [session-management.md](./features/session-management.md) | The engine between a short-lived in-memory access token and the `httpOnly` refresh cookie: it tracks whether a session exists, renews at most one token at a time, and empties the query cache when a session ends — above it a session is a status string, never a token. |
-| Sign-in                   | [sign-in.md](./features/sign-in.md)                       | Turns an email and a password into an `authenticated` session from `/sign-in` and tells the visitor exactly one of four things — signed in, rejected, rate-limited or unavailable — keeping the token out of UI code and the password out of every cache and error report. |
-| Authenticated route guard | [route-guard.md](./features/route-guard.md)               | Asks the session one question before any private screen loads — may this navigation proceed? — and sends every visitor it cannot confirm to `/sign-in`, so protecting a screen is a matter of where its route file lives. A user-experience boundary, not a security one.  |
+| Feature                   | Doc                                                       | Summary                                                                                                                                                                                                                                                                           |
+| ------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Session management        | [session-management.md](./features/session-management.md) | The engine between a short-lived in-memory access token and the `httpOnly` refresh cookie: it tracks whether a session exists, renews at most one token at a time, and empties the query cache when a session ends — above it a session is a status string, never a token.        |
+| Sign-in                   | [sign-in.md](./features/sign-in.md)                       | Turns an email and a password into an `authenticated` session from `/sign-in` and tells the visitor exactly one of four things — signed in, rejected, rate-limited or unavailable — keeping the token out of UI code and the password out of every cache and error report.        |
+| Sign-out                  | [sign-out.md](./features/sign-out.md)                     | Closes the session lifecycle that sign-in opens: a button on the profile asks the server to revoke the session and ends the local one whether or not the server answers, leaving the cache clearing to the `authenticated → anonymous` transition and the redirect to the caller. |
+| Authenticated route guard | [route-guard.md](./features/route-guard.md)               | Asks the session one question before any private screen loads — may this navigation proceed? — and sends every visitor it cannot confirm to `/sign-in`, so protecting a screen is a matter of where its route file lives. A user-experience boundary, not a security one.         |
 
 ### Reference slices — `entities/user`
 
@@ -86,6 +87,6 @@ Every capability discovered in this codebase was complete enough to document —
 **How these docs stay honest:**
 
 - Every doc states the commit it was checked against on its `Verified against` line, so a reader can `git diff` from there and see exactly what may have moved since.
-- When a doc describes something not yet in that commit, it says so rather than quietly claiming it: [Quality gates](./features/quality-gates.md#known-limitations) and [Architecture boundaries](./features/architecture-boundaries.md) both flag that `arch:graph`, its `dependency-cruiser` dependency and this `docs/` directory were still uncommitted at `1c193c6`.
+- When a doc describes something not yet in the commit it names, it says so rather than quietly claiming it, so the `Verified against` line and the prose never disagree. No doc carries such a caveat today: the tooling that once did — `arch:graph`, its `dependency-cruiser` dependency and this `docs/` directory — is committed.
 - A change to the code is a change to its doc. Update the feature doc in the same commit and move its `Verified against` SHA forward; a doc left behind is worse than no doc.
 - Run `npm run arch:graph` whenever imports change and commit the regenerated [`architecture-graph.md`](./architecture-graph.md) alongside them, so the picture is always derived from the source rather than remembered.

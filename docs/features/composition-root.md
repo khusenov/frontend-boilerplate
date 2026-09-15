@@ -1,6 +1,6 @@
 # Composition root
 
-> **Status:** Complete · **Layers:** app, entities, shared, outside layers · **Verified against:** `1c193c6`
+> **Status:** Complete · **Layers:** app, entities, shared, outside layers · **Verified against:** `19fe53b`
 
 ## Purpose
 
@@ -58,22 +58,23 @@ Startup runs in this order:
                │     └─ HttpClientProvider  transport.httpClient
                │        └─ SessionResolverProvider   transport.sessionResolver
                │           └─ SessionStarterProvider   transport.sessionStarter
-               │              └─ AppRouterProvider   builds the router, fills AppRouterContext
-               │                 └─ RouterProvider   the route tree
+               │              └─ SessionEnderProvider   transport.sessionEnder
+               │                 └─ AppRouterProvider   builds the router, fills AppRouterContext
+               │                    └─ RouterProvider   the route tree
                └─ ReactQueryDevtools        initialIsOpen = false
    ```
 
 5. **`AppProviders` builds the clients, once.** Its first render runs three `useState` lazy
    initializers, in order: `createAuthenticatedTransport(apiBaseUrl)`, which composes two HTTP
-   clients with the session store, token source, resolver, starter and observer and sends nothing
-   ([HTTP transport](./http-transport.md)); `createQueryClient(queryErrorHandlers)`, the TanStack
-   Query client whose failure callbacks feed the reporter; and `createI18n()`, the i18next instance,
-   which detects the locale synchronously ([Internationalization](./internationalization.md)). A
-   lazy initializer runs on the first render only, so each instance keeps its identity for as long
+   clients with the session store, token source, resolver, starter, ender and observer and sends
+   nothing ([HTTP transport](./http-transport.md)); `createQueryClient(queryErrorHandlers)`, the
+   TanStack Query client whose failure callbacks feed the reporter; and `createI18n()`, the i18next
+   instance, which detects the locale synchronously ([Internationalization](./internationalization.md)).
+   A lazy initializer runs on the first render only, so each instance keeps its identity for as long
    as `AppProviders` stays mounted. The providers publish them: `QueryClientProvider` the query
    client, `I18nProvider` the i18n instance, `HttpClientProvider` `transport.httpClient`, and
-   `SessionResolverProvider` and `SessionStarterProvider` the transport's `sessionResolver` and
-   `sessionStarter`.
+   `SessionResolverProvider`, `SessionStarterProvider` and `SessionEnderProvider` the transport's
+   `sessionResolver`, `sessionStarter` and `sessionEnder`.
 6. **`AppRouterProvider` hands the ports to the router.** Route `beforeLoad` guards and `loader`s
    run outside React, where no hook can be called. So `AppRouterProvider` — the child that `App`
    passes into `AppProviders` — reads `useHttpClient()`, `useQueryClient()` and
@@ -111,8 +112,8 @@ Startup runs in this order:
 The composition root declares almost no seam of its own: it is where other features' seams meet
 their concretes, over three channels. React providers publish the ports that components and hooks
 read — `HttpClient`, the `QueryClient` ([HTTP transport](./http-transport.md)), the i18next
-instance ([Internationalization](./internationalization.md)), `SessionResolver` and
-`SessionStarter` ([Session management](./session-management.md)). `AppRouterContext` carries the
+instance ([Internationalization](./internationalization.md)), `SessionResolver`, `SessionStarter`
+and `SessionEnder` ([Session management](./session-management.md)). `AppRouterContext` carries the
 three that code outside React needs — `httpClient`, `queryClient` and `sessionResolver` — to
 `beforeLoad` and `loader`. Plain arguments and props carry what must exist above or beside the
 tree: `appConfig.apiBaseUrl`, the `queryErrorHandlers`, and the `ErrorReporter`
@@ -123,36 +124,36 @@ collaborator types `QueryErrorHandlers` and `CacheResetTarget`. Imports point on
 `src/main.tsx` → `@/app` → `app/entrypoint` → `app/router`, `app/styles` and the public APIs of
 `entities` and `shared` — and no module below `app` may import any of it. ESLint keeps
 construction here: every layer below `app`, and `app/routes` and `app/router`, is barred from
-importing `createHttpClient`, `createQueryClient`, `createI18n`, the five session constructors or
+importing `createHttpClient`, `createQueryClient`, `createI18n`, the six session constructors or
 any value from `@/shared/observability`, so `app/entrypoint` is the only place a client can be
 built. `app/router` builds one concrete, the router, from ports it reads back out of React context
 ([Routing](./routing.md)).
 
-| Component                                                | Layer                      | Responsibility                                                                                                                                                             | File                                                                                                                  |
-| -------------------------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Host page                                                | outside layers             | Holds the `#root` mount element and the module script that makes `src/main.tsx` Vite's entry                                                                               | `index.html`                                                                                                          |
-| `ROOT_ELEMENT_ID` guard and mount                        | outside layers             | Finds `#root` or throws; renders `<App />` inside `StrictMode`; binds nothing                                                                                              | `src/main.tsx`                                                                                                        |
-| `index.ts`                                               | app                        | The `app` layer's public API: re-exports `App` and nothing else                                                                                                            | `src/app/index.ts`                                                                                                    |
-| `App`                                                    | app/entrypoint             | Imports the global stylesheet, builds the two error adapters at module scope, reads `appConfig.apiBaseUrl`, renders `ErrorBoundary` → `AppProviders` → `AppRouterProvider` | `src/app/entrypoint/app.tsx`                                                                                          |
-| `AppProviders`                                           | app/entrypoint             | Owns every client in a `useState` initializer, publishes them through five providers, mounts the `Suspense` boundary and `ReactQueryDevtools`, subscribes the cache policy | `src/app/entrypoint/app-providers.tsx`                                                                                |
-| `createAuthenticatedTransport`, `AuthenticatedTransport` | app/entrypoint             | Composes both HTTP clients with the session collaborators; returns the authenticated client and three session ports                                                        | `src/app/entrypoint/create-authenticated-transport.ts`                                                                |
-| `clearCacheOnSessionEnd`, `CacheResetTarget`             | app/entrypoint             | Clears the query cache on each notification that leaves `authenticated`; returns the unsubscribe                                                                           | `src/app/entrypoint/clear-cache-on-session-end.ts`                                                                    |
-| `reportError`                                            | app/entrypoint             | The one binding of a concrete error sink                                                                                                                                   | `src/app/entrypoint/app-error-reporter.ts`                                                                            |
-| `createRenderErrorHandler`                               | app/entrypoint             | Adapts the root boundary's `onError` callback onto `reportError`                                                                                                           | `src/app/entrypoint/create-render-error-handler.ts`                                                                   |
-| `createQueryErrorHandlers`, `QueryErrorHandlers`         | app/entrypoint             | Adapts the query client's two failure callbacks onto `reportError`                                                                                                         | `src/app/entrypoint/create-query-error-handlers.ts`                                                                   |
-| `AppCrashFallback`                                       | app/entrypoint             | The screen the root boundary renders when startup crashes                                                                                                                  | `src/app/entrypoint/app-crash-fallback.tsx`                                                                           |
-| `AppRouterProvider`                                      | app/router                 | Reads the ports back out of React context into `AppRouterContext`, builds the router once, re-supplies the context on every render                                         | `src/app/router/app-router-provider.tsx`                                                                              |
-| `AppRouterContext`                                       | app/router                 | The three required ports every `beforeLoad` and `loader` receives                                                                                                          | `src/app/router/app-router-context.ts`                                                                                |
-| `createAppRouter`                                        | app/router                 | Builds the router over the generated route tree with the routing policy ([Routing](./routing.md))                                                                          | `src/app/router/create-app-router.ts`                                                                                 |
-| Global stylesheet                                        | app/styles                 | Imports the design-system theme and sets base styles ([Design system](./design-system.md))                                                                                 | `src/app/styles/index.css`                                                                                            |
-| `SessionResolverProvider`, `SessionStarterProvider`      | entities/session · model   | Publish `SessionResolver` and `SessionStarter`, read with `useSessionResolver()` and `useSessionStarter()`                                                                 | `src/entities/session/model/session-resolver-provider.tsx`, `src/entities/session/model/session-starter-provider.tsx` |
-| `HttpClientProvider`                                     | shared/api                 | Publishes the `HttpClient`, read with `useHttpClient()`                                                                                                                    | `src/shared/api/http-client-provider.tsx`                                                                             |
-| `createQueryClient`                                      | shared/api                 | Builds the `QueryClient` with its cache defaults, retry policy and failure callbacks                                                                                       | `src/shared/api/query-client.ts`                                                                                      |
-| `createI18n`, `I18nProvider`                             | shared/i18n                | Build the i18next instance; publish it and keep `<html lang dir>` in sync with the locale                                                                                  | `src/shared/i18n/create-i18n.ts`, `src/shared/i18n/i18n-provider.tsx`                                                 |
-| `ErrorBoundary`                                          | shared/ui · error-boundary | The containment seam the root boundary is built from                                                                                                                       | `src/shared/ui/error-boundary/error-boundary.tsx`                                                                     |
-| `appConfig`                                              | shared/config              | The only reader of `import.meta.env`; the source of `apiBaseUrl`                                                                                                           | `src/shared/config/app-config.ts`                                                                                     |
-| `src/main.tsx` fence and construction bans               | outside layers             | `no-restricted-imports` blocks that hold `src/main.tsx` to `@/app` and keep construction inside `app/entrypoint`                                                           | `eslint.config.js`                                                                                                    |
-| `@/*` alias                                              | outside layers             | Maps `@/…` specifiers to `./src/*` for the compiler; Vite reads the same mapping through `resolve.tsconfigPaths`                                                           | `tsconfig.app.json`, `vite.config.ts`                                                                                 |
+| Component                                                                   | Layer                      | Responsibility                                                                                                                                                             | File                                                                                                                                                                           |
+| --------------------------------------------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Host page                                                                   | outside layers             | Holds the `#root` mount element and the module script that makes `src/main.tsx` Vite's entry                                                                               | `index.html`                                                                                                                                                                   |
+| `ROOT_ELEMENT_ID` guard and mount                                           | outside layers             | Finds `#root` or throws; renders `<App />` inside `StrictMode`; binds nothing                                                                                              | `src/main.tsx`                                                                                                                                                                 |
+| `index.ts`                                                                  | app                        | The `app` layer's public API: re-exports `App` and nothing else                                                                                                            | `src/app/index.ts`                                                                                                                                                             |
+| `App`                                                                       | app/entrypoint             | Imports the global stylesheet, builds the two error adapters at module scope, reads `appConfig.apiBaseUrl`, renders `ErrorBoundary` → `AppProviders` → `AppRouterProvider` | `src/app/entrypoint/app.tsx`                                                                                                                                                   |
+| `AppProviders`                                                              | app/entrypoint             | Owns every client in a `useState` initializer, publishes them through six providers, mounts the `Suspense` boundary and `ReactQueryDevtools`, subscribes the cache policy  | `src/app/entrypoint/app-providers.tsx`                                                                                                                                         |
+| `createAuthenticatedTransport`, `AuthenticatedTransport`                    | app/entrypoint             | Composes both HTTP clients with the session collaborators; returns the authenticated client, three session ports and the observer                                          | `src/app/entrypoint/create-authenticated-transport.ts`                                                                                                                         |
+| `clearCacheOnSessionEnd`, `CacheResetTarget`                                | app/entrypoint             | Clears the query cache on each notification that leaves `authenticated`; returns the unsubscribe                                                                           | `src/app/entrypoint/clear-cache-on-session-end.ts`                                                                                                                             |
+| `reportError`                                                               | app/entrypoint             | The one binding of a concrete error sink                                                                                                                                   | `src/app/entrypoint/app-error-reporter.ts`                                                                                                                                     |
+| `createRenderErrorHandler`                                                  | app/entrypoint             | Adapts the root boundary's `onError` callback onto `reportError`                                                                                                           | `src/app/entrypoint/create-render-error-handler.ts`                                                                                                                            |
+| `createQueryErrorHandlers`, `QueryErrorHandlers`                            | app/entrypoint             | Adapts the query client's two failure callbacks onto `reportError`                                                                                                         | `src/app/entrypoint/create-query-error-handlers.ts`                                                                                                                            |
+| `AppCrashFallback`                                                          | app/entrypoint             | The screen the root boundary renders when startup crashes                                                                                                                  | `src/app/entrypoint/app-crash-fallback.tsx`                                                                                                                                    |
+| `AppRouterProvider`                                                         | app/router                 | Reads the ports back out of React context into `AppRouterContext`, builds the router once, re-supplies the context on every render                                         | `src/app/router/app-router-provider.tsx`                                                                                                                                       |
+| `AppRouterContext`                                                          | app/router                 | The three required ports every `beforeLoad` and `loader` receives                                                                                                          | `src/app/router/app-router-context.ts`                                                                                                                                         |
+| `createAppRouter`                                                           | app/router                 | Builds the router over the generated route tree with the routing policy ([Routing](./routing.md))                                                                          | `src/app/router/create-app-router.ts`                                                                                                                                          |
+| Global stylesheet                                                           | app/styles                 | Imports the design-system theme and sets base styles ([Design system](./design-system.md))                                                                                 | `src/app/styles/index.css`                                                                                                                                                     |
+| `SessionResolverProvider`, `SessionStarterProvider`, `SessionEnderProvider` | entities/session · model   | Publish `SessionResolver`, `SessionStarter` and `SessionEnder`, read with `useSessionResolver()`, `useSessionStarter()` and `useSessionEnder()`                            | `src/entities/session/model/session-resolver-provider.tsx`, `src/entities/session/model/session-starter-provider.tsx`, `src/entities/session/model/session-ender-provider.tsx` |
+| `HttpClientProvider`                                                        | shared/api                 | Publishes the `HttpClient`, read with `useHttpClient()`                                                                                                                    | `src/shared/api/http-client-provider.tsx`                                                                                                                                      |
+| `createQueryClient`                                                         | shared/api                 | Builds the `QueryClient` with its cache defaults, retry policy and failure callbacks                                                                                       | `src/shared/api/query-client.ts`                                                                                                                                               |
+| `createI18n`, `I18nProvider`                                                | shared/i18n                | Build the i18next instance; publish it and keep `<html lang dir>` in sync with the locale                                                                                  | `src/shared/i18n/create-i18n.ts`, `src/shared/i18n/i18n-provider.tsx`                                                                                                          |
+| `ErrorBoundary`                                                             | shared/ui · error-boundary | The containment seam the root boundary is built from                                                                                                                       | `src/shared/ui/error-boundary/error-boundary.tsx`                                                                                                                              |
+| `appConfig`                                                                 | shared/config              | The only reader of `import.meta.env`; the source of `apiBaseUrl`                                                                                                           | `src/shared/config/app-config.ts`                                                                                                                                              |
+| `src/main.tsx` fence and construction bans                                  | outside layers             | `no-restricted-imports` blocks that hold `src/main.tsx` to `@/app` and keep construction inside `app/entrypoint`                                                           | `eslint.config.js`                                                                                                                                                             |
+| `@/*` alias                                                                 | outside layers             | Maps `@/…` specifiers to `./src/*` for the compiler; Vite reads the same mapping through `resolve.tsconfigPaths`                                                           | `tsconfig.app.json`, `vite.config.ts`                                                                                                                                          |
 
 ## Public surface
 
@@ -178,19 +179,24 @@ One line per binding; the owner documents the seam in depth.
 | i18next instance  | `createI18n()`                                                                                   | `I18nProvider`                                                                                                                                                                 | `useTranslation()`, `Trans` and `useLocale()` from `@/shared/i18n`                                   | [Internationalization](./internationalization.md)                                            |
 | `SessionResolver` | `transport.sessionResolver`                                                                      | `SessionResolverProvider`; `AppRouterContext.sessionResolver`                                                                                                                  | `useSessionResolver()`; `context.sessionResolver` in the `_authenticated` guard                      | [Session management](./session-management.md), [Authenticated route guard](./route-guard.md) |
 | `SessionStarter`  | `transport.sessionStarter`                                                                       | `SessionStarterProvider`                                                                                                                                                       | `useSessionStarter()`, called only by `useSignIn` in `features/sign-in`                              | [Session management](./session-management.md), [Sign-in](./sign-in.md)                       |
+| `SessionEnder`    | `transport.sessionEnder`                                                                         | `SessionEnderProvider`                                                                                                                                                         | `useSessionEnder()`, called only by `useSignOut` in `features/sign-out`                              | [Session management](./session-management.md), [Sign-out](./sign-out.md)                     |
 | `SessionObserver` | `transport.sessionObserver`                                                                      | Nothing: `AppProviders` passes it straight to `clearCacheOnSessionEnd`                                                                                                         | Not readable below `app`                                                                             | [Session management](./session-management.md)                                                |
 | `ErrorReporter`   | `reportError`                                                                                    | Arguments: `createRenderErrorHandler(reportError)` becomes the root boundary's `onError`, `createQueryErrorHandlers(reportError)` becomes `AppProviders`' `queryErrorHandlers` | Not readable below `app`                                                                             | [Error handling and reporting](./error-handling.md)                                          |
 | Router            | `createAppRouter({ context })`                                                                   | `RouterProvider`                                                                                                                                                               | Route modules under `src/app/routes`; below `app`, only `Link`                                       | [Routing](./routing.md)                                                                      |
 
-`createAuthenticatedTransport` returns all four session-related values from one call because they
-must share instances: one session store behind the observer, the starter and the token source, and
-one token source behind both the authenticated client and the resolver, so a guard's refresh and a
-`401` retry that overlap await the same in-flight token refresh instead of firing two. The shared
-token source is what makes that possible: the resolver's `settle()` and the authenticated client's
-`renewToken()` both enter one `singleFlight` task (`shared/lib/single-flight`), whose `run()` hands
-every concurrent caller the same promise, so at most one `POST /auth/refresh` is in flight. Why that
-matters is [Session management](./session-management.md); this doc's rule is only that the transport
-is built once, here.
+`createAuthenticatedTransport` returns the authenticated client and all four session-related values
+from one call because they must share instances: one session store behind the observer, the starter,
+the ender and the token source, and one token source behind both the authenticated client and the
+resolver, so a guard's refresh and a `401` retry that overlap await the same in-flight token refresh
+instead of firing two. The shared token source is what makes that possible: the resolver's
+`settle()` and the authenticated client's `renewToken()` both enter one `singleFlight` task
+(`shared/lib/single-flight`), whose `run()` hands every concurrent caller the same promise, so at
+most one `POST /auth/refresh` is in flight. The shared store does the same for the ender:
+`sessionEnder.signOut()` ends the very store `clearCacheOnSessionEnd` observes, so signing out needs
+no cache wiring of its own — and the very store the token source re-reads before it starts a session
+from a refresh, which is what stops a renewal in flight from undoing a sign-out. Why that matters is
+[Session management](./session-management.md); this doc's rule is only that the transport is built
+once, here.
 
 ### The router context
 
@@ -213,8 +219,10 @@ export interface AppRouterContext {
   `createRootRouteWithContext<AppRouterContext>()`, so every route's `beforeLoad` and `loader`
   receive `context` typed, and `createRouter` rejects a call without a `context` option.
   `CreateAppRouterOptions.context` is required as well.
-- Every field is required. `sessionStarter` is absent on purpose: no guard or loader starts a
-  session, and its one caller, `useSignIn`, reads it from React context.
+- Every field is required. `sessionStarter` and `sessionEnder` are absent on purpose: no guard or
+  loader starts or ends a session, and their only callers — `useSignIn` in `features/sign-in` and
+  `useSignOut` in `features/sign-out` — read them from React context ([Sign-in](./sign-in.md),
+  [Sign-out](./sign-out.md)).
 
 ### Segment-internal modules
 
@@ -223,11 +231,17 @@ Declared in `create-authenticated-transport.ts` and `clear-cache-on-session-end.
 ```ts
 import type { QueryClient } from '@tanstack/react-query';
 
-import type { SessionObserver, SessionResolver, SessionStarter } from '@/entities/session';
+import type {
+  SessionEnder,
+  SessionObserver,
+  SessionResolver,
+  SessionStarter,
+} from '@/entities/session';
 import type { HttpClient } from '@/shared/api';
 
 export interface AuthenticatedTransport {
   readonly httpClient: HttpClient;
+  readonly sessionEnder: SessionEnder;
   readonly sessionObserver: SessionObserver;
   readonly sessionResolver: SessionResolver;
   readonly sessionStarter: SessionStarter;
@@ -258,28 +272,28 @@ The error-reporting bindings — `reportError`, `createRenderErrorHandler`,
 The composition root reads one environment variable, through `appConfig`, and fixes everything else
 in code.
 
-| Variable / option                                                         | Default                                                            | Meaning                                                                                                                                                                                                       |
-| ------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `VITE_API_BASE_URL`, read into `appConfig.apiBaseUrl`                     | `/v1`; a blank or whitespace-only value also falls back            | The API base URL. `App` passes it to `AppProviders` as `apiBaseUrl` ([Configuration and environment](./configuration.md))                                                                                     |
-| `apiBaseUrl` (`AppProviders` prop)                                        | Required                                                           | Handed to `createAuthenticatedTransport` inside a `useState` initializer, so it is read once: a later change does not rebuild the transport                                                                   |
-| `sendCookies` (`createHttpClient`, unauthenticated client)                | `true`, overriding the `false` default                             | Lets the unauthenticated client send and receive cookies on the `/auth/refresh` and `/auth/login` exchanges; set in `create-authenticated-transport.ts` ([HTTP transport](./http-transport.md#configuration)) |
-| `bearerTokenSource` (`createHttpClient`, authenticated client)            | The `SessionTokenSource`; the option is otherwise unset            | Installs the `attachBearerToken` interceptors, so only the authenticated client carries the token and its renew-once-on-`401` replay ([Session management](./session-management.md))                          |
-| `queryErrorHandlers` (`AppProviders` prop)                                | Required; `app.tsx` passes `createQueryErrorHandlers(reportError)` | Becomes the options object of `createQueryClient`, read once in the same way ([Error handling and reporting](./error-handling.md#configuration))                                                              |
-| `defaultOptions` (`createQueryClient`)                                    | Not passed                                                         | The factory's cache and retry defaults apply unchanged ([HTTP transport](./http-transport.md#configuration))                                                                                                  |
-| `createI18n` options                                                      | None passed                                                        | Locale detection keeps its defaults: the `lng` query parameter, then `app.locale` in `localStorage`, then the browser ([Internationalization](./internationalization.md))                                     |
-| `initialIsOpen` (`ReactQueryDevtools`)                                    | `false`                                                            | The panel starts collapsed. It renders only when `process.env.NODE_ENV` is `'development'` — under `npm run dev`, never in a `vite build` bundle or under Vitest                                              |
-| `createAppRouter` options                                                 | `{ context }` only                                                 | No `history` is passed, so TanStack Router creates a browser history; the routing policy is described in [Routing](./routing.md)                                                                              |
-| `ROOT_ELEMENT_ID` (`src/main.tsx`)                                        | `'root'`                                                           | Id of the mount element; must equal the `id` of the `<div>` in `index.html`                                                                                                                                   |
-| Entry script (`index.html`)                                               | `/src/main.tsx`                                                    | The module Vite starts from, in development and at build time                                                                                                                                                 |
-| `paths` (`tsconfig.app.json`), `resolve.tsconfigPaths` (`vite.config.ts`) | `"@/*": ["./src/*"]`; `true`                                       | Resolve `@/app` and every other `@/…` specifier, for `tsc` and for Vite                                                                                                                                       |
+| Variable / option                                                         | Default                                                            | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `VITE_API_BASE_URL`, read into `appConfig.apiBaseUrl`                     | `/v1`; a blank or whitespace-only value also falls back            | The API base URL. `App` passes it to `AppProviders` as `apiBaseUrl` ([Configuration and environment](./configuration.md))                                                                                                                                                                                                                                                                                                                              |
+| `apiBaseUrl` (`AppProviders` prop)                                        | Required                                                           | Handed to `createAuthenticatedTransport` inside a `useState` initializer, so it is read once: a later change does not rebuild the transport                                                                                                                                                                                                                                                                                                            |
+| `sendCookies` (`createHttpClient`, unauthenticated client)                | `true`, overriding the `false` default                             | Lets the unauthenticated client send and receive cookies on the `/auth/refresh`, `/auth/login` and `/auth/logout` exchanges; set in `create-authenticated-transport.ts`. `signOut` shares the client `refresh` uses because only it sends the refresh cookie, and no type says so — `create-authenticated-transport.test.ts` asserts it by expecting no `authorization` header on `/auth/logout` ([HTTP transport](./http-transport.md#configuration)) |
+| `bearerTokenSource` (`createHttpClient`, authenticated client)            | The `SessionTokenSource`; the option is otherwise unset            | Installs the `attachBearerToken` interceptors, so only the authenticated client carries the token and its renew-once-on-`401` replay ([Session management](./session-management.md))                                                                                                                                                                                                                                                                   |
+| `queryErrorHandlers` (`AppProviders` prop)                                | Required; `app.tsx` passes `createQueryErrorHandlers(reportError)` | Becomes the options object of `createQueryClient`, read once in the same way ([Error handling and reporting](./error-handling.md#configuration))                                                                                                                                                                                                                                                                                                       |
+| `defaultOptions` (`createQueryClient`)                                    | Not passed                                                         | The factory's cache and retry defaults apply unchanged ([HTTP transport](./http-transport.md#configuration))                                                                                                                                                                                                                                                                                                                                           |
+| `createI18n` options                                                      | None passed                                                        | Locale detection keeps its defaults: the `lng` query parameter, then `app.locale` in `localStorage`, then the browser ([Internationalization](./internationalization.md))                                                                                                                                                                                                                                                                              |
+| `initialIsOpen` (`ReactQueryDevtools`)                                    | `false`                                                            | The panel starts collapsed. It renders only when `process.env.NODE_ENV` is `'development'` — under `npm run dev`, never in a `vite build` bundle or under Vitest                                                                                                                                                                                                                                                                                       |
+| `createAppRouter` options                                                 | `{ context }` only                                                 | No `history` is passed, so TanStack Router creates a browser history; the routing policy is described in [Routing](./routing.md)                                                                                                                                                                                                                                                                                                                       |
+| `ROOT_ELEMENT_ID` (`src/main.tsx`)                                        | `'root'`                                                           | Id of the mount element; must equal the `id` of the `<div>` in `index.html`                                                                                                                                                                                                                                                                                                                                                                            |
+| Entry script (`index.html`)                                               | `/src/main.tsx`                                                    | The module Vite starts from, in development and at build time                                                                                                                                                                                                                                                                                                                                                                                          |
+| `paths` (`tsconfig.app.json`), `resolve.tsconfigPaths` (`vite.config.ts`) | `"@/*": ["./src/*"]`; `true`                                       | Resolve `@/app` and every other `@/…` specifier, for `tsc` and for Vite                                                                                                                                                                                                                                                                                                                                                                                |
 
 ## Usage & extension
 
 ### Reach a published port
 
 - In a component or hook below `app`, call the port's hook: `useHttpClient()`,
-  `useSessionResolver()`, `useSessionStarter()`, `useTranslation()`. TanStack Query's hooks find the
-  client through `QueryClientProvider` on their own.
+  `useSessionResolver()`, `useSessionStarter()`, `useSessionEnder()`, `useTranslation()`. TanStack
+  Query's hooks find the client through `QueryClientProvider` on their own.
 - In a route's `beforeLoad` or `loader`, destructure `context`, as
   `src/app/routes/_authenticated.tsx` and `src/app/routes/_authenticated/users.$userId.tsx` do.
 - Never construct a client outside `app/entrypoint`. Importing `createHttpClient` from
@@ -466,7 +480,11 @@ add a hypothetical product-analytics tracker; the code compiles, passes `npm run
    import { Suspense, useEffect, useState } from 'react';
    import type { ReactNode } from 'react';
 
-   import { SessionResolverProvider, SessionStarterProvider } from '@/entities/session';
+   import {
+     SessionEnderProvider,
+     SessionResolverProvider,
+     SessionStarterProvider,
+   } from '@/entities/session';
    import { AnalyticsTrackerProvider } from '@/shared/analytics';
    import type { AnalyticsTracker } from '@/shared/analytics';
    import { createQueryClient, HttpClientProvider } from '@/shared/api';
@@ -505,9 +523,11 @@ add a hypothetical product-analytics tracker; the code compiles, passes `npm run
              <HttpClientProvider client={transport.httpClient}>
                <SessionResolverProvider sessionResolver={transport.sessionResolver}>
                  <SessionStarterProvider sessionStarter={transport.sessionStarter}>
-                   <AnalyticsTrackerProvider analyticsTracker={analyticsTracker}>
-                     {children}
-                   </AnalyticsTrackerProvider>
+                   <SessionEnderProvider sessionEnder={transport.sessionEnder}>
+                     <AnalyticsTrackerProvider analyticsTracker={analyticsTracker}>
+                       {children}
+                     </AnalyticsTrackerProvider>
+                   </SessionEnderProvider>
                  </SessionStarterProvider>
                </SessionResolverProvider>
              </HttpClientProvider>
@@ -553,7 +573,7 @@ add a hypothetical product-analytics tracker; the code compiles, passes `npm run
    });
    ```
 
-   The prop is required, so the file's seven existing renders stop type-checking until each passes
+   The prop is required, so the file's eight existing renders stop type-checking until each passes
    `analyticsTracker={vi.fn()}`. The new segment's modules need co-located tests of their own —
    `vite.config.ts` enforces 90 % coverage per file: mirror
    `src/shared/api/http-client-provider.test.tsx` for the provider and the hook, and stub
@@ -709,19 +729,22 @@ it from `appConfig.name` or translates it.
   hard-coded English ([Error handling and reporting](./error-handling.md)).
 - **The provider order follows from what reads what.** `AppRouterProvider`, the child, calls
   `useHttpClient()`, `useQueryClient()` and `useSessionResolver()`, so all three providers must
-  enclose `children`; the pages it renders also need `I18nProvider` and `SessionStarterProvider`.
+  enclose `children`; the pages it renders also need `I18nProvider`, `SessionStarterProvider` and
+  `SessionEnderProvider`.
   `QueryClientProvider` is outermost because `ReactQueryDevtools` reads the same client from
   context and sits beside the application rather than inside it, outside `Suspense`, so a suspended
   subtree never takes the devtools with it. `Suspense` wraps `I18nProvider` and everything beneath
   as a backstop: react-i18next suspends while a namespace loads, TanStack Router's `Matches` wraps
   the route tree in its own `Suspense`, and this boundary catches whatever suspends above that one.
   Nothing does today — `DocumentLocaleSync` reads `useLocale()`, which opts out with
-  `useSuspense: false` ([Internationalization](./internationalization.md)). The four providers
-  inside it — `I18nProvider`, `HttpClientProvider`, `SessionResolverProvider` and
-  `SessionStarterProvider` — read nothing from one another's context, since every value comes from
-  `AppProviders`' own state, so their relative order is not load-bearing; what matters is that all
-  of them enclose `children`. They nest the i18n instance first, then the transport's values in the
-  order `AuthenticatedTransport` declares them.
+  `useSuspense: false` ([Internationalization](./internationalization.md)). The five providers
+  inside it — `I18nProvider`, `HttpClientProvider`, `SessionResolverProvider`,
+  `SessionStarterProvider` and `SessionEnderProvider` — read nothing from one another's context,
+  since every value comes from `AppProviders`' own state, so their relative order is not
+  load-bearing; what matters is that all of them enclose `children`. They nest the i18n instance
+  first and then the transport's values — client, resolver, starter, ender — a convention rather
+  than a constraint: `AuthenticatedTransport` lists `sessionEnder` second, alphabetically, while
+  `SessionEnderProvider` is nested innermost.
 - **`AppRouterProvider` bridges React context into the router context.** It lives in `app/router`,
   apart from `AppProviders`, so transport wiring and routing wiring stay separately replaceable,
   and it has to render below the providers to call their hooks. `useState` captures its
@@ -736,9 +759,9 @@ it from `appConfig.name` or translates it.
   exactly one subscription, and its dependencies come from `useState`, so it subscribes once per
   mount. Subscribing after the first commit misses nothing: the session starts `unknown`, every
   transition waits on a network response, and the policy acts only on leaving `authenticated`. It
-  is a subscriber rather than a call at each place a session ends: today only an expired refresh
-  ends one, and a future sign-out would end it through the same store transition and be covered
-  without another call ([Session management](./session-management.md)).
+  is a subscriber rather than a call at each place a session ends: an expired refresh and
+  `SessionEnder.signOut()` both end one through the same `store.end()` transition, so adding
+  sign-out needed no cache code at all ([Session management](./session-management.md)).
 - **`src/main.tsx` sits outside the layers, so ESLint fences it.** steiger does not analyse it, and
   the `no-restricted-imports` block for `src/main.tsx` stands in: `@/app` is the only `@/` path it
   may import (pattern `['@/**', '!@/app', './*/**', '../**']`), relative imports that reach into a
@@ -776,11 +799,11 @@ a single binding expression, and `app-router-context.ts`, an interface:
 | ------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/main.test.ts`                                                                                                             | `throws when #root is missing` with the guard's exact message; `renders the app when #root exists`, waiting for the `frontend-boilerplate` heading                                                                                                                                                                          |
 | `src/app/entrypoint/app.test.tsx`                                                                                              | The real composition root renders the home page; a cold load with `app.locale` set to `ru` renders the Russian button and sets `<html lang="ru">` ([Internationalization](./internationalization.md)); a provider construction failure shows the crash heading and reaches the console sink as `error reported from render` |
-| `src/app/entrypoint/app-providers.test.tsx`                                                                                    | Children render; the query client carries the configured `staleTime` of `30_000` and the HTTP client is usable; one HTTP client instance across re-renders; the cache clears when the session ends; the transport's starter and resolver reach children; a query failure reaches the injected `onQueryError`                |
+| `src/app/entrypoint/app-providers.test.tsx`                                                                                    | Children render; the query client carries the configured `staleTime` of `30_000` and the HTTP client is usable; one HTTP client instance across re-renders; the cache clears when the session ends; the transport's starter, resolver and ender reach children; a query failure reaches the injected `onQueryError`         |
 | `src/app/router/app-router-provider.test.tsx`                                                                                  | `creates the router once across re-renders`, under a hand-built provider stack                                                                                                                                                                                                                                              |
 | `src/app/router/create-app-router.test.tsx`                                                                                    | `stores the injected dependencies on the router context` — the `httpClient`, `queryClient` and `sessionResolver` passed to `createAppRouter` come back off `router.options.context` by identity; the file's remaining cases assert the routing policy ([Routing](./routing.md))                                             |
 | `src/app/entrypoint/clear-cache-on-session-end.test.ts`                                                                        | Clears when an authenticated session ends and when a different session replaces it; leaves the cache alone when the first session starts and when a bootstrap refresh finds no session; stops after the returned unsubscribe                                                                                                |
-| `src/app/entrypoint/create-authenticated-transport.test.ts`                                                                    | The two-client composition end to end through MSW ([Session management](./session-management.md), [HTTP transport](./http-transport.md))                                                                                                                                                                                    |
+| `src/app/entrypoint/create-authenticated-transport.test.ts`                                                                    | The two-client composition end to end through MSW, including the two sign-out cases that pin the cookie-client rule — `/auth/logout` arrives with no `authorization` header, and a `500` there still leaves the observer `anonymous` ([Session management](./session-management.md), [HTTP transport](./http-transport.md)) |
 | `src/app/entrypoint/app-crash-fallback.test.tsx`, `create-render-error-handler.test.ts`, `create-query-error-handlers.test.ts` | The crash screen and the two reporting adapters ([Error handling and reporting](./error-handling.md))                                                                                                                                                                                                                       |
 
 The techniques are worth copying when a test needs to swap a binding:
@@ -800,7 +823,14 @@ The techniques are worth copying when a test needs to swap a binding:
   the file's other cases too. Deleting the `ErrorBoundary` from `app.tsx` fails this case.
 - **A provider stack is built by hand.** `app-router-provider.test.tsx` renders `QueryClientProvider`,
   `HttpClientProvider` and `SessionResolverProvider` around `AppRouterProvider` with inert stubs, so
-  the router test needs no transport at all.
+  the router test needs no transport at all. Those three are what `AppRouterProvider`'s own hooks
+  need; a test that renders a _route_ also needs whatever the screen behind it reads, and the hook
+  throws rather than degrading when a provider is missing. `_authenticated/users.$userId.test.tsx`
+  is the worked example: `SessionEnderProvider`, because `/users/$userId` renders
+  `UserProfilePage`, which renders `SignOutButton`, whose `useSignOut` hook calls
+  `useSessionEnder()`; and `SessionStarterProvider` around it, because the sign-out case follows the
+  redirect to `/sign-in`, whose form reaches `useSessionStarter()` through `useSignIn`.
+  `_authenticated.test.tsx` wraps both for the same reason.
 
 `vite.config.ts` measures every `src/**/*.{ts,tsx}` file except tests, `.d.ts` files and the
 generated route tree, at 90 % per file, so `src/main.tsx` counts, and `main.test.ts` is what keeps

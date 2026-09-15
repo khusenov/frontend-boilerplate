@@ -4,8 +4,13 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { SessionResolver, SessionStarter, SessionStatus } from '@/entities/session';
-import { useSessionResolver, useSessionStarter } from '@/entities/session';
+import type {
+  SessionEnder,
+  SessionResolver,
+  SessionStarter,
+  SessionStatus,
+} from '@/entities/session';
+import { useSessionEnder, useSessionResolver, useSessionStarter } from '@/entities/session';
 import type { HttpClient } from '@/shared/api';
 import { toHttpError, useHttpClient } from '@/shared/api';
 
@@ -38,6 +43,7 @@ function createControllableTransport(initialStatus: SessionStatus) {
 
   const transport: AuthenticatedTransport = {
     httpClient: inertHttpClient,
+    sessionEnder: { signOut: () => Promise.resolve({ status: 'signed-out' }) },
     sessionObserver: {
       status: () => status,
       subscribe: (listener: () => void) => {
@@ -185,6 +191,26 @@ describe('AppProviders', () => {
     );
 
     expect(captured.resolver).toBe(transport.sessionResolver);
+  });
+
+  it('provides the transport session ender to its children', () => {
+    const { transport } = createControllableTransport('unknown');
+    vi.mocked(createAuthenticatedTransport).mockReturnValueOnce(transport);
+    const captured: { ender: SessionEnder | null } = { ender: null };
+
+    function EnderProbe() {
+      captured.ender = useSessionEnder();
+
+      return null;
+    }
+
+    render(
+      <AppProviders apiBaseUrl="/api" queryErrorHandlers={createQueryErrorHandlersFake()}>
+        <EnderProbe />
+      </AppProviders>,
+    );
+
+    expect(captured.ender).toBe(transport.sessionEnder);
   });
 
   it('reports a query failure through the injected handlers', async () => {

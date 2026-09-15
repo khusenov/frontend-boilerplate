@@ -1,6 +1,6 @@
 # User profile (read path)
 
-> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `1c193c6`
+> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `19fe53b`
 
 ## Purpose
 
@@ -28,9 +28,11 @@ sequence:
    where `toUserId` brands the raw URL segment, and hands them to
    `context.queryClient.prefetchQuery` without awaiting. The navigation commits at once while the
    request is in flight.
-3. **Route component.** `UserProfileRoute` reads `Route.useParams()` and renders
-   `<UserProfilePage userId={toUserId(userId)} />`. Route state stops in `app/routes`; the page
-   receives a prop.
+3. **Route component.** `UserProfileRoute` reads `Route.useParams()` for the id and `useNavigate()`
+   for the destination, then renders `UserProfilePage` with `userId={toUserId(userId)}` and
+   `onSignedOut={() => { void navigate({ to: '/sign-in' }); }}`. Route state and navigation stop in
+   `app/routes`; the page receives a prop and a callback, the same division
+   `src/app/routes/sign-in.tsx` uses for `onSignedIn`.
 4. **Query.** `useUserProfile(userId)` takes the transport from `useHttpClient()` and calls
    `useQuery` with the same options. The key, `['users', 'detail', 'u_1']`, matches the prefetch,
    so the hook joins the request already in flight instead of sending a second one.
@@ -42,12 +44,19 @@ sequence:
    `UserDto` into a `User`, and the cache stores the `User`: nothing above `entities/user/api` ever
    holds the wire shape.
 6. **Render.** `useUserProfile` reduces the query to a `UserProfileState` — `pending`,
-   `unavailable` or `ready`. `UserProfilePage` calls the hook and renders `UserProfileContent`
-   inside its `<main>`, and `UserProfileContent` switches on the status: an `<output>` reading
+   `unavailable` or `ready`. `UserProfilePage` calls the hook and renders two things inside its
+   `<main>`: a right-aligned `<div>` holding `SignOutButton` from `@/features/sign-out`, and then
+   `UserProfileContent`. `UserProfileContent` switches on the status: an `<output>` reading
    `userProfile.loading`, a `role="alert"` paragraph reading `userProfile.unavailable`, or
    `UserProfileView` (the display name as the `<h1>`, the email, a translated role label and the
    join date in a `<time>` element) followed by `UpdateUserNameForm` from the
-   [write path](./update-user-name.md).
+   [write path](./update-user-name.md). The button sits outside the status switch on purpose, so it
+   is on screen in all three states — see [Design decisions](#design-decisions--trade-offs).
+7. **Leaving.** Clicking the button runs `useSignOut`, which calls `useSessionEnder().signOut()`
+   through a TanStack `useMutation` and notifies the page `onSettled`. `onSignedOut` reaches the
+   route, which navigates to `/sign-in`; `clearCacheOnSessionEnd` empties the query cache as the
+   session leaves `authenticated`, so the cached `User` goes with it
+   ([Session management](./session-management.md)).
 
 The failure paths that matter:
 
@@ -82,32 +91,37 @@ the _composition root_ — `src/app/entrypoint/**`, the only code that construct
 `createQueryClient(queryErrorHandlers)`, and published through `HttpClientProvider` and
 `QueryClientProvider`. Components reach the transport with `useHttpClient()`; the loader runs
 outside React, so `AppRouterProvider` copies both into `AppRouterContext`
-([Composition root](./composition-root.md)). The feature therefore binds nothing at the composition
-root: its only wiring is its route module. Imports point strictly down the layers — the route
-module imports `@/entities/user` and `@/pages/user-profile`; the page imports
+([Composition root](./composition-root.md)). The screen also composes one `features` slice that
+programs against a third port it does not own: `SignOutButton` from `@/features/sign-out` reaches
+`SessionEnder` through `useSessionEnder()`, which `AppProviders` fills with `SessionEnderProvider`
+(see [Sign-out](./sign-out.md) for that port and [Authenticated route guard](./route-guard.md) for
+the session's ports). The feature therefore binds nothing at the composition root: its only wiring
+is its route module. Imports point strictly down the layers — the route module imports
+`@/entities/user` and `@/pages/user-profile`; the page imports `@/features/sign-out`,
 `@/features/update-user-name`, `@/entities/user`, `@/shared/api` and `@/shared/i18n`; the entity
 imports `@/shared/api`, `@tanstack/react-query` and `zod/mini`; and `model/user.ts` imports nothing
 at all.
 
-| Component                                                     | Layer                            | Responsibility                                                                                                 | File                                                                               |
-| ------------------------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `Route` (`/_authenticated/users/$userId`), `UserProfileRoute` | `app/routes`                     | Prefetches the detail query in `loader`; turns the URL param into a `UserId` prop                              | `src/app/routes/_authenticated/users.$userId.tsx`                                  |
-| `AppRouterContext`                                            | `app/router`                     | Carries `httpClient` and `queryClient` (and the guard's `sessionResolver`) to loaders                          | `src/app/router/app-router-context.ts`                                             |
-| `UserProfilePage`                                             | `pages/user-profile · ui`        | Calls `useUserProfile(userId)` and renders `UserProfileContent` inside the screen's `<main>`                   | `src/pages/user-profile/ui/user-profile-page.tsx`                                  |
-| `UserProfileContent`                                          | `pages/user-profile · ui`        | The status switch: in its `ready` case renders `UserProfileView`, then `UpdateUserNameForm`                    | `src/pages/user-profile/ui/user-profile-page.tsx`                                  |
-| `useUserProfile`, `UserProfileState`                          | `pages/user-profile · model`     | Reduces the detail query to `pending`, `unavailable` or `ready`                                                | `src/pages/user-profile/model/use-user-profile.ts`                                 |
-| `UserProfileView`                                             | `pages/user-profile · ui`        | Renders a loaded `User`: heading, email, role label, join date                                                 | `src/pages/user-profile/ui/user-profile-view.tsx`                                  |
-| `UpdateUserNameForm`                                          | `features/update-user-name · ui` | Write-path form the page renders in its `ready` state; documented in [Update user name](./update-user-name.md) | `src/features/update-user-name/ui/update-user-name-form.tsx`                       |
-| `User`, `UserId`, `UserRole`, `UserNameChange`, `toUserId`    | `entities/user · model`          | The frontend-owned domain model; imports nothing                                                               | `src/entities/user/model/user.ts`                                                  |
-| `userDtoSchema`, `UserDto`, `UpdateUserNameDto`               | `entities/user · api`            | The server's wire shape as a `zod/mini` schema, and the types inferred from it                                 | `src/entities/user/api/user-dto.ts`                                                |
-| `toUser`, `toUpdateUserNameDto`                               | `entities/user · api`            | Pure translation between the wire and domain shapes                                                            | `src/entities/user/api/user-mapper.ts`                                             |
-| `createUserQueries`, `userQueryKeys`, `UserReadClient`        | `entities/user · api`            | The query-key tree and the `detail` query options: fetch, validate, map                                        | `src/entities/user/api/user-queries.ts`                                            |
-| `userResourcePath`                                            | `entities/user · api`            | Builds `/users/{id}` and refuses `''`, `.` and `..`                                                            | `src/entities/user/api/user-resource-path.ts`                                      |
-| `createUserMutations`                                         | `entities/user · api`            | Write-path mutation options and their invalidation; documented in [Update user name](./update-user-name.md)    | `src/entities/user/api/user-mutations.ts`                                          |
-| `useLocale`                                                   | `shared/i18n`                    | Supplies the resolved, supported `Locale` the view formats dates with                                          | `src/shared/i18n/use-locale.ts`                                                    |
-| `user.*`, `userProfile.*` keys                                | `shared/i18n`                    | Field labels, role labels and state copy in `en` and `ru`                                                      | `src/shared/i18n/locales/en/common.json`, `src/shared/i18n/locales/ru/common.json` |
-| `UserWireRecord`, `createUserStub`                            | `outside layers`                 | A pinned copy of the wire shape and a stateful `GET`/`PATCH /v1/users/{id}` stub                               | `e2e/fixtures/user-stub.ts`                                                        |
-| `createUserProfilePageObject`                                 | `outside layers`                 | The screen's locators and copy for the browser suite                                                           | `e2e/page-objects/user-profile-page-object.ts`                                     |
+| Component                                                     | Layer                            | Responsibility                                                                                                                                             | File                                                                               |
+| ------------------------------------------------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `Route` (`/_authenticated/users/$userId`), `UserProfileRoute` | `app/routes`                     | Prefetches the detail query in `loader`; turns the URL param into a `UserId` prop and `useNavigate()` into the `onSignedOut` callback                      | `src/app/routes/_authenticated/users.$userId.tsx`                                  |
+| `AppRouterContext`                                            | `app/router`                     | Carries `httpClient` and `queryClient` (and the guard's `sessionResolver`) to loaders                                                                      | `src/app/router/app-router-context.ts`                                             |
+| `UserProfilePage`                                             | `pages/user-profile · ui`        | Calls `useUserProfile(userId)` and renders `SignOutButton` and then `UserProfileContent` inside the screen's `<main>`                                      | `src/pages/user-profile/ui/user-profile-page.tsx`                                  |
+| `UserProfileContent`                                          | `pages/user-profile · ui`        | The status switch: in its `ready` case renders `UserProfileView`, then `UpdateUserNameForm`                                                                | `src/pages/user-profile/ui/user-profile-page.tsx`                                  |
+| `SignOutButton`                                               | `features/sign-out · ui`         | The page's way out: ends the session through `useSessionEnder()` and calls `onSignedOut` when the attempt settles; documented in [Sign-out](./sign-out.md) | `src/features/sign-out/ui/sign-out-button.tsx`                                     |
+| `useUserProfile`, `UserProfileState`                          | `pages/user-profile · model`     | Reduces the detail query to `pending`, `unavailable` or `ready`                                                                                            | `src/pages/user-profile/model/use-user-profile.ts`                                 |
+| `UserProfileView`                                             | `pages/user-profile · ui`        | Renders a loaded `User`: heading, email, role label, join date                                                                                             | `src/pages/user-profile/ui/user-profile-view.tsx`                                  |
+| `UpdateUserNameForm`                                          | `features/update-user-name · ui` | Write-path form the page renders in its `ready` state; documented in [Update user name](./update-user-name.md)                                             | `src/features/update-user-name/ui/update-user-name-form.tsx`                       |
+| `User`, `UserId`, `UserRole`, `UserNameChange`, `toUserId`    | `entities/user · model`          | The frontend-owned domain model; imports nothing                                                                                                           | `src/entities/user/model/user.ts`                                                  |
+| `userDtoSchema`, `UserDto`, `UpdateUserNameDto`               | `entities/user · api`            | The server's wire shape as a `zod/mini` schema, and the types inferred from it                                                                             | `src/entities/user/api/user-dto.ts`                                                |
+| `toUser`, `toUpdateUserNameDto`                               | `entities/user · api`            | Pure translation between the wire and domain shapes                                                                                                        | `src/entities/user/api/user-mapper.ts`                                             |
+| `createUserQueries`, `userQueryKeys`, `UserReadClient`        | `entities/user · api`            | The query-key tree and the `detail` query options: fetch, validate, map                                                                                    | `src/entities/user/api/user-queries.ts`                                            |
+| `userResourcePath`                                            | `entities/user · api`            | Builds `/users/{id}` and refuses `''`, `.` and `..`                                                                                                        | `src/entities/user/api/user-resource-path.ts`                                      |
+| `createUserMutations`                                         | `entities/user · api`            | Write-path mutation options and their invalidation; documented in [Update user name](./update-user-name.md)                                                | `src/entities/user/api/user-mutations.ts`                                          |
+| `useLocale`                                                   | `shared/i18n`                    | Supplies the resolved, supported `Locale` the view formats dates with                                                                                      | `src/shared/i18n/use-locale.ts`                                                    |
+| `user.*`, `userProfile.*`, `signOut.*` keys                   | `shared/i18n`                    | Field labels, role labels, state copy and the button's two labels, in `en` and `ru`                                                                        | `src/shared/i18n/locales/en/common.json`, `src/shared/i18n/locales/ru/common.json` |
+| `UserWireRecord`, `createUserStub`                            | `outside layers`                 | A pinned copy of the wire shape and a stateful `GET`/`PATCH /v1/users/{id}` stub                                                                           | `e2e/fixtures/user-stub.ts`                                                        |
+| `createUserProfilePageObject`                                 | `outside layers`                 | The screen's locators and copy for the browser suite                                                                                                       | `e2e/page-objects/user-profile-page-object.ts`                                     |
 
 ### The DTO → domain model contract
 
@@ -165,18 +179,55 @@ the second table out of the barrel is a review responsibility
 
 ### Route
 
-| Path             | Auth            | Purpose                                                                                                                                                                                                                                                                                         |
-| ---------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/users/$userId` | `authenticated` | The profile of the user named by `$userId`. Module `src/app/routes/_authenticated/users.$userId.tsx`, route id `/_authenticated/users/$userId`; the pathless `_authenticated` layout adds no URL segment. The `loader` prefetches the detail query and the component renders `UserProfilePage`. |
+| Path             | Auth            | Purpose                                                                                                                                                                                                                                                                                                                                                                        |
+| ---------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/users/$userId` | `authenticated` | The profile of the user named by `$userId`. Module `src/app/routes/_authenticated/users.$userId.tsx`, route id `/_authenticated/users/$userId`; the pathless `_authenticated` layout adds no URL segment. The `loader` prefetches the detail query, and the component renders `UserProfilePage` with the URL param and an `onSignedOut` callback that navigates to `/sign-in`. |
 
 ### `@/pages/user-profile`
 
-| Export            | Kind      | Signature                                                  | Behaviour                                                                                                                                                                                                                                                                                                                      |
-| ----------------- | --------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `UserProfilePage` | Component | `UserProfilePage({ userId }: { readonly userId: UserId })` | Calls `useUserProfile(userId)` and renders one `<main>` holding `UserProfileContent`: the loading `<output>`, the `unavailable` alert, or `UserProfileView` followed by `UpdateUserNameForm`. Needs `QueryClientProvider`, `HttpClientProvider` and an i18n instance above it; it reads no route state, so it needs no router. |
+| Export            | Kind      | Signature                                                                                                                                                         | Behaviour                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ----------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `UserProfilePage` | Component | `UserProfilePage({ onSignedOut, userId }: UserProfilePageProps)`, where `UserProfilePageProps` is `{ readonly userId: UserId; readonly onSignedOut: () => void }` | Calls `useUserProfile(userId)` and renders one `<main>` holding `SignOutButton` and then `UserProfileContent`: the loading `<output>`, the `unavailable` alert, or `UserProfileView` followed by `UpdateUserNameForm`. `onSignedOut` fires once the sign-out attempt settles, whatever its outcome. Needs `QueryClientProvider`, `HttpClientProvider`, `SessionEnderProvider` and an i18n instance above it; it reads no route state, so it needs no router. |
 
 `useUserProfile`, `UserProfileState`, `UserProfileContent` and `UserProfileView` are internal to
-the slice.
+the slice, and so is `UserProfilePageProps` — the barrel exports the component alone.
+
+The route module is the canonical call site. The whole of
+`src/app/routes/_authenticated/users.$userId.tsx`:
+
+```tsx
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
+
+import { createUserQueries, toUserId } from '@/entities/user';
+import { UserProfilePage } from '@/pages/user-profile';
+
+function UserProfileRoute() {
+  const { userId } = Route.useParams();
+  const navigate = useNavigate();
+
+  return (
+    <UserProfilePage
+      userId={toUserId(userId)}
+      onSignedOut={() => {
+        void navigate({ to: '/sign-in' });
+      }}
+    />
+  );
+}
+
+export const Route = createFileRoute('/_authenticated/users/$userId')({
+  loader: ({ context, params }) => {
+    void context.queryClient.prefetchQuery(
+      createUserQueries(context.httpClient).detail(toUserId(params.userId)),
+    );
+  },
+  component: UserProfileRoute,
+});
+```
+
+`useNavigate` is reachable here because the module sits in `app/routes`: below `app`, lint allows
+`Link` alone from `@tanstack/react-router`, which is why the destination arrives as a callback
+rather than being chosen inside the page.
 
 ### `@/entities/user`
 
@@ -245,18 +296,21 @@ absolute instant.
 All keys live in the `common` namespace, which `src/shared/i18n/i18next.d.ts` types against the
 English file, so a misspelt key fails `npm run typecheck`
 ([Internationalization](./internationalization.md)). `user.*` names the entity's fields and roles;
-`userProfile.*` is this screen's state copy.
+`userProfile.*` is this screen's state copy; `signOut.*` belongs to `features/sign-out`, which the
+screen composes.
 
-| Key                       | `en`                              | `ru`                          | Used by                                      |
-| ------------------------- | --------------------------------- | ----------------------------- | -------------------------------------------- |
-| `user.email`              | Email                             | Электронная почта             | `UserProfileView`                            |
-| `user.role`               | Role                              | Роль                          | `UserProfileView`                            |
-| `user.joinedAt`           | Joined                            | Присоединился                 | `UserProfileView`                            |
-| `user.roles.admin`        | Administrator                     | Администратор                 | `UserProfileView`, through `ROLE_LABEL_KEYS` |
-| `user.roles.member`       | Member                            | Участник                      | `UserProfileView`, through `ROLE_LABEL_KEYS` |
-| `user.roles.viewer`       | Viewer                            | Наблюдатель                   | `UserProfileView`, through `ROLE_LABEL_KEYS` |
-| `userProfile.loading`     | Loading profile…                  | Загрузка профиля…             | `UserProfileContent`, `pending` state        |
-| `userProfile.unavailable` | This profile could not be loaded. | Не удалось загрузить профиль. | `UserProfileContent`, `unavailable` state    |
+| Key                       | `en`                              | `ru`                          | Used by                                           |
+| ------------------------- | --------------------------------- | ----------------------------- | ------------------------------------------------- |
+| `user.email`              | Email                             | Электронная почта             | `UserProfileView`                                 |
+| `user.role`               | Role                              | Роль                          | `UserProfileView`                                 |
+| `user.joinedAt`           | Joined                            | Присоединился                 | `UserProfileView`                                 |
+| `user.roles.admin`        | Administrator                     | Администратор                 | `UserProfileView`, through `ROLE_LABEL_KEYS`      |
+| `user.roles.member`       | Member                            | Участник                      | `UserProfileView`, through `ROLE_LABEL_KEYS`      |
+| `user.roles.viewer`       | Viewer                            | Наблюдатель                   | `UserProfileView`, through `ROLE_LABEL_KEYS`      |
+| `userProfile.loading`     | Loading profile…                  | Загрузка профиля…             | `UserProfileContent`, `pending` state             |
+| `userProfile.unavailable` | This profile could not be loaded. | Не удалось загрузить профиль. | `UserProfileContent`, `unavailable` state         |
+| `signOut.action`          | Sign out                          | Выйти                         | `SignOutButtonView` (internal), idle label        |
+| `signOut.inProgress`      | Signing out…                      | Выходим…                      | `SignOutButtonView` (internal), request in flight |
 
 ## Configuration
 
@@ -688,14 +742,20 @@ export const Route = createFileRoute('/_authenticated/projects/$projectId')({
 Run `npx vite build` (or keep `npm run dev` running) to regenerate `src/app/router/route-tree.gen.ts`
 and commit it; until then the new module is a `npm run typecheck` error. Copy
 `src/pages/user-profile/ui/user-profile-page.test.tsx` and
-`src/app/routes/_authenticated/users.$userId.test.tsx` for the page and route tests.
+`src/app/routes/_authenticated/users.$userId.test.tsx` for the page and route tests, and drop their
+`SessionStarterProvider` and `SessionEnderProvider` wrappers: `ProjectOverviewPage` composes no
+`features` slice, so nothing in its tree calls `useSessionStarter()` or `useSessionEnder()`.
 
 **10. The gates.** Run `npm run audit` ([Quality gates](./quality-gates.md)). Its coverage step
 enforces 90% per file, which is why each new module needs the tests above. `fsd/insignificant-slice` passes because `entities/project` has
 two referencing locations, the route module in `app` and `pages/project-overview`; without the
 route module steiger reports
 `This slice has only one reference in slice "pages/project-overview". Consider merging them.` An
-entity therefore lands together with its first consumers.
+entity therefore lands together with its first consumers. A slice of the `features` layer has no
+such second consumer to find: `steiger.config.ts` turns the rule off for exactly three of them —
+`./src/features/sign-in/**`, `./src/features/sign-out/**` and `./src/features/update-user-name/**` —
+each consumed by one page, which is what the rule flags. Add a new feature slice's glob to that
+override rather than inventing a second consumer for it; an entity gets no such waiver.
 
 For the browser suite, a second resource stub is a new file beside `e2e/fixtures/user-stub.ts` —
 which falls through with `route.fallback()` on any path it does not own — plus one `page.route`
@@ -746,6 +806,17 @@ registration in `e2e/fixtures/harness.ts` ([End-to-end testing](./e2e-testing.md
   state at once, `useQuery` joins the in-flight prefetch, and intent preloading can still warm the
   cache from a hovered link. The cost is that the loader cannot redirect or throw on a missing
   user, so the page owns every outcome.
+- **The way out sits outside the status switch.** `SignOutButton` is rendered by `UserProfilePage`
+  itself, in a `<div className="flex justify-end">` above `UserProfileContent`, not inside
+  `UserProfileContent`'s `ready` case. Putting it in the `ready` case would tie the control to a
+  successful read: a visitor whose profile query has failed would see the `unavailable` alert and
+  no way to leave — precisely the state in which leaving matters most, and precisely the dead end
+  the guard exists to avoid ([Authenticated route guard](./route-guard.md)). The last case of
+  `user-profile-page.test.tsx`, "offers a way out while the profile is failing to load", renders
+  with the failing client and asserts the `Sign out` button is enabled beside the alert, so moving
+  the button under the switch fails the suite. The cost is that the page composes a `features`
+  slice it does not otherwise need, which is why `UserProfilePage` takes `onSignedOut` as well as
+  `userId`.
 - **The page is three modules, one reason to change each.** A hook reduces the query to a view
   model, a view renders a loaded `User` and nothing else, and a container chooses which state is on
   screen, so `user-profile-view.test.tsx` stands up no `QueryClientProvider`, no
@@ -788,9 +859,11 @@ registration in `e2e/fixtures/harness.ts` ([End-to-end testing](./e2e-testing.md
   half. The new route's own component half became a `users._userId-*.js` chunk of 3.60 kB gzip,
   fetched only by a visitor to the route. `index.css` grew 4.40 → 4.50 kB gzip in that same commit,
   because Tailwind v4 scans source files rather than the import graph, so the utilities on the
-  page's components are emitted as soon as the files exist. A build of `1c193c6` shows the same
+  page's components are emitted as soon as the files exist. A build of `ccbb676` shows the same
   split: `userDtoSchema`, `toUser` and `userResourcePath` are in the entry chunk and
-  `UserProfileView` is in `users._userId-*.js`. `zod/mini` composes functionally
+  `UserProfileView` is in `users._userId-*.js` — as is `SignOutButton`, whose `signOut.inProgress`
+  label ships in the route's component chunk, so composing the feature cost the eager half nothing.
+  `zod/mini` composes functionally
   (`zm.nullable(zm.string())`, never `zm.string().nullable()`), and every schema that ships from
   `src/`, form schemas included, uses it ([Forms](./forms.md)). The schema's validation messages are
   developer diagnostics, never display copy: they travel as `HttpError.issues` to the error
@@ -802,14 +875,14 @@ registration in `e2e/fixtures/harness.ts` ([End-to-end testing](./e2e-testing.md
 
 ## Testing
 
-| File                                                   | Kind                                                                                               | What it covers                                                                                                                                                                                                                                                                                                                                |
-| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/entities/user/api/user-mapper.test.ts`            | Unit                                                                                               | `toUser` joins and trims the display name (an empty surname, padded parts), keeps `firstName` and `lastName`, translates every wire role, parses `created_at` into a `Date`, carries the id across, and leaves no wire field name on the model. Its `toUpdateUserNameDto` cases belong to the [write path](./update-user-name.md).            |
-| `src/entities/user/api/user-queries.test.ts`           | Unit, with a real `QueryClient` and a one-method `UserReadClient`                                  | Every key sits under `['users']` and `detail` nests under it as a prefix; `detail` requests `/users/u_1` and resolves the mapped `User`; `../admin` goes out as `/users/..%2Fadmin`; `..` is refused with a `dot segment` message and kind `unknown`; a role of `OWNER`, an email of `not-an-email` and a `created_at` of `yesterday` reject. |
-| `src/pages/user-profile/ui/user-profile-view.test.tsx` | Component, no providers                                                                            | The display name is the `<h1>`; field labels are translated; `Administrator` renders and `ADMIN` does not; the join date is a `<time>` whose `datetime` is `2024-01-05T12:00:00.000Z`.                                                                                                                                                        |
-| `src/pages/user-profile/ui/user-profile-page.test.tsx` | Component, `QueryClientProvider` and `HttpClientProvider` with stub clients, no router             | A `status` region while pending; the heading once the query resolves; an `alert` when it fails; after the form saves a new last name, the refetched heading reads `Ada King`, which proves the write path's invalidation reaches this query.                                                                                                  |
-| `src/app/routes/_authenticated/users.$userId.test.tsx` | Integration through `createAppRouter` and the generated route tree, memory history at `/users/u_1` | With a resolver that answers `authenticated`, the route requests `/users/u_1` and renders `Ada Lovelace`.                                                                                                                                                                                                                                     |
-| `e2e/user-profile.spec.ts`                             | End to end, Chromium against the production build                                                  | The scenarios below.                                                                                                                                                                                                                                                                                                                          |
+| File                                                   | Kind                                                                                                                                                               | What it covers                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/entities/user/api/user-mapper.test.ts`            | Unit                                                                                                                                                               | `toUser` joins and trims the display name (an empty surname, padded parts), keeps `firstName` and `lastName`, translates every wire role, parses `created_at` into a `Date`, carries the id across, and leaves no wire field name on the model. Its `toUpdateUserNameDto` cases belong to the [write path](./update-user-name.md).            |
+| `src/entities/user/api/user-queries.test.ts`           | Unit, with a real `QueryClient` and a one-method `UserReadClient`                                                                                                  | Every key sits under `['users']` and `detail` nests under it as a prefix; `detail` requests `/users/u_1` and resolves the mapped `User`; `../admin` goes out as `/users/..%2Fadmin`; `..` is refused with a `dot segment` message and kind `unknown`; a role of `OWNER`, an email of `not-an-email` and a `created_at` of `yesterday` reject. |
+| `src/pages/user-profile/ui/user-profile-view.test.tsx` | Component, no providers                                                                                                                                            | The display name is the `<h1>`; field labels are translated; `Administrator` renders and `ADMIN` does not; the join date is a `<time>` whose `datetime` is `2024-01-05T12:00:00.000Z`.                                                                                                                                                        |
+| `src/pages/user-profile/ui/user-profile-page.test.tsx` | Component, `QueryClientProvider`, `HttpClientProvider` and `SessionEnderProvider` with stub collaborators, no router                                               | A `status` region while pending; the heading once the query resolves; an `alert` when it fails; after the form saves a new last name, the refetched heading reads `Ada King`, which proves the write path's invalidation reaches this query; and the `Sign out` button is enabled beside the alert while the profile is failing to load.      |
+| `src/app/routes/_authenticated/users.$userId.test.tsx` | Integration through `createAppRouter` and the generated route tree, memory history at `/users/u_1`, wrapped in `SessionStarterProvider` and `SessionEnderProvider` | With a resolver that answers `authenticated`, the route requests `/users/u_1` and renders `Ada Lovelace`; clicking `Sign out` then lands on `/sign-in`, which is what proves the route's `onSignedOut` callback reaches the router.                                                                                                           |
+| `e2e/user-profile.spec.ts`                             | End to end, Chromium against the production build                                                                                                                  | The scenarios below.                                                                                                                                                                                                                                                                                                                          |
 
 The end-to-end scenarios that exercise the read path:
 

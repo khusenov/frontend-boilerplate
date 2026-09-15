@@ -1,6 +1,6 @@
 # Internationalization
 
-> **Status:** Complete · **Layers:** app, pages, features, shared, outside layers · **Verified against:** `1c193c6`
+> **Status:** Complete · **Layers:** app, pages, features, shared, outside layers · **Verified against:** `19fe53b`
 
 ## Purpose
 
@@ -141,11 +141,11 @@ Every screen in the app draws its copy from this segment, so the feature's route
 app's whole route surface. `common` is loaded at initialization and is what every screen except the
 home page renders; `/` is the only route that reaches for a second namespace, `home`.
 
-| Path             | Auth            | Purpose                                                                                                                               |
-| ---------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `/`              | `public`        | Home page, the i18n worked example: `src/app/routes/index.tsx` renders `HomePage`, the only consumer of the `home` namespace          |
-| `/sign-in`       | `public`        | `src/app/routes/sign-in.tsx` renders `SignInPage` on the `signIn` keys, including the validation messages `features/sign-in` resolves |
-| `/users/$userId` | `authenticated` | `src/app/routes/_authenticated/users.$userId.tsx` renders `UserProfilePage` on the `user` and `userProfile` keys                      |
+| Path             | Auth            | Purpose                                                                                                                                                                             |
+| ---------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`              | `public`        | Home page, the i18n worked example: `src/app/routes/index.tsx` renders `HomePage`, the only consumer of the `home` namespace                                                        |
+| `/sign-in`       | `public`        | `src/app/routes/sign-in.tsx` renders `SignInPage` on the `signIn` keys, including the validation messages `features/sign-in` resolves                                               |
+| `/users/$userId` | `authenticated` | `src/app/routes/_authenticated/users.$userId.tsx` renders `UserProfilePage` on the `user` and `userProfile` keys, plus the `signOut` keys `features/sign-out` renders on its button |
 
 Two more render points serve translated copy without a path of their own: the root route's
 `notFoundComponent` (`src/app/routes/__root.tsx`) renders `NotFoundPage` on the `notFound` keys, and
@@ -177,10 +177,10 @@ barrel.
 [Update user name](./update-user-name.md), [User profile](./user-profile.md),
 [Authenticated route guard](./route-guard.md), [Routing](./routing.md) and [Forms](./forms.md).
 
-| Namespace          | Bundled for | Loaded lazily for | Top-level key groups and their consumers                                                                                                                                                                                                                |
-| ------------------ | ----------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `common` (default) | `en`, `ru`  | none              | `notFound` (`pages/not-found`), `session` (`pages/resolving-session`), `user` and `userProfile` (`pages/user-profile`), `signIn` (`pages/sign-in`, `features/sign-in`), `updateUserName` (`features/update-user-name`), `validation` (`shared/ui/form`) |
-| `home`             | `en`        | `ru`              | `environment`, `elapsedLabel`, `addOneSecond`, `secondsAdded` (`pages/home`)                                                                                                                                                                            |
+| Namespace          | Bundled for | Loaded lazily for | Top-level key groups and their consumers                                                                                                                                                                                                                                                 |
+| ------------------ | ----------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `common` (default) | `en`, `ru`  | none              | `notFound` (`pages/not-found`), `session` (`pages/resolving-session`), `user` and `userProfile` (`pages/user-profile`), `signIn` (`pages/sign-in`, `features/sign-in`), `signOut` (`features/sign-out`), `updateUserName` (`features/update-user-name`), `validation` (`shared/ui/form`) |
+| `home`             | `en`        | `ru`              | `environment`, `elapsedLabel`, `addOneSecond`, `secondsAdded` (`pages/home`)                                                                                                                                                                                                             |
 
 **`@/pages/home`** exports `HomePage`, with props
 `{ readonly name: string; readonly mode: string; readonly apiBaseUrl: string }`. It renders `name`
@@ -241,6 +241,17 @@ export function ResolvingSessionPage() {
 A key is a dotted path into the JSON: `session.resolving` is `{ "session": { "resolving": … } }` in
 `common.json`. A typo, or a key missing from the English file, fails `npm run typecheck`. A component
 below `app` holds no user-facing string literal; it calls `t()` or renders `<Trans>`.
+
+Adding a key group to a namespace that already exists is two JSON edits and nothing else.
+`features/sign-out` added a `signOut` group to `common`, between `signIn` and `session`:
+`signOut.action` ("Sign out" in `en/common.json`, "Выйти" in `ru/common.json`) and
+`signOut.inProgress` ("Signing out…" / "Выходим…"). `src/shared/i18n/i18next.d.ts` needed no change,
+because it types the `common` resource as `typeof enCommon` — the key union is derived from the
+English file itself, so both keys became compile-checked the moment they were written. Name a group
+for what the control does rather than for the machinery around it: this one is `action` and
+`inProgress`, not `signIn`'s `submit` and `submitting`, because the sign-out control is a
+`type="button"` that submits no form, and a translator who reads the key without the code would be
+told the wrong thing by the form vocabulary.
 
 ### Interpolation, plurals and markup
 
@@ -585,7 +596,7 @@ single-consumer `features` slice needs.
   error anywhere. The `satisfies Record<Locale, … & Record<typeof DEFAULT_NAMESPACE, ResourceKey>>`
   constraint on `BUNDLED_RESOURCES` turns that mistake into a compile error, and `registry.test.ts`
   asserts it again; do not remove the constraint. The cost is that `common` is in every visitor's
-  initial download once per locale — `en/common.json` is 1.5 kB and `ru/common.json` 2.0 kB raw
+  initial download once per locale — `en/common.json` is 1.6 kB and `ru/common.json` 2.1 kB raw
   today — so each key a slice adds to `common` is paid by every visitor, in every locale.
 - **The lazy glob and the static imports are disjoint by construction.** `LAZY_LOCALE_MODULES` globs
   `./locales/*/*.json` minus `!./locales/en/*.json` and `!./locales/*/common.json`, which are

@@ -1,6 +1,6 @@
 # Routing
 
-> **Status:** Complete · **Layers:** app, pages, entities, shared, outside layers · **Verified against:** `1c193c6`
+> **Status:** Complete · **Layers:** app, pages, entities, shared, outside layers · **Verified against:** `19fe53b`
 
 ## Purpose
 
@@ -29,7 +29,7 @@ tree as it is.
 ```text
 src/main.tsx → <App />
 └─ ErrorBoundary             app/entrypoint/app.tsx: the root error boundary
-   └─ AppProviders           app/entrypoint: QueryClient, i18n, HttpClient, SessionResolver, SessionStarter
+   └─ AppProviders           app/entrypoint: QueryClient, i18n, HttpClient, SessionResolver, SessionStarter, SessionEnder
       └─ AppRouterProvider   app/router: router context from hooks, router from a useState initializer
          └─ RouterProvider
             └─ RootLayout    app/routes/__root.tsx: <Outlet /> and <TanStackRouterDevtools />
@@ -130,14 +130,14 @@ router's only importable export is `Link`, which `pages/not-found` alone uses.
 
 **Routes** — every route in `src/app/router/route-tree.gen.ts`:
 
-| Path                                    | Auth            | Purpose                                                                                                                                                                                 |
-| --------------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/`                                     | `public`        | The index route, `src/app/routes/index.tsx`: renders `HomePage` with values from `appConfig`                                                                                            |
-| `/sign-in`                              | `public`        | `src/app/routes/sign-in.tsx`: renders `SignInPage` and navigates to `/` after a sign-in — see [Sign-in](./sign-in.md)                                                                   |
-| `/users/$userId`                        | `authenticated` | `src/app/routes/_authenticated/users.$userId.tsx`: prefetches the user in its `loader` and renders `UserProfilePage` — see [User profile (read path)](./user-profile.md)                |
-| _(pathless)_ route id `/_authenticated` | —               | `src/app/routes/_authenticated.tsx`: the layout route whose `beforeLoad` guards every module under `src/app/routes/_authenticated/` — see [Authenticated route guard](./route-guard.md) |
-| _(root)_ route id `__root__`            | —               | `src/app/routes/__root.tsx`: wraps every route in `RootLayout` and owns not-found handling                                                                                              |
-| any other URL                           | `public`        | No route matches, so the root route's `notFoundComponent` renders `NotFoundPage`                                                                                                        |
+| Path                                    | Auth            | Purpose                                                                                                                                                                                                                                                            |
+| --------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/`                                     | `public`        | The index route, `src/app/routes/index.tsx`: renders `HomePage` with values from `appConfig`                                                                                                                                                                       |
+| `/sign-in`                              | `public`        | `src/app/routes/sign-in.tsx`: renders `SignInPage` and navigates to `/` after a sign-in — see [Sign-in](./sign-in.md)                                                                                                                                              |
+| `/users/$userId`                        | `authenticated` | `src/app/routes/_authenticated/users.$userId.tsx`: prefetches the user in its `loader`, renders `UserProfilePage`, and sends the visitor to `/sign-in` once the session is ended — see [User profile (read path)](./user-profile.md) and [Sign-out](./sign-out.md) |
+| _(pathless)_ route id `/_authenticated` | —               | `src/app/routes/_authenticated.tsx`: the layout route whose `beforeLoad` guards every module under `src/app/routes/_authenticated/` — see [Authenticated route guard](./route-guard.md)                                                                            |
+| _(root)_ route id `__root__`            | —               | `src/app/routes/__root.tsx`: wraps every route in `RootLayout` and owns not-found handling                                                                                                                                                                         |
+| any other URL                           | `public`        | No route matches, so the root route's `notFoundComponent` renders `NotFoundPage`                                                                                                                                                                                   |
 
 **`pages/not-found`** — its public API, `src/pages/not-found/index.ts`, exports one component:
 
@@ -179,7 +179,7 @@ string.
 composition seam and passed down as props. Its `beforeLoad` and `loader` receive
 `context: AppRouterContext`. `eslint.config.js` keeps construction and vendors out of
 `src/app/routes/**` and `src/app/router/**`: `createHttpClient`, `createQueryClient`, `createI18n`,
-the five session constructors (`SESSION_CONSTRUCTOR_NAMES`) and value imports from
+the six session constructors (`SESSION_CONSTRUCTOR_NAMES`) and value imports from
 `@/shared/observability` are rejected there, as are `axios`, the i18next packages,
 `@tanstack/react-form` and `react-error-boundary` — type-only imports of `i18next` and
 `@tanstack/react-form` excepted (see [Architecture boundaries](./architecture-boundaries.md)).
@@ -351,7 +351,7 @@ A private screen is the same steps with the route module under `src/app/routes/_
 
 ### Hand route state, config and navigation to a page
 
-The adapter reads; the page receives. The three existing route modules show the three shapes:
+The adapter reads; the page receives. The three route modules that feed a page show three shapes:
 
 - **Config to props.** `src/app/routes/index.tsx` passes `appConfig.name`, `appConfig.mode` and
   `appConfig.apiBaseUrl` to `HomePage`. Route modules read `@/shared/config` for the same reason
@@ -364,7 +364,10 @@ The adapter reads; the page receives. The three existing route modules show the 
   [User profile (read path)](./user-profile.md).
 - **Navigation to a callback.** `src/app/routes/sign-in.tsx` calls `useNavigate()` and passes
   `onSignedIn={() => { void navigate({ to: '/' }); }}` to `SignInPage`, so the sign-in form never
-  learns that routing exists ([Sign-in](./sign-in.md)).
+  learns that routing exists ([Sign-in](./sign-in.md)). `users.$userId.tsx` takes the same shape a
+  second time, beside its params and its loader: it passes
+  `onSignedOut={() => { void navigate({ to: '/sign-in' }); }}` to `UserProfilePage`, so the
+  sign-out control names no destination either ([Sign-out](./sign-out.md)).
 
 ### Link to a screen
 
@@ -445,9 +448,9 @@ every deep link and every reload off `/` then gets the host's 404 instead of the
   opt-in per call site, and Wouter, at about 1.5 kB, has no typed params, loaders or router context,
   so every guard and prefetch would have been hand-written. It also belongs to the ecosystem
   TanStack Query and its ESLint plugin had already brought in. The price is weight: in a production
-  build at `1c193c6`, the router's runtime — `@tanstack/router-core`, `@tanstack/react-router`,
-  `@tanstack/history` and the `@tanstack/store` pair it depends on — is about 74 kB of the 329 kB
-  entry chunk (attributed with the build's source map), roughly 25 kB gzipped on its own. Typed
+  build at `19fe53b`, the router's runtime — `@tanstack/router-core`, `@tanstack/react-router`,
+  `@tanstack/history` and the `@tanstack/store` pair it depends on — is about 74 kB of the 326 kB
+  entry chunk (attributed with the build's source map), roughly 27 kB gzipped on its own. Typed
   links, typed params, a typed router context and per-route code-splitting are what that buys.
 - **Route state stops at `app`; below it, `Link` is the whole router API.** The fence is an
   allow-list — `allowImportNames: ['Link']` — because a ban list fails open: it would have to name
@@ -531,12 +534,12 @@ every deep link and every reload off `/` then gets the host's 404 instead of the
 - **`autoCodeSplitting` splits route components, not the work that runs before them.** The plugin's
   default groupings split `component`, `errorComponent` and `notFoundComponent` only, so every
   `loader`, `beforeLoad` and `pendingComponent` stays in its route module, which the tree imports
-  eagerly. A production build at `1c193c6` (591 modules) emits one chunk per routed component —
-  `routes-*.js` for `/` (12.05 kB, 5.12 kB gzip), `sign-in-*.js` (2.60 kB, 1.15 kB gzip) and
-  `users._userId-*.js` (12.28 kB, 4.37 kB gzip) — beside the 329.40 kB (108.66 kB gzip) entry chunk.
+  eagerly. A production build at `19fe53b` (598 modules) emits one chunk per routed component —
+  `routes-*.js` for `/` (12.01 kB, 5.11 kB gzip), `sign-in-*.js` (2.58 kB, 1.14 kB gzip) and
+  `users._userId-*.js` (12.97 kB, 4.60 kB gzip) — beside the 326.48 kB (107.76 kB gzip) entry chunk.
   Styling is one `index-*.css`: components carry Tailwind utilities, so no route chunk emits CSS.
-  `dist/index.html` modulepreloads three shared chunks the entry imports statically (`button-*.js`,
-  `schemas-*.js`, `app-config-*.js`) but no route chunk, so the landing route always costs one extra
+  `dist/index.html` modulepreloads the two shared chunks the entry imports statically
+  (`button-*.js` and `session-*.js`) but no route chunk, so the landing route always costs one extra
   round trip for its own chunk; intent preloading covers later `<Link>` navigations but cannot help
   the first. The plugin wraps each split component in TanStack's `lazyRouteComponent`: when the
   browser fails to fetch a route chunk — after a redeploy removed it, say — it reloads the page

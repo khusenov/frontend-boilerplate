@@ -1,8 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryHistory, RouterProvider } from '@tanstack/react-router';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
+import { SessionEnderProvider, SessionStarterProvider } from '@/entities/session';
 import { HttpClientProvider, toHttpError } from '@/shared/api';
 import type { HttpClient } from '@/shared/api';
 
@@ -40,6 +42,8 @@ const httpClient: HttpClient = {
   delete: notCalled,
 };
 
+const sessionEnder = { signOut: () => Promise.resolve({ status: 'signed-out' } as const) };
+const sessionStarter = { signIn: () => Promise.resolve({ status: 'rejected' } as const) };
 const sessionResolver = { resolve: () => Promise.resolve('authenticated' as const) };
 
 describe('the /users/$userId route', () => {
@@ -53,7 +57,11 @@ describe('the /users/$userId route', () => {
     render(
       <QueryClientProvider client={queryClient}>
         <HttpClientProvider client={httpClient}>
-          <RouterProvider router={router} />
+          <SessionStarterProvider sessionStarter={sessionStarter}>
+            <SessionEnderProvider sessionEnder={sessionEnder}>
+              <RouterProvider router={router} />
+            </SessionEnderProvider>
+          </SessionStarterProvider>
         </HttpClientProvider>
       </QueryClientProvider>,
     );
@@ -61,5 +69,31 @@ describe('the /users/$userId route', () => {
     expect(
       await screen.findByRole('heading', { level: 1, name: 'Ada Lovelace' }),
     ).toBeInTheDocument();
+  });
+
+  it('returns to sign-in when the session is ended from the profile', async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const router = createAppRouter({
+      context: { httpClient, queryClient, sessionResolver },
+      history: createMemoryHistory({ initialEntries: ['/users/u_1'] }),
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <HttpClientProvider client={httpClient}>
+          <SessionStarterProvider sessionStarter={sessionStarter}>
+            <SessionEnderProvider sessionEnder={sessionEnder}>
+              <RouterProvider router={router} />
+            </SessionEnderProvider>
+          </SessionStarterProvider>
+        </HttpClientProvider>
+      </QueryClientProvider>,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Sign out' }));
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Sign in' })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/sign-in');
   });
 });

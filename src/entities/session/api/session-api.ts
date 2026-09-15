@@ -1,15 +1,17 @@
-import { isHttpError } from '@/shared/api';
+import { isHttpError, noContentSchema } from '@/shared/api';
 import type { HttpClient } from '@/shared/api';
 
 import type { Credentials } from '../model/credentials';
 import type { RefreshResult } from '../model/refresh-result';
 import type { SignInResult } from '../model/sign-in-result';
+import type { SignOutOutcome } from '../model/sign-out-outcome';
 
 import { refreshSessionResponseDtoSchema, signInResponseDtoSchema } from './session-dto';
 import { toIssuedAccessToken, toRefreshedAccessToken, toSignInRequestDto } from './session-mapper';
 
 const REFRESH_SESSION_PATH = '/auth/refresh';
 const SIGN_IN_PATH = '/auth/login';
+const SIGN_OUT_PATH = '/auth/logout';
 const UNAUTHORIZED_STATUS = 401;
 const TOO_MANY_REQUESTS_STATUS = 429;
 
@@ -18,6 +20,7 @@ export type SessionWriteClient = Pick<HttpClient, 'post'>;
 export interface SessionApi {
   readonly refresh: () => Promise<RefreshResult>;
   readonly signIn: (credentials: Credentials) => Promise<SignInResult>;
+  readonly signOut: () => Promise<SignOutOutcome>;
 }
 
 export function createSessionApi(unauthenticatedClient: SessionWriteClient): SessionApi {
@@ -61,6 +64,21 @@ export function createSessionApi(unauthenticatedClient: SessionWriteClient): Ses
           default:
             return { status: 'unavailable' };
         }
+      }
+    },
+    signOut: async () => {
+      try {
+        await unauthenticatedClient.post(SIGN_OUT_PATH, { body: {}, schema: noContentSchema });
+
+        return { status: 'signed-out' };
+      } catch (error: unknown) {
+        if (!isHttpError(error)) {
+          throw error;
+        }
+
+        return error.status === UNAUTHORIZED_STATUS
+          ? { status: 'signed-out' }
+          : { status: 'unavailable' };
       }
     },
   };

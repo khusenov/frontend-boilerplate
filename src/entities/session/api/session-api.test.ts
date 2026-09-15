@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { HttpError } from '@/shared/api';
+import { HttpError, noContentSchema } from '@/shared/api';
 import type { HttpErrorKind } from '@/shared/api';
 
 import { createSessionApi } from './session-api';
@@ -15,6 +15,7 @@ interface RecordedCall {
 
 const REFRESH_PATH = '/auth/refresh';
 const SIGN_IN_PATH = '/auth/login';
+const SIGN_OUT_PATH = '/auth/logout';
 
 const credentials = { email: 'ada@example.com', password: 'correct horse' };
 
@@ -160,5 +161,46 @@ describe('createSessionApi.signIn', () => {
     const api = createSessionApi(createFailingClient(new Error('the mapper is broken')));
 
     await expect(api.signIn(credentials)).rejects.toThrow('the mapper is broken');
+  });
+});
+
+describe('createSessionApi.signOut', () => {
+  it('posts an empty json body and the no-content schema to the sign-out endpoint', async () => {
+    const calls: RecordedCall[] = [];
+    const api = createSessionApi(createRespondingClient(null, calls, SIGN_OUT_PATH));
+
+    await api.signOut();
+
+    expect(calls).toStrictEqual([{ url: SIGN_OUT_PATH, body: {}, schema: noContentSchema }]);
+  });
+
+  it('reports an ended session when the server revokes it', async () => {
+    const api = createSessionApi(createRespondingClient(null, [], SIGN_OUT_PATH));
+
+    await expect(api.signOut()).resolves.toStrictEqual({ status: 'signed-out' });
+  });
+
+  it('reports an ended session when the server had already forgotten it', async () => {
+    const api = createSessionApi(createFailingClient(toHttpFailure('client', 401, SIGN_OUT_PATH)));
+
+    await expect(api.signOut()).resolves.toStrictEqual({ status: 'signed-out' });
+  });
+
+  it('reports an unavailable revocation when the backend fails', async () => {
+    const api = createSessionApi(createFailingClient(toHttpFailure('server', 500, SIGN_OUT_PATH)));
+
+    await expect(api.signOut()).resolves.toStrictEqual({ status: 'unavailable' });
+  });
+
+  it('reports an unavailable revocation when the response carries a body', async () => {
+    const api = createSessionApi(createRespondingClient({ revoked: true }, [], SIGN_OUT_PATH));
+
+    await expect(api.signOut()).resolves.toStrictEqual({ status: 'unavailable' });
+  });
+
+  it('rethrows a failure that is not a transport outcome', async () => {
+    const api = createSessionApi(createFailingClient(new Error('the mapper is broken')));
+
+    await expect(api.signOut()).rejects.toThrow('the mapper is broken');
   });
 });

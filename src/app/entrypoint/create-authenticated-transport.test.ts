@@ -10,6 +10,7 @@ const BASE_URL = 'https://api.test';
 const PROTECTED_PATH = '/me';
 const REFRESH_PATH = '/auth/refresh';
 const SIGN_IN_PATH = '/auth/login';
+const SIGN_OUT_PATH = '/auth/logout';
 
 const okSchema = z.object({ ok: z.boolean() });
 
@@ -228,5 +229,51 @@ describe('createAuthenticatedTransport', () => {
     ).resolves.toStrictEqual({ status: 'rejected' });
 
     expect(transport.sessionObserver.status()).toBe('unknown');
+  });
+
+  it('ends the authenticated session and revokes it through the cookie client', async () => {
+    const exchanges: SignInExchange[] = [];
+    const revocations: (string | null)[] = [];
+
+    server.use(
+      issueTokenTo(exchanges),
+      http.post(`${BASE_URL}${SIGN_OUT_PATH}`, ({ request }) => {
+        revocations.push(request.headers.get('authorization'));
+
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    const transport = createAuthenticatedTransport(BASE_URL);
+
+    await transport.sessionStarter.signIn({ email: 'ada@example.com', password: 'correct horse' });
+
+    expect(transport.sessionObserver.status()).toBe('authenticated');
+
+    const outcome = await transport.sessionEnder.signOut();
+
+    expect(outcome).toStrictEqual({ status: 'signed-out' });
+    expect(transport.sessionObserver.status()).toBe('anonymous');
+    expect(revocations).toStrictEqual([null]);
+  });
+
+  it('ends the local session even when the server refuses to revoke it', async () => {
+    const exchanges: SignInExchange[] = [];
+
+    server.use(
+      issueTokenTo(exchanges),
+      http.post(`${BASE_URL}${SIGN_OUT_PATH}`, () => new HttpResponse(null, { status: 500 })),
+    );
+
+    const transport = createAuthenticatedTransport(BASE_URL);
+
+    await transport.sessionStarter.signIn({ email: 'ada@example.com', password: 'correct horse' });
+
+    expect(transport.sessionObserver.status()).toBe('authenticated');
+
+    await expect(transport.sessionEnder.signOut()).resolves.toStrictEqual({
+      status: 'unavailable',
+    });
+    expect(transport.sessionObserver.status()).toBe('anonymous');
   });
 });

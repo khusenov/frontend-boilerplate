@@ -1,16 +1,17 @@
 # Session management
 
-> **Status:** Complete · **Layers:** app, entities, shared, outside layers · **Verified against:** `1c193c6`
+> **Status:** Complete · **Layers:** app, entities, shared, outside layers · **Verified against:** `19fe53b`
 
 ## Purpose
 
 The API trusts two credentials: a short-lived bearer access token sent with each request, and an
 `httpOnly` refresh cookie — unreadable by any script — that buys a new access token. Session
 management is the engine between the two: it tracks whether a session exists at all, keeps the
-access token in memory, hands it to the authenticated HTTP client, and renews it when the API
-rejects it. It runs at most one renewal at a time — one refresh per tab however many requests ask,
-and one tab after another — because the backend rotates refresh tokens and, when a spent one is
-presented again, revokes the whole token family, which ends that sign-in in every tab that shares
+access token in memory, hands it to the authenticated HTTP client, renews it when the API rejects
+it, and ends it — on request through the `SessionEnder` port, or when the refresh expires. It runs
+at most one renewal at a time — one refresh per tab however many requests ask, and one tab after
+another — because the backend rotates refresh tokens and, when a spent one is presented again,
+revokes the whole token family, which ends that sign-in in every tab that shares
 the cookie. When a session ends it empties the query cache, so data fetched under one session never
 outlives it, and to everything above it a session is a status string, never a token.
 
@@ -19,16 +20,17 @@ outlives it, and to everything above it a session is a status string, never a to
 **Construction sends nothing.** `App` passes `appConfig.apiBaseUrl` to `AppProviders`, which builds
 one _transport_ for the app's lifetime in a `useState` lazy initializer. Throughout this doc
 **transport** means exactly one thing: the `AuthenticatedTransport` bundle
-`createAuthenticatedTransport` returns — the authenticated HTTP client plus three _ports_, types
-other code programs against without knowing which concrete implements them: `SessionObserver`,
-`SessionResolver` and `SessionStarter` (the full interface is under
+`createAuthenticatedTransport` returns — the authenticated HTTP client plus four session-related
+values: three _ports_, types other code programs against without knowing which concrete implements
+them (`SessionEnder`, `SessionResolver` and `SessionStarter`), and the `SessionObserver`, the
+read-only view of the status (the full interface is under
 [Public surface → Types](#types)). The bundle is not the peer feature
 [HTTP transport](./http-transport.md), which owns the `HttpClient` port, `createHttpClient` and the
 interceptor mechanics that this bundle's two clients are built from; this doc covers only what the
 session plugs into them. Behind the bundle the factory also wires a `SessionStore` (which starts in
 `unknown`), an unauthenticated HTTP client, one `SessionApi` and a `SessionTokenSource` — none of
-which it returns. `AppProviders` publishes the client, the resolver and the starter through React
-providers and subscribes `clearCacheOnSessionEnd` to the observer in a `useEffect`
+which it returns. `AppProviders` publishes the client, the resolver, the starter and the ender
+through React providers and subscribes `clearCacheOnSessionEnd` to the observer in a `useEffect`
 ([Composition root](./composition-root.md) covers the provider tree). No request leaves until
 something asks about the session.
 
@@ -50,8 +52,10 @@ unauthenticated client; the only credential is the refresh cookie. The answer be
 validated and `toRefreshedAccessToken` mapped; `expired` when the endpoint answers `401`; or
 `unavailable` for any other `HttpError` — another status, a network failure, a timeout, or a body
 that fails the schema, an empty token included. The token source's `applyResult` then writes the
-store: `refreshed` calls `store.start(accessToken)`, `expired` calls `store.end()`, and
-`unavailable` changes nothing.
+store: `expired` calls `store.end()`, `unavailable` changes nothing, and `refreshed` calls
+`store.start(accessToken)` — but only after re-reading the store. If the status is `anonymous` by
+the time the answer arrives, `applyResult` starts nothing and returns `null`: a session that ended
+while its renewal was in flight stays ended — the overlap is described under **Session end** below.
 
 **Serving the token.** Before each request on the authenticated client, the interceptor calls
 `getToken()`, which projects the token out of the current state with `readAccessToken` — `null`
@@ -59,12 +63,12 @@ while the session is `unknown` or `anonymous`, in which case the request goes ou
 `Authorization` header. After a `401`, `renewToken(staleToken)` decides whether a refresh is worth
 a request:
 
-| Store state when the `401` arrives                                                           | `renewToken` resolves to                                         |
-| -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| `anonymous`                                                                                  | `null` at once — no request                                      |
-| A renewal is already running                                                                 | That renewal's result, whatever token the caller carried         |
-| Holds exactly `staleToken` — including `unknown` after a bare request, where both are `null` | The result of a new single-flight refresh                        |
-| Holds a different token                                                                      | That token, with no request — another caller has already renewed |
+| Store state when the `401` arrives                                                           | `renewToken` resolves to                                                                                |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `anonymous`                                                                                  | `null` at once — no request                                                                             |
+| A renewal is already running                                                                 | That renewal's result, whatever token the caller carried — `null` if the session ends before it settles |
+| Holds exactly `staleToken` — including `unknown` after a bare request, where both are `null` | The result of a new single-flight refresh                                                               |
+| Holds a different token                                                                      | That token, with no request — another caller has already renewed                                        |
 
 The interceptor then replays the request once or rejects with the original `401`. `settle()` is the
 guard's variant: an `authenticated` or `anonymous` status is returned as it stands, without a
@@ -94,6 +98,36 @@ as an exception.
 
 **Session end.** `store.end()` publishes `anonymous`. `clearCacheOnSessionEnd` remembers the
 previous status and, on any notification that leaves `authenticated`, calls `queryClient.clear()`.
+Two paths reach `end()`: the `expired` arm of `applyResult`, above, and a sign-out. The invariant
+that holds them together is that **once the session has ended, a renewal that was already in flight
+cannot restart it**. `renewToken` refuses to _start_ one against an `anonymous` store, and
+`applyResult`'s `refreshed` branch re-reads the store before calling `store.start()`, which covers
+the renewal already running. Of the two paths, only sign-out can overlap a renewal: the `expired`
+arm runs inside the single flight and so cannot race itself, while `SessionEnder.signOut()` runs
+outside it, from a click. Without
+the re-read, a `401` that joined a refresh, a click on the sign-out control while it was in flight,
+and the refresh then resolving would republish `authenticated` with a live in-memory token — the
+visitor signed back in, the query cache cleared and refilled, and the `_authenticated` guard
+admitting them on the next navigation, with nothing on screen saying so. With it, the joined callers
+receive `null` and the store stays `anonymous`.
+
+**Sign-out.** `SessionEnder` is the counterpart of `SessionStarter`: one method,
+`signOut: () => Promise<SignOutOutcome>`, read from React context with `useSessionEnder()`. Its one
+caller today is `useSignOut` in `features/sign-out`; that slice's `SignOutButton` is what
+`pages/user-profile` renders, and the `/users/$userId` route supplies the destination, navigating to
+`/sign-in` once the mutation settles, exactly as `sign-in.tsx` supplies `onSignedIn`
+([Sign-in](./sign-in.md)). [Sign-out](./sign-out.md) documents that capability end to end — the
+button, the hook and the screen; what follows is only the part the session engine owns.
+`createSessionEnder` calls the injected `requestSignOut` and ends the local session in a `finally`,
+so `store.end()` runs whether the request resolves, resolves `unavailable` or rejects — a token
+kept alive because the network was down would leave the next person at this browser signed in.
+`SessionApi.signOut` posts an empty JSON object to `{apiBaseUrl}/auth/logout` (`SIGN_OUT_PATH`)
+through the same cookie-bearing unauthenticated client `refresh` uses, validating the `204` with
+`noContentSchema` from `@/shared/api` — no DTO and no mapper, because there is no body to map. The
+answer becomes a `SignOutOutcome`: `signed-out` on success and on a `401` (a session the server has
+already forgotten is a session successfully ended), `unavailable` for any other `HttpError`; a
+non-`HttpError` is rethrown, and the `finally` still ends the local session. The cache clears
+itself, because `clearCacheOnSessionEnd` already watches the `authenticated → anonymous` edge.
 
 ```mermaid
 stateDiagram-v2
@@ -101,29 +135,34 @@ stateDiagram-v2
   unknown --> authenticated: refresh answers refreshed, or sign-in
   unknown --> anonymous: refresh answers expired
   authenticated --> authenticated: a different token, from refresh or sign-in
-  authenticated --> anonymous: refresh answers expired
+  authenticated --> anonymous: refresh answers expired, or sign-out
   anonymous --> authenticated: sign-in
 ```
 
-An `unavailable` refresh is not a transition: the state stays where it was.
+An `unavailable` refresh is not a transition: the state stays where it was. Neither is a `refreshed`
+one that arrives after the session has gone `anonymous` — `applyResult` drops it — so the only edge
+out of `anonymous` is a sign-in.
 
 ## Architecture
 
 In Feature-Sliced Design terms, `entities/session` is a _slice_ — one folder per business noun on a
-layer — split into purpose-named _segments_: `model/` holds the state machine, the store and the
-renewal policy and names no HTTP status code; `api/` holds the refresh call, its wire schema and its
-mapper. It holds no TanStack Query option factory — the segment's other usual inhabitant, and what
+layer — split into purpose-named _segments_: `model/` holds the state machine, the store, the
+renewal policy and the lifecycle ports with their context/provider pairs, and names no HTTP status
+code; `api/` holds the refresh and sign-out calls, the refresh wire schema and its mapper. It holds
+no TanStack Query option factory — the segment's other usual inhabitant, and what
 `entities/user/api/` fills with `user-queries.ts` and `user-mutations.ts` — because nothing above
 the slice renders a session, so there is nothing yet to query. Other layers import the slice only
 through its _public API_, `src/entities/session/index.ts`. _Seam_ is this repo's other word for a
 port: a type consumers program against while the concrete implementation is chosen elsewhere. This
-feature's seams are `SessionObserver`, the read-only view of the status; `BearerTokenSource`, a
-consumer-driven port that `shared/api` declares for its bearer interceptor and `SessionTokenSource`
-implements; and, inside the slice, `SessionRenewalTarget` (a `Pick` of the store) plus the injected
-`refresh: () => Promise<RefreshResult>`, so the renewal policy depends on neither the concrete
-store nor HTTP. The concretes — `createSessionStore`, `createSessionApi`,
-`createSessionTokenSource`, and `singleFlight` beneath the token source — meet in exactly one place:
-`src/app/entrypoint/create-authenticated-transport.ts`, inside `app/entrypoint`
+feature's seams are `SessionObserver`, the read-only view of the status; `SessionEnder`, the
+one-method port that ends a session on request; `BearerTokenSource`, a consumer-driven port that
+`shared/api` declares for its bearer interceptor and `SessionTokenSource` implements; and, inside
+the slice, `SessionRenewalTarget` and `SessionEndTarget` (two `Pick`s of the store) plus the
+injected `refresh: () => Promise<RefreshResult>` and
+`requestSignOut: () => Promise<SignOutOutcome>`, so neither the renewal policy nor the ender depends
+on the concrete store or on HTTP. The concretes — `createSessionStore`, `createSessionApi`,
+`createSessionTokenSource`, `createSessionEnder`, and `singleFlight` beneath the token source — meet
+in exactly one place: `src/app/entrypoint/create-authenticated-transport.ts`, inside `app/entrypoint`
 ([Composition root](./composition-root.md)), the only place a client is constructed. `AppProviders`
 owns the result's
 lifetime. Imports point strictly downward — `app/entrypoint` → `entities/session` → `shared/api`,
@@ -131,26 +170,30 @@ lifetime. Imports point strictly downward — `app/entrypoint` → `entities/ses
 import below `app` and in `app/routes` and `app/router`
 ([Architecture boundaries](./architecture-boundaries.md) documents the fences).
 
-| Component                                                      | Layer                    | Responsibility                                                                                                      | File                                                   |
-| -------------------------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| `SessionState`, `SessionStatus`, `readAccessToken`             | entities/session · model | The three-state union, its status projection, and the pure token projection (`null` unless `authenticated`)         | `src/entities/session/model/session-state.ts`          |
-| `AccessToken`, `toAccessToken`                                 | entities/session · model | The branded token type and the one function that mints it                                                           | `src/entities/session/model/access-token.ts`           |
-| `RefreshResult`                                                | entities/session · model | The outcome of one refresh: `refreshed` (with the token), `expired` or `unavailable`                                | `src/entities/session/model/refresh-result.ts`         |
-| `createSessionStore`, `SessionStore`                           | entities/session · model | In-memory, observable holder of the `SessionState`: `read`, `subscribe`, `start`, `end`                             | `src/entities/session/model/session-store.ts`          |
-| `toSessionObserver`, `SessionObserver`                         | entities/session · model | The read-only view: `status()` and `subscribe()`, no token and no mutator                                           | `src/entities/session/model/session-store.ts`          |
-| `createSessionTokenSource`, `SessionTokenSource`               | entities/session · model | Serves the token (`getToken`), decides and runs renewals (`renewToken`), bootstraps an `unknown` session (`settle`) | `src/entities/session/model/session-token-source.ts`   |
-| `createSessionApi` (its `refresh`), `SessionWriteClient`       | entities/session · api   | Posts to `/auth/refresh` and classifies the answer into a `RefreshResult`                                           | `src/entities/session/api/session-api.ts`              |
-| `refreshSessionResponseDtoSchema`, `RefreshSessionResponseDto` | entities/session · api   | The `zod/mini` wire schema of the refresh response: a non-empty `accessToken`                                       | `src/entities/session/api/session-dto.ts`              |
-| `toRefreshedAccessToken`                                       | entities/session · api   | Maps the refresh DTO to an `AccessToken`                                                                            | `src/entities/session/api/session-mapper.ts`           |
-| `singleFlight`                                                 | shared/lib               | Runs a task at most once at a time: one shared promise per tab, a Web Lock across tabs                              | `src/shared/lib/single-flight/single-flight.ts`        |
-| `BearerTokenSource`                                            | shared/api               | The port the bearer interceptor calls; `SessionTokenSource` implements it                                           | `src/shared/api/bearer-token-source.ts`                |
-| `attachBearerToken`                                            | shared/api               | The interceptors that send the token and renew once on a `401` ([HTTP transport](./http-transport.md))              | `src/shared/api/attach-bearer-token.ts`                |
-| `appConfig.name`                                               | shared/config            | Namespace of the refresh lock                                                                                       | `src/shared/config/app-config.ts`                      |
-| `createAuthenticatedTransport`, `AuthenticatedTransport`       | app/entrypoint           | Composes the two HTTP clients with the session collaborators; returns the client and three ports                    | `src/app/entrypoint/create-authenticated-transport.ts` |
-| `clearCacheOnSessionEnd`, `CacheResetTarget`                   | app/entrypoint           | Clears the query cache on every transition out of `authenticated`                                                   | `src/app/entrypoint/clear-cache-on-session-end.ts`     |
-| `AppProviders`                                                 | app/entrypoint           | Owns the transport's lifetime and subscribes the cache policy                                                       | `src/app/entrypoint/app-providers.tsx`                 |
-| `SESSION_CONSTRUCTOR_NAMES`                                    | outside layers           | Lint fence that keeps the five session constructors out of lower layers and `app/routes` / `app/router`             | `eslint.config.js`                                     |
-| `restoreSession`                                               | outside layers           | End-to-end stub that answers the refresh with a pinned token                                                        | `e2e/fixtures/session-stub.ts`                         |
+| Component                                                              | Layer                    | Responsibility                                                                                                                                               | File                                                    |
+| ---------------------------------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------- |
+| `SessionState`, `SessionStatus`, `readAccessToken`                     | entities/session · model | The three-state union, its status projection, and the pure token projection (`null` unless `authenticated`)                                                  | `src/entities/session/model/session-state.ts`           |
+| `AccessToken`, `toAccessToken`                                         | entities/session · model | The branded token type and the one function that mints it                                                                                                    | `src/entities/session/model/access-token.ts`            |
+| `RefreshResult`                                                        | entities/session · model | The outcome of one refresh: `refreshed` (with the token), `expired` or `unavailable`                                                                         | `src/entities/session/model/refresh-result.ts`          |
+| `SignOutOutcome`                                                       | entities/session · model | The outcome of one sign-out: `signed-out` or `unavailable`                                                                                                   | `src/entities/session/model/sign-out-outcome.ts`        |
+| `createSessionStore`, `SessionStore`                                   | entities/session · model | In-memory, observable holder of the `SessionState`: `read`, `subscribe`, `start`, `end`                                                                      | `src/entities/session/model/session-store.ts`           |
+| `toSessionObserver`, `SessionObserver`                                 | entities/session · model | The read-only view: `status()` and `subscribe()`, no token and no mutator                                                                                    | `src/entities/session/model/session-store.ts`           |
+| `createSessionTokenSource`, `SessionTokenSource`                       | entities/session · model | Serves the token (`getToken`), decides and runs renewals (`renewToken`), drops one whose session ended meanwhile, bootstraps an `unknown` session (`settle`) | `src/entities/session/model/session-token-source.ts`    |
+| `createSessionEnder`, `SessionEnder`, `SessionEndTarget`               | entities/session · model | Ends a session on request: asks the server to revoke, then calls `store.end()` in a `finally`                                                                | `src/entities/session/model/session-ender.ts`           |
+| `useSessionEnder`, `SessionEnderContext`                               | entities/session · model | Reads the `SessionEnder` back out of React context; throws when no provider is above the caller                                                              | `src/entities/session/model/session-ender-context.ts`   |
+| `SessionEnderProvider`                                                 | entities/session · model | Publishes one `SessionEnder` to its subtree                                                                                                                  | `src/entities/session/model/session-ender-provider.tsx` |
+| `createSessionApi` (its `refresh` and `signOut`), `SessionWriteClient` | entities/session · api   | Posts to `/auth/refresh` and `/auth/logout` and classifies each answer into a `RefreshResult` or a `SignOutOutcome`                                          | `src/entities/session/api/session-api.ts`               |
+| `refreshSessionResponseDtoSchema`, `RefreshSessionResponseDto`         | entities/session · api   | The `zod/mini` wire schema of the refresh response: a non-empty `accessToken`                                                                                | `src/entities/session/api/session-dto.ts`               |
+| `toRefreshedAccessToken`                                               | entities/session · api   | Maps the refresh DTO to an `AccessToken`                                                                                                                     | `src/entities/session/api/session-mapper.ts`            |
+| `singleFlight`                                                         | shared/lib               | Runs a task at most once at a time: one shared promise per tab, a Web Lock across tabs                                                                       | `src/shared/lib/single-flight/single-flight.ts`         |
+| `BearerTokenSource`                                                    | shared/api               | The port the bearer interceptor calls; `SessionTokenSource` implements it                                                                                    | `src/shared/api/bearer-token-source.ts`                 |
+| `attachBearerToken`                                                    | shared/api               | The interceptors that send the token and renew once on a `401` ([HTTP transport](./http-transport.md))                                                       | `src/shared/api/attach-bearer-token.ts`                 |
+| `appConfig.name`                                                       | shared/config            | Namespace of the refresh lock                                                                                                                                | `src/shared/config/app-config.ts`                       |
+| `createAuthenticatedTransport`, `AuthenticatedTransport`               | app/entrypoint           | Composes the two HTTP clients with the session collaborators; returns the client, three ports and the observer                                               | `src/app/entrypoint/create-authenticated-transport.ts`  |
+| `clearCacheOnSessionEnd`, `CacheResetTarget`                           | app/entrypoint           | Clears the query cache on every transition out of `authenticated`                                                                                            | `src/app/entrypoint/clear-cache-on-session-end.ts`      |
+| `AppProviders`                                                         | app/entrypoint           | Owns the transport's lifetime and subscribes the cache policy                                                                                                | `src/app/entrypoint/app-providers.tsx`                  |
+| `SESSION_CONSTRUCTOR_NAMES`                                            | outside layers           | Lint fence that keeps the six session constructors out of lower layers and `app/routes` / `app/router`                                                       | `eslint.config.js`                                      |
+| `restoreSession`                                                       | outside layers           | End-to-end stub that answers the refresh with a pinned token                                                                                                 | `e2e/fixtures/session-stub.ts`                          |
 
 ## Public surface
 
@@ -159,28 +202,33 @@ ports.
 
 ### The `@/entities/session` public API
 
-Three documented features share this barrel. Every export is listed, with the doc that owns it. The
-five `create*` factories are constructors: lint bans importing them below `app` and in `app/routes`
+Four documented features share this barrel. Every export is listed, with the doc that owns it. The
+six `create*` factories are constructors: lint bans importing them below `app` and in `app/routes`
 and `app/router`, so in practice only `app/entrypoint` calls them.
 
-| Export                     | Kind      | Documented in                                            |
-| -------------------------- | --------- | -------------------------------------------------------- |
-| `createSessionStore`       | factory   | This doc                                                 |
-| `toSessionObserver`        | function  | This doc                                                 |
-| `SessionObserver`          | type      | This doc                                                 |
-| `SessionStatus`            | type      | This doc                                                 |
-| `createSessionTokenSource` | factory   | This doc                                                 |
-| `createSessionApi`         | factory   | This doc (`refresh`); [Sign-in](./sign-in.md) (`signIn`) |
-| `createSessionResolver`    | factory   | [Authenticated route guard](./route-guard.md)            |
-| `SessionResolver`          | type      | [Authenticated route guard](./route-guard.md)            |
-| `useSessionResolver`       | hook      | [Authenticated route guard](./route-guard.md)            |
-| `SessionResolverProvider`  | component | [Authenticated route guard](./route-guard.md)            |
-| `createSessionStarter`     | factory   | [Sign-in](./sign-in.md)                                  |
-| `SessionStarter`           | type      | [Sign-in](./sign-in.md)                                  |
-| `useSessionStarter`        | hook      | [Sign-in](./sign-in.md)                                  |
-| `SessionStarterProvider`   | component | [Sign-in](./sign-in.md)                                  |
-| `Credentials`              | type      | [Sign-in](./sign-in.md)                                  |
-| `SignInOutcome`            | type      | [Sign-in](./sign-in.md)                                  |
+| Export                     | Kind      | Documented in                                                                                   |
+| -------------------------- | --------- | ----------------------------------------------------------------------------------------------- |
+| `createSessionStore`       | factory   | This doc                                                                                        |
+| `toSessionObserver`        | function  | This doc                                                                                        |
+| `SessionObserver`          | type      | This doc                                                                                        |
+| `SessionStatus`            | type      | This doc                                                                                        |
+| `createSessionTokenSource` | factory   | This doc                                                                                        |
+| `createSessionApi`         | factory   | This doc (`refresh`); [Sign-in](./sign-in.md) (`signIn`); [Sign-out](./sign-out.md) (`signOut`) |
+| `createSessionResolver`    | factory   | [Authenticated route guard](./route-guard.md)                                                   |
+| `SessionResolver`          | type      | [Authenticated route guard](./route-guard.md)                                                   |
+| `useSessionResolver`       | hook      | [Authenticated route guard](./route-guard.md)                                                   |
+| `SessionResolverProvider`  | component | [Authenticated route guard](./route-guard.md)                                                   |
+| `createSessionStarter`     | factory   | [Sign-in](./sign-in.md)                                                                         |
+| `SessionStarter`           | type      | [Sign-in](./sign-in.md)                                                                         |
+| `useSessionStarter`        | hook      | [Sign-in](./sign-in.md)                                                                         |
+| `SessionStarterProvider`   | component | [Sign-in](./sign-in.md)                                                                         |
+| `Credentials`              | type      | [Sign-in](./sign-in.md)                                                                         |
+| `SignInOutcome`            | type      | [Sign-in](./sign-in.md)                                                                         |
+| `createSessionEnder`       | factory   | [Sign-out](./sign-out.md)                                                                       |
+| `SessionEnder`             | type      | [Sign-out](./sign-out.md)                                                                       |
+| `useSessionEnder`          | hook      | [Sign-out](./sign-out.md)                                                                       |
+| `SessionEnderProvider`     | component | [Sign-out](./sign-out.md)                                                                       |
+| `SignOutOutcome`           | type      | [Sign-out](./sign-out.md)                                                                       |
 
 ### Types
 
@@ -253,6 +301,28 @@ export type SessionWriteClient = Pick<HttpClient, 'post'>;
 export interface SessionApi {
   readonly refresh: () => Promise<RefreshResult>;
   readonly signIn: (credentials: Credentials) => Promise<SignInResult>;
+  readonly signOut: () => Promise<SignOutOutcome>;
+}
+```
+
+The sign-out outcome and the port that produces it, from `model/sign-out-outcome.ts` and
+`model/session-ender.ts` — repeated here because they are what reaches `store.end()`;
+[Sign-out](./sign-out.md) owns their consumer-facing contract. `SignOutOutcome` is the whole answer
+— there is no `SignOutResult` carrying a payload, because a revocation returns nothing — so the port
+and the API method share one signature:
+
+```ts
+export type SignOutOutcome = { readonly status: 'signed-out' } | { readonly status: 'unavailable' };
+
+export type SessionEndTarget = Pick<SessionStore, 'end'>;
+
+export interface SessionEnder {
+  readonly signOut: () => Promise<SignOutOutcome>;
+}
+
+export interface CreateSessionEnderOptions {
+  readonly store: SessionEndTarget;
+  readonly requestSignOut: () => Promise<SignOutOutcome>;
 }
 ```
 
@@ -273,6 +343,7 @@ The transport bundle itself — the `AuthenticatedTransport` that every "transpo
 ```ts
 export interface AuthenticatedTransport {
   readonly httpClient: HttpClient;
+  readonly sessionEnder: SessionEnder;
   readonly sessionObserver: SessionObserver;
   readonly sessionResolver: SessionResolver;
   readonly sessionStarter: SessionStarter;
@@ -289,6 +360,7 @@ export type CacheResetTarget = Pick<QueryClient, 'clear'>;
 | `toSessionObserver`            | `(store: SessionStore): SessionObserver`                                            | `@/entities/session`                         |
 | `createSessionTokenSource`     | `(options: CreateSessionTokenSourceOptions): SessionTokenSource`                    | `@/entities/session`                         |
 | `createSessionApi`             | `(unauthenticatedClient: SessionWriteClient): SessionApi`                           | `@/entities/session`                         |
+| `createSessionEnder`           | `(options: CreateSessionEnderOptions): SessionEnder`                                | `@/entities/session`                         |
 | `readAccessToken`              | `(state: SessionState): AccessToken \| null`                                        | Slice-internal                               |
 | `toAccessToken`                | `(value: string): AccessToken`                                                      | Slice-internal                               |
 | `toRefreshedAccessToken`       | `(dto: RefreshSessionResponseDto): AccessToken`                                     | Slice-internal                               |
@@ -306,28 +378,41 @@ export type CacheResetTarget = Pick<QueryClient, 'clear'>;
 | `401`         | `expired`: the session is over                                                                                                                       |
 | Anything else | `unavailable` for every other `HttpError` (another status, `network`, `timeout`, or `validation` on a malformed body); a non-`HttpError` is rethrown |
 
+### The sign-out exchange
+
+The half of `SessionApi` that ends a session, listed here beside the refresh because both run on the
+same client; [Sign-out](./sign-out.md) covers the rest of that capability.
+
+| Aspect        | Contract                                                                                                                                                         |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Request       | `POST {apiBaseUrl}/auth/logout` (`SIGN_OUT_PATH`), JSON body `{}`, through the same unauthenticated client                                                       |
+| Credential    | The `httpOnly` refresh cookie only; the request carries no `Authorization` header, which `create-authenticated-transport.test.ts` asserts                        |
+| `204`         | An empty body, validated by `noContentSchema` from `@/shared/api` — no DTO and no mapper — then `signed-out`                                                     |
+| `401`         | `signed-out`: a session the server has already forgotten is a session successfully ended                                                                         |
+| Anything else | `unavailable` for every other `HttpError`, a `204` that carries a body included (`validation`); a non-`HttpError` is rethrown, after the local session has ended |
+
 ### Internal by design
 
-`SessionState`, `SessionStore`, `SessionListener`, `SessionRenewalTarget`, `readAccessToken`,
-`AccessToken`, `toAccessToken`, `RefreshResult`, `SessionTokenSource`,
-`CreateSessionTokenSourceOptions`, `SessionApi`, `SessionWriteClient`, the refresh DTO, its schema
-and its mapper stay inside the slice. No module outside it can name a token-carrying type, a mutator
-or the wire shape; `create-authenticated-transport.ts` holds the store and the token source only by
-inference, and they never leave that factory.
+`SessionState`, `SessionStore`, `SessionListener`, `SessionRenewalTarget`, `SessionEndTarget`,
+`readAccessToken`, `AccessToken`, `toAccessToken`, `RefreshResult`, `SessionTokenSource`,
+`CreateSessionTokenSourceOptions`, `CreateSessionEnderOptions`, `SessionApi`, `SessionWriteClient`,
+the refresh DTO, its schema and its mapper stay inside the slice. No module outside it can name a
+token-carrying type, a mutator or the wire shape; `create-authenticated-transport.ts` holds the
+store and the token source only by inference, and they never leave that factory.
 
 ## Configuration
 
-| Variable / option                                                          | Default                                                  | Meaning                                                                                                                                                             |
-| -------------------------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `VITE_API_BASE_URL`, read into `appConfig.apiBaseUrl`                      | `/v1` (a blank or whitespace-only value also falls back) | Base URL of both clients; the refresh goes to `{base}/auth/refresh`. Keep the `/v1` prefix — see below                                                              |
-| `appConfig.name`                                                           | `'frontend-boilerplate'`                                 | Namespace of the Web Lock: `REFRESH_TASK_NAME` is `frontend-boilerplate:session-refresh`                                                                            |
-| `AppProviders` `apiBaseUrl` prop → `createAuthenticatedTransport(baseUrl)` | `appConfig.apiBaseUrl`, passed by `app.tsx`              | The base URL both clients share, read once in the `useState` initializer; a later prop change does not rebuild the transport                                        |
-| `sendCookies` on the unauthenticated client                                | `true` (`createHttpClient` defaults it to `false`)       | Sets axios `withCredentials`, which lets `/auth/refresh` and `/auth/login` send and receive the refresh cookie even when the API is another origin of the same site |
-| `bearerTokenSource` on the authenticated client                            | The `SessionTokenSource`                                 | Attaches `Authorization: Bearer <token>` and the renew-once-on-`401` replay                                                                                         |
-| `LOCK_TIMEOUT_MILLISECONDS` (constant, `single-flight.ts`)                 | `20_000`                                                 | Longest a tab waits to acquire the lock before its renewal counts as failed                                                                                         |
-| `DEFAULT_TIMEOUT_MILLISECONDS` (constant, `http-client.ts`)                | `15_000`                                                 | Bounds each refresh request; neither client overrides `timeoutMilliseconds`                                                                                         |
-| `server.proxy` in `vite.config.ts`                                         | `'/v1': 'http://localhost:8000'`                         | Keeps every request same-origin in development                                                                                                                      |
-| `webServer.env` in `playwright.config.ts`                                  | `VITE_API_BASE_URL: API_PREFIX` (`/v1`)                  | The base URL of the production build the end-to-end suite runs against                                                                                              |
+| Variable / option                                                          | Default                                                  | Meaning                                                                                                                                                                             |
+| -------------------------------------------------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `VITE_API_BASE_URL`, read into `appConfig.apiBaseUrl`                      | `/v1` (a blank or whitespace-only value also falls back) | Base URL of both clients; the refresh goes to `{base}/auth/refresh`. Keep the `/v1` prefix — see below                                                                              |
+| `appConfig.name`                                                           | `'frontend-boilerplate'`                                 | Namespace of the Web Lock: `REFRESH_TASK_NAME` is `frontend-boilerplate:session-refresh`                                                                                            |
+| `AppProviders` `apiBaseUrl` prop → `createAuthenticatedTransport(baseUrl)` | `appConfig.apiBaseUrl`, passed by `app.tsx`              | The base URL both clients share, read once in the `useState` initializer; a later prop change does not rebuild the transport                                                        |
+| `sendCookies` on the unauthenticated client                                | `true` (`createHttpClient` defaults it to `false`)       | Sets axios `withCredentials`, which lets `/auth/refresh`, `/auth/login` and `/auth/logout` send and receive the refresh cookie even when the API is another origin of the same site |
+| `bearerTokenSource` on the authenticated client                            | The `SessionTokenSource`                                 | Attaches `Authorization: Bearer <token>` and the renew-once-on-`401` replay                                                                                                         |
+| `LOCK_TIMEOUT_MILLISECONDS` (constant, `single-flight.ts`)                 | `20_000`                                                 | Longest a tab waits to acquire the lock before its renewal counts as failed                                                                                                         |
+| `DEFAULT_TIMEOUT_MILLISECONDS` (constant, `http-client.ts`)                | `15_000`                                                 | Bounds each refresh request; neither client overrides `timeoutMilliseconds`                                                                                                         |
+| `server.proxy` in `vite.config.ts`                                         | `'/v1': 'http://localhost:8000'`                         | Keeps every request same-origin in development                                                                                                                                      |
+| `webServer.env` in `playwright.config.ts`                                  | `VITE_API_BASE_URL: API_PREFIX` (`/v1`)                  | The base URL of the production build the end-to-end suite runs against                                                                                                              |
 
 `VITE_API_BASE_URL` is read only by `src/shared/config/app-config.ts`
 ([Configuration and environment](./configuration.md)). Three deployment rules follow from the
@@ -345,6 +430,13 @@ refresh cookie, which backend-boilerplate issues `httpOnly`, with `sameSite: 'st
   every request same-origin — no CORS, no preflight on the renewal path — and mirrors the
   reverse-proxy topology a production deployment should use. On one origin the browser attaches
   cookies whatever `sendCookies` says; the cookie's `path` is what confines it to `/v1/auth/*`.
+- **The cookie is the only credential the revoke carries, so the backend must reject cross-site
+  requests.** `POST /v1/auth/logout` sends an empty body and no `Authorization` header, so any page
+  that can make the browser attach the refresh cookie can end the session: logout CSRF is real, and
+  the defence is `SameSite=Lax` or `Strict` on the refresh cookie, or a CSRF token. The
+  `sameSite: 'strict'` cookie backend-boilerplate issues already satisfies it. `/auth/refresh`
+  carries the same expectation for the same reason — sign-out makes it explicit rather than adding
+  it.
 
 `appConfig.name` is read directly by `src/entities/session/model/session-token-source.ts` — the one
 module below `app` that imports `appConfig` rather than receiving configuration from the composition
@@ -359,8 +451,31 @@ the same value through its `name` prop.
 Below `app` there is nothing to call. A component or hook that sends a request through
 `useHttpClient()`, or a route `loader` that uses `context.httpClient`, gets the bearer header, the
 renewal and the replay without seeing a token. The guard reaches the session through
-`SessionResolver` ([Authenticated route guard](./route-guard.md)) and the sign-in form through
-`SessionStarter` ([Sign-in](./sign-in.md)).
+`SessionResolver` ([Authenticated route guard](./route-guard.md)), the sign-in form through
+`SessionStarter` ([Sign-in](./sign-in.md)), and a sign-out control through `SessionEnder`, read
+with `useSessionEnder()`:
+
+```ts
+import { useMutation } from '@tanstack/react-query';
+
+import { useSessionEnder } from '@/entities/session';
+
+export function useEndSession(onEnded: () => void) {
+  const sessionEnder = useSessionEnder();
+
+  return useMutation({
+    mutationFn: () => sessionEnder.signOut(),
+    onSettled: onEnded,
+  });
+}
+```
+
+`onSettled` rather than `onSuccess`, because the local session is gone down every path, a rejection
+included. `useSessionEnder()` throws `useSessionEnder must be called inside a SessionEnderProvider`
+when no provider is above the caller, so every component or hook that calls it — and every test that
+renders one — must sit inside `SessionEnderProvider`. `features/sign-out` is the reference consumer:
+its `useSignOut` hook has exactly this shape, and its `SignOutButton` is what `pages/user-profile`
+renders ([Sign-out](./sign-out.md)).
 
 In `app/entrypoint`, build exactly one transport per app, in a lazy initializer, as `AppProviders`
 does:
@@ -457,7 +572,7 @@ export { SessionObserverProvider } from './model/session-observer-provider';
 ```
 
 Finally, in `src/app/entrypoint/app-providers.tsx`, import `SessionObserverProvider` from
-`@/entities/session` next to the other two session providers and nest
+`@/entities/session` next to the other three session providers and nest
 `<SessionObserverProvider sessionObserver={transport.sessionObserver}>` directly around
 `{children}`. Co-locate a test that mirrors `session-resolver-context.test.tsx` and adds a case that
 moves a real `createSessionStore()` behind `toSessionObserver`: `vite.config.ts` enforces 90%
@@ -517,6 +632,15 @@ engine at a different refresh endpoint, change, in order:
 6. The fixtures in `session-api.test.ts`, `session-mapper.test.ts` and the MSW handlers in
    `create-authenticated-transport.test.ts`.
 
+The sign-out endpoint is a shorter walk down the same path: change `SIGN_OUT_PATH` in
+`session-api.ts` and the classification in `createSessionApi`'s `signOut`, where only the answer
+that means "this session is gone" may become `signed-out`. There is no schema or mapper to change
+while the response body stays empty — `noContentSchema` from `@/shared/api` accepts `''`, `null` and
+`undefined` and nothing else. A backend that answers the revocation with a body needs its own DTO
+schema in `session-dto.ts` in `noContentSchema`'s place, and the sign-out case in
+`session-api.test.ts` that pins today's behaviour ('reports an unavailable revocation when the
+response carries a body') has to move with it.
+
 ## Design decisions & trade-offs
 
 - **Three states, not a nullable token.** `SessionState` is `unknown` (no refresh has answered),
@@ -535,6 +659,20 @@ engine at a different refresh endpoint, change, in order:
   `server` and `timeout` failures and `429` only). `unknown` deliberately does not latch, which is
   what lets the first request or guard of a page load trigger the bootstrap refresh; the latch
   clears when a sign-in calls `store.start()`, which is what makes signing in again work.
+- **The latch holds against a renewal already in flight, and it took two checks to make it.**
+  `renewToken`'s `anonymous` guard only refuses to _start_ a renewal; a renewal that began while the
+  session was live is already past it. That gap could not be lost until sign-out shipped, because
+  the only caller of `store.end()` was `applyResult`'s own `expired` arm, which runs inside the
+  single flight and so cannot overlap itself — `SessionEnder.signOut()` runs outside it, from a
+  click. So `applyResult`'s `refreshed` arm re-reads the store and returns `null` when the status is
+  `anonymous`, and the invariant becomes unconditional: nothing but a sign-in leaves `anonymous`.
+  The alternative — cancelling the request — is not available: the flight is shared, `singleFlight`
+  exposes `run()` and `isRunning()` and no way to cancel the task (its one `AbortSignal` bounds the
+  lock wait, not the request), and another tab may be waiting on that lock. Dropping the _result_
+  costs one wasted round trip and one spent rotation of the refresh cookie. `settle()` needs no
+  such check: it joins the
+  flight only while the status is `unknown`, never while it is `anonymous`, and it returns the
+  status it re-reads from the store rather than the token.
 - **Only a `401` from `/auth/refresh` ends a session.** A `500`, a dropped connection, a timeout or
   a wire-shape mismatch is `unavailable`: the attempt failed, the session did not, so the store keeps
   its state and the next request tries again. Collapsing the two is how a client signs every user
@@ -585,14 +723,39 @@ engine at a different refresh endpoint, change, in order:
   `SessionApi` over it, and a bearer client for everything else; the same split keeps a wrong
   password from triggering a refresh ([Sign-in](./sign-in.md)). Nothing in the types enforces it —
   `SessionWriteClient` accepts any `Pick<HttpClient, 'post'>` — so it is a composition rule held at
-  one construction site and asserted by a test. A future sign-out must use the unauthenticated
-  client for the same reasons.
+  one construction site and asserted by a test. `signOut` joins `/auth/refresh` and `/auth/login` on
+  that client for both reasons at once: it is the only client that sends the refresh cookie the
+  server needs in order to revoke, and the only one with no bearer interceptor to answer the
+  revocation's own `401` with a refresh. `create-authenticated-transport.test.ts` asserts the rule
+  by recording the `authorization` header on `/auth/logout` and expecting `[null]`.
+- **Two narrow ports, not one wide one.** `signOut` could have been a second method on
+  `SessionStarter`, saving a file, a context, a provider and a barrel entry. It would also make the
+  sign-in form depend on a method it never calls and the sign-out button depend on `signIn` — and
+  every stub in every test of either would have to supply both. Two one-method ports keep each
+  client dependent only on what it uses, which is why `SessionEnder` mirrors `SessionStarter` down
+  to its context/provider pair rather than extending it ([Sign-out](./sign-out.md) covers the
+  consumer side of that port).
+- **The local session ends in a `finally`.** `createSessionEnder` awaits `requestSignOut()` inside a
+  `try` whose `finally` calls `store.end()`, so the session ends in this tab whether the server
+  revokes, answers `500` or is unreachable, and the caller still receives the real outcome — or the
+  real rejection. Ending only on success is the failure mode worth avoiding: a token kept alive
+  because the network was down leaves the next person at this browser signed in. What it cannot fix
+  is the refresh cookie; see [Known limitations](#known-limitations).
 - **The factory returns ports, never the store.** `createAuthenticatedTransport` returns
-  `httpClient`, `sessionObserver`, `sessionResolver` and `sessionStarter`; the `SessionStore`, the
-  unauthenticated client, the `SessionApi` and the token source never leave it. One token source
-  serves both the client and the resolver, which is what makes a guard's refresh and a `401` retry
-  join one in-flight request — a second instance would own a second `singleFlight` and send a
+  `httpClient`, `sessionEnder`, `sessionObserver`, `sessionResolver` and `sessionStarter`; the
+  `SessionStore`, the unauthenticated client, the `SessionApi` and the token source never leave it.
+  One store stands behind the observer, the starter, the ender and the token source, and one token
+  source behind both the client and the resolver, which is what makes a guard's refresh and a `401`
+  retry join one in-flight request — a second instance would own a second `singleFlight` and send a
   second refresh.
+- **Sign-out's wiring has no compile-time guard, so a test stands in for one.** `SignInOutcome`'s
+  `signed-in` member declares `accessToken?: never`, so `sessionStarter: sessionApi` — passing the
+  raw API where a `SessionStarter` is expected, skipping `store.start()` — does not type-check.
+  Sign-out has no payload to strip: `SessionEnder.signOut` and `SessionApi.signOut` are the same
+  signature, so `sessionEnder: sessionApi` compiles and silently never calls `store.end()`. The
+  compensating control is the transport test's 500 case, 'ends the local session even when the
+  server refuses to revoke it': it expects `unavailable` _and_ an `anonymous` observer, which fails
+  under any wiring that bypasses the ender.
 - **Outside the slice a session is a status, nothing more.** `toSessionObserver` builds a new
   two-method object rather than re-typing the store, so a holder can neither widen it back to
   `start` / `end` nor read a token off it — and cannot park a bearer token in React state, where
@@ -613,7 +776,9 @@ engine at a different refresh endpoint, change, in order:
   `unknown → anonymous` path, where no session ever existed and nothing can leak, and would miss
   `authenticated → authenticated` — a second sign-in replacing the first, the leak the policy
   exists to catch. It is a subscriber rather than a call inside a sign-out function because a
-  session can end in more than one way, and a subscriber catches all of them. Clearing does fan out
+  session can end in more than one way, and a subscriber catches all of them — which is why adding
+  `SessionEnder` and `features/sign-out` added no cache code at all: `store.end()` publishes the
+  same edge the policy was already watching. Clearing does fan out
   — every mounted query refetches once — but that is bounded: the transition publishes only once,
   and a `401` is a `client` failure, so it is not in the retryable set `createQueryClient` uses
   (`network`, `server`, `timeout`, plus `429`) and the refetch cannot itself cascade into repeated
@@ -644,27 +809,35 @@ engine at a different refresh endpoint, change, in order:
 
 Unit and composition tests are Vitest files co-located with the code:
 
-| File                                                        | Covers                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `src/entities/session/model/session-state.test.ts`          | `readAccessToken` yields the token only for `authenticated`                                                                                                                                                                                                                                                                                                                                                        |
-| `src/entities/session/model/session-store.test.ts`          | Starts `unknown`; every transition, including a token replacement; `read()` returns the identical object across repeated reads, a repeated grant of the same token and two separate ends; who is notified (everyone on a change, nobody on a no-op, unsubscribe during a publish); per-store isolation; `toSessionObserver` exposes only `status` and `subscribe`                                                  |
-| `src/entities/session/model/session-token-source.test.ts`   | `getToken`; the bootstrap renewal from `unknown`; one refresh for concurrent callers; the `anonymous` latch; a store that has moved on; joining a running renewal with an older token; `unavailable` and a rejected renewal keep the session; `settle()` in each state                                                                                                                                             |
-| `src/entities/session/api/session-api.test.ts`              | The `createSessionApi.refresh` block: posts `{}` and the schema to `/auth/refresh`; `200` → `refreshed`; `401` → `expired`; `500`, a schema mismatch and an empty token → `unavailable`; a non-`HttpError` is rethrown (the `signIn` block belongs to [Sign-in](./sign-in.md))                                                                                                                                     |
-| `src/entities/session/api/session-mapper.test.ts`           | `toRefreshedAccessToken` takes the token out of the refresh DTO                                                                                                                                                                                                                                                                                                                                                    |
-| `src/shared/lib/single-flight/single-flight.test.ts`        | One run for concurrent callers; a new flight after settling; rejection fan-out and slot release; a synchronous throw becomes a rejection; `isRunning()`; the named lock with an `AbortSignal` (stubbed `navigator.locks`); the fallback without Web Locks                                                                                                                                                          |
-| `src/app/entrypoint/create-authenticated-transport.test.ts` | The real composition over MSW: `401` → one refresh → replay with the new bearer token; a JSON `{}` refresh body; no recursion when the refresh answers `401`; `anonymous` afterwards and no renewal after that; a sign-in authenticates the observer and the client, and rejected credentials leave the session `unknown`; the resolver refreshes an `unknown` session once and the next request carries the token |
-| `src/app/entrypoint/clear-cache-on-session-end.test.ts`     | Clears on `authenticated → anonymous` and `authenticated → authenticated`; leaves the cache on `unknown → authenticated` and `unknown → anonymous`; stops after unsubscribing                                                                                                                                                                                                                                      |
-| `src/app/entrypoint/app-providers.test.tsx`                 | 'clears the query cache when the session ends': `AppProviders` really subscribes the policy                                                                                                                                                                                                                                                                                                                        |
-| `src/shared/api/attach-bearer-token.test.ts`                | The interceptor's side of `BearerTokenSource` ([HTTP transport](./http-transport.md))                                                                                                                                                                                                                                                                                                                              |
+| File                                                        | Covers                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/entities/session/model/session-state.test.ts`          | `readAccessToken` yields the token only for `authenticated`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `src/entities/session/model/session-store.test.ts`          | Starts `unknown`; every transition, including a token replacement; `read()` returns the identical object across repeated reads, a repeated grant of the same token and two separate ends; who is notified (everyone on a change, nobody on a no-op, unsubscribe during a publish); per-store isolation; `toSessionObserver` exposes only `status` and `subscribe`                                                                                                                                                                                                                       |
+| `src/entities/session/model/session-token-source.test.ts`   | `getToken`; the bootstrap renewal from `unknown`; one refresh for concurrent callers; the `anonymous` latch, including a renewal that settles after the session has ended; a store that has moved on; joining a running renewal with an older token; `unavailable` and a rejected renewal keep the session; `settle()` in each state                                                                                                                                                                                                                                                    |
+| `src/entities/session/model/session-ender.test.ts`          | `store.end()` runs once per `signOut()` on every path: a revoked session, an `unavailable` one, and a `requestSignOut` that rejects (where the rejection is rethrown)                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `src/entities/session/model/session-ender-context.test.tsx` | `SessionEnderProvider` renders its children; `useSessionEnder()` returns the provided ender and throws `useSessionEnder must be called inside a SessionEnderProvider` without one                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `src/entities/session/api/session-api.test.ts`              | The `createSessionApi.refresh` block: posts `{}` and the schema to `/auth/refresh`; `200` → `refreshed`; `401` → `expired`; `500`, a schema mismatch and an empty token → `unavailable`; a non-`HttpError` is rethrown. The `createSessionApi.signOut` block, six cases: posts `{}` and `noContentSchema` to `/auth/logout`; an empty body and a `401` → `signed-out`; `500` and a body on the response → `unavailable`; a non-`HttpError` is rethrown (the `signIn` block belongs to [Sign-in](./sign-in.md))                                                                          |
+| `src/entities/session/api/session-mapper.test.ts`           | `toRefreshedAccessToken` takes the token out of the refresh DTO                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `src/shared/lib/single-flight/single-flight.test.ts`        | One run for concurrent callers; a new flight after settling; rejection fan-out and slot release; a synchronous throw becomes a rejection; `isRunning()`; the named lock with an `AbortSignal` (stubbed `navigator.locks`); the fallback without Web Locks                                                                                                                                                                                                                                                                                                                               |
+| `src/app/entrypoint/create-authenticated-transport.test.ts` | The real composition over MSW: `401` → one refresh → replay with the new bearer token; a JSON `{}` refresh body; no recursion when the refresh answers `401`; `anonymous` afterwards and no renewal after that; a sign-in authenticates the observer and the client, and rejected credentials leave the session `unknown`; the resolver refreshes an `unknown` session once and the next request carries the token; a sign-out reaches `/auth/logout` with no `authorization` header and moves the observer to `anonymous`, and a `500` there resolves `unavailable` and still moves it |
+| `src/app/entrypoint/clear-cache-on-session-end.test.ts`     | Clears on `authenticated → anonymous` and `authenticated → authenticated`; leaves the cache on `unknown → authenticated` and `unknown → anonymous`; stops after unsubscribing                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `src/app/entrypoint/app-providers.test.tsx`                 | 'clears the query cache when the session ends': `AppProviders` really subscribes the policy; 'provides the transport session ender to its children': the ender reaches `useSessionEnder()`                                                                                                                                                                                                                                                                                                                                                                                              |
+| `src/shared/api/attach-bearer-token.test.ts`                | The interceptor's side of `BearerTokenSource` ([HTTP transport](./http-transport.md))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
 The invariants the design depends on each have a test that pins them: the latch — 'never renews
-again once the session has ended' and 'stops renewing once the session has ended'; an `unavailable`
+again once the session has ended' and 'stops renewing once the session has ended', which cover
+refusing to start a renewal, and 'drops a renewal that settles after the session has ended', which
+covers the one already running: it defers the refresh, calls `store.end()`, then settles it, and
+fails with `expected 'fresh-token' to be null` against the unguarded `applyResult`; an `unavailable`
 refresh keeping the session — 'keeps the token and the open session when a renewal is merely
 unavailable'; the `isRunning()` join — 'makes a caller carrying an older token wait for the renewal
 already in flight'; the shared token source — 'sends the first request after a resolved session with
 its bearer token'; the two clients — 'does not recurse when the refresh endpoint answers with a
-401'; the missing back-off — 'retries the refresh on every settle while the session stays
-unresolved'; and `singleFlight`'s wrapper and slot release — 'turns a synchronous throw into a
+401'; the `finally` in the ender — 'ends the local session when the server could not be reached' and
+the transport's 'ends the local session even when the server refuses to revoke it', which together
+are what stands in for the compile-time guard sign-out cannot have; the missing back-off — 'retries
+the refresh on every settle while the session stays unresolved'; and `singleFlight`'s wrapper and
+slot release — 'turns a synchronous throw into a
 rejection and leaves the slot usable' and 'rejects every concurrent caller and releases the slot for
 the next one'.
 
@@ -699,20 +872,22 @@ against the production build.
 
 ## Known limitations
 
-- **No sign-out.** Nothing in `src/` ends a session on request: there is no sign-out control, no
-  `signOut` on `SessionApi`, and no call to the logout endpoint backend-boilerplate serves
-  (`POST /v1/auth/logout`). It belongs on `SessionApi` behind the unauthenticated client — the only
-  client that sends the refresh cookie, and one without a bearer interceptor that would answer a
-  `401` with a refresh — and needs a port that reaches `store.end()`; the cache policy then follows
-  from the transition on its own.
-- **`SessionStore.end()` is reached only through an expired refresh.** Its single caller is the
-  `expired` arm of `applyResult` in `session-token-source.ts`, and `expired` comes only from
-  `SessionApi.refresh` receiving a `401`. The client never ends a session on its own initiative.
+- **A failed revocation is not a durable sign-out.** `createSessionEnder` ends the local session in
+  a `finally`, so `store.end()` drops the in-memory access token whatever the server answered — but
+  the `httpOnly` refresh cookie survives an `unavailable` outcome, and the next page load's
+  bootstrap refresh can spend it and restore the session. The evidence is the transport's 'ends the
+  local session even when the server refuses to revoke it', which asserts an `anonymous` observer
+  and says nothing about the cookie, because script cannot read or delete an `httpOnly` cookie:
+  only the server can close that gap, by revoking the token family and clearing the cookie. A
+  sign-out on a shared machine is therefore reliable exactly as far as the revocation call is
+  ([Sign-out](./sign-out.md)). What the frontend does hold is the narrower guarantee above: a
+  renewal that was already in flight cannot undo the local end.
 - **No React hook exposes the session status.** The observer's only subscriber is
   `clearCacheOnSessionEnd`; no provider publishes it, and `src/` contains no `useSyncExternalStore`
   call. A component cannot show whether the visitor is signed in or react to a session ending; the
-  slice's only hooks are `useSessionResolver`, whose `resolve()` is a one-shot, promise-returning
-  verdict that may itself refresh, and `useSessionStarter`.
+  slice's three hooks are `useSessionResolver`, whose `resolve()` is a one-shot, promise-returning
+  verdict that may itself refresh, `useSessionStarter` and `useSessionEnder` — each of them an
+  action, none of them a subscription.
   [Expose the session status to components](#expose-the-session-status-to-components) describes the
   missing piece.
 - **Refresh back-off is not implemented.** `singleFlight` collapses concurrent callers, not
@@ -725,10 +900,14 @@ against the production build.
   navigation — latent today, since nothing yet links into the guarded subtree
   ([Routing](./routing.md), [Authenticated route guard](./route-guard.md)). The last `settle()` case
   in `session-token-source.test.ts` pins today's behaviour.
-- **An ending session does not move the visitor.** Nothing re-runs `beforeLoad` when a session ends
-  mid-visit: the observer's only subscriber clears the cache, and nothing invalidates the router. A
-  visitor whose refresh expires stays on the current page until the next navigation into the guarded
-  subtree, where `settle()` returns `anonymous` and the guard redirects to `/sign-in`.
+- **An ending session does not move the visitor by itself.** Nothing re-runs `beforeLoad` when a
+  session ends mid-visit: the observer's only subscriber clears the cache, and nothing invalidates
+  the router. A visitor whose refresh expires stays on the current page until the next navigation
+  into the guarded subtree, where `settle()` returns `anonymous` and the guard redirects to
+  `/sign-in`. A sign-out does move them, but not because the session ended: `useSignOut` notifies
+  its caller `onSettled`, and `src/app/routes/_authenticated/users.$userId.tsx` answers that
+  callback with `navigate({ to: '/sign-in' })`. Any other screen that ends a session has to supply
+  the same navigation itself.
 - **A routine token renewal empties the query cache too.** The store publishes on any token change,
   the observer reports only a status, and `clearCacheOnSessionEnd` clears on every notification
   whose previous status was `authenticated`. It cannot tell a second sign-in from a mid-session
@@ -741,3 +920,8 @@ against the production build.
   `200`, so the Playwright suite never sees an expired or unavailable refresh, a mid-session renewal
   or a second tab. Those paths are covered by Vitest alone, and the cross-tab lock only through a
   stubbed `navigator.locks` and one real lock in a single Node process.
+- **Sign-out is not exercised end to end.** No fixture in `e2e/fixtures/` answers
+  `POST /v1/auth/logout` and neither `e2e/app-shell.spec.ts` nor `e2e/user-profile.spec.ts` clicks
+  the control, so the revocation request meets the harness's catch-all `501` and the whole path —
+  the cookie client, the `finally`, the redirect to `/sign-in` — is pinned by Vitest only
+  ([End-to-end testing](./e2e-testing.md)).

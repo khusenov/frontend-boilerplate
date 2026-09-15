@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
+import { SessionEnderProvider } from '@/entities/session';
 import { toUserId } from '@/entities/user';
 import { HttpClientProvider, toHttpError } from '@/shared/api';
 import type { HttpClient, ResponseSchema } from '@/shared/api';
@@ -68,6 +69,8 @@ const failingClient = createClientStub({
 
 const pendingClient = createClientStub({ get: () => new Promise<never>(() => undefined) });
 
+const sessionEnder = { signOut: () => Promise.resolve({ status: 'signed-out' } as const) };
+
 function createRenamingClient(): HttpClient {
   let currentPayload = adaPayload;
 
@@ -89,14 +92,19 @@ function renderPage(httpClient: HttpClient) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+  const onSignedOut = vi.fn();
 
   render(
     <QueryClientProvider client={queryClient}>
       <HttpClientProvider client={httpClient}>
-        <UserProfilePage userId={toUserId('u_1')} />
+        <SessionEnderProvider sessionEnder={sessionEnder}>
+          <UserProfilePage userId={toUserId('u_1')} onSignedOut={onSignedOut} />
+        </SessionEnderProvider>
       </HttpClientProvider>
     </QueryClientProvider>,
   );
+
+  return { onSignedOut };
 }
 
 describe('UserProfilePage', () => {
@@ -129,5 +137,12 @@ describe('UserProfilePage', () => {
     await user.click(screen.getByRole('button', { name: 'Save name' }));
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Ada King' })).toBeInTheDocument();
+  });
+
+  it('offers a way out while the profile is failing to load', async () => {
+    renderPage(failingClient);
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeEnabled();
   });
 });
