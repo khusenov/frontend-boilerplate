@@ -1,0 +1,91 @@
+# Frontend Boilerplate — Documentation
+
+A React + TypeScript single-page-application template built on **Vite**, organised by **Feature-Sliced Design**, with **TanStack Router / Query / Form**, **axios** behind an `HttpClient` port, **Zod** response validation and **i18next**. This directory is the documentation index; every capability is explained in its own document under [`features/`](./features/).
+
+> **Verified against:** `1c193c6`
+
+## Getting started
+
+Install, copy `.env.example`, run `npm run dev` — the full sequence, plus what the two live routes do on a fresh clone with no API behind them, is in [Getting started](../README.md#getting-started). The root [`README.md`](../README.md) is the working reference for scripts, environment variables and conventions; the per-feature docs below explain the _why_ and _how_.
+
+## Dependency graph
+
+[`architecture-graph.md`](./architecture-graph.md) is a Mermaid flowchart of the real import edges between slices and segments, derived from the source by dependency-cruiser rather than drawn by hand. Regenerate it with `npm run arch:graph` whenever imports change, and commit it with the slice that changed them.
+
+## Architecture at a glance
+
+| Layer      | Path              | Contains                                                                                                                                                                                                                                       | May import                                                                      |
+| ---------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `app`      | `src/app/**`      | The **composition root**, in segments: `entrypoint/` constructs every client and binds it to its seam, `router/` builds the router and fills `AppRouterContext`, `routes/` holds the file-based route modules, `styles/` the global stylesheet | Every layer below. Only `app/entrypoint` constructs clients and names concretes |
+| `pages`    | `src/pages/**`    | Route-level screens, one slice per screen (`sign-in`, `user-profile`); they take props and callbacks and read no route state                                                                                                                   | `widgets`, `features`, `entities`, `shared`                                     |
+| `widgets`  | `src/widgets/**`  | **Absent today** — the directory is created in the same commit as its first slice. Self-contained page blocks composed from entities and features                                                                                              | `features`, `entities`, `shared`                                                |
+| `features` | `src/features/**` | Single user actions that change state (`sign-in`, `update-user-name`): the form UI, its validation schema, the hook that drives the action                                                                                                     | `entities`, `shared`                                                            |
+| `entities` | `src/entities/**` | Business nouns (`user`, `session`): frontend-owned models and ports in `model/`; DTOs, wire schemas, mappers, HTTP calls and query option factories in `api/`                                                                                  | `shared`                                                                        |
+| `shared`   | `src/shared/**`   | Segments, no slices: `api`, `config`, `i18n`, `lib`, `observability`, `ui`                                                                                                                                                                     | Nothing above `shared`; one segment uses another only through its public API    |
+
+**Outside the layers.** `src/main.tsx` only mounts `<App />` from `@/app` inside `StrictMode` and may import nothing else; `e2e/` observes the built app through a real browser and may not import `src/`.
+
+**The Import Rule:** a module imports only from layers **strictly below** its own — `app` → `pages` → `widgets` → `features` → `entities` → `shared`. Slices on one layer are **isolated** from each other. Any import across a slice boundary goes **through that slice's public `index.ts`** (`@/entities/user`, never `@/entities/user/model/user`); within its own slice a module uses relative paths. `shared/lib` and `shared/ui` are imported per group (`@/shared/lib/single-flight`), never as a bare segment. Every `index.ts` only re-exports. `npm run arch` (steiger) and `npm run lint` (ESLint `no-restricted-imports`) enforce this, and both run inside `npm run audit`.
+
+**DTO → domain model (hard project rule):** API data never crosses `entities/*/api`. The transport validates every response against the `ResponseSchema` passed with the request — a `zod/mini` DTO schema in `api/*-dto.ts`, the server's wire shape — and pure mappers in `api/*-mapper.ts` translate between it and the frontend-owned model in `model/` (camelCase, branded ids, real `Date`s, no library dependency). An entity's `index.ts` exports the domain model and its collaborator factories, never a DTO type, its schema, a mapper or a query-key object. `src/entities/user` is the reference implementation.
+
+**Where concretes are bound:** there is no DI container. `src/app/entrypoint/**` is the only place that constructs concretes — the HTTP clients, the query client, the i18n instance, the session collaborators, the error-reporter sink — and it publishes them through React providers; `src/app/router/app-router-provider.tsx` reads those ports back into `AppRouterContext`, because route `beforeLoad` guards and `loader`s run outside React. Every layer below `app` therefore stays free of clients, configuration reads and vendor choices, and each can be tested with a plain stub.
+
+## Feature documentation
+
+One row per document under [`features/`](./features/), grouped by concern. Each summary is drawn from that doc's own Purpose section. A documented _feature_ is a capability, not a slice of the FSD `features` layer: one capability may span several layers.
+
+### Foundation
+
+| Feature                 | Doc                                                                 | Summary                                                                                                                                                                                                                                                               |
+| ----------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Architecture boundaries | [architecture-boundaries.md](./features/architecture-boundaries.md) | Makes Feature-Sliced Design's rules mechanical — which layer may import which, that slices meet only through their public `index.ts`, where a vendor library may appear — so a violation fails `npm run arch` or `npm run lint` before it can be pushed.              |
+| Composition root        | [composition-root.md](./features/composition-root.md)               | `src/app/entrypoint` constructs every client and binds it to its seam and `src/app/router` hands those ports to route code, so replacing an implementation is a change to one module and no layer below `app` names a vendor.                                         |
+| Configuration           | [configuration.md](./features/configuration.md)                     | `src/shared/config` is the only module that reads `import.meta.env`, defaulting it into a typed `appConfig` the top of the tree hands down as plain strings — and nothing secret belongs in a `VITE_` variable, because every one is compiled into the public bundle. |
+| HTTP transport          | [http-transport.md](./features/http-transport.md)                   | `src/shared/api` is the one place that speaks HTTP: the `HttpClient`, `ResponseSchema` and `BearerTokenSource` ports, the `HttpError` type and the query client — so unvalidated API data cannot reach a slice and axios stays a replaceable detail.                  |
+| Error handling          | [error-handling.md](./features/error-handling.md)                   | Contains start-up crashes behind an accessible recovery screen and sends render, query and mutation failures through one `ErrorReporter` port, whose concrete sink is named in a single composition-root module.                                                      |
+
+### Session and access
+
+| Feature                   | Doc                                                       | Summary                                                                                                                                                                                                                                                                    |
+| ------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Session management        | [session-management.md](./features/session-management.md) | The engine between a short-lived in-memory access token and the `httpOnly` refresh cookie: it tracks whether a session exists, renews at most one token at a time, and empties the query cache when a session ends — above it a session is a status string, never a token. |
+| Sign-in                   | [sign-in.md](./features/sign-in.md)                       | Turns an email and a password into an `authenticated` session from `/sign-in` and tells the visitor exactly one of four things — signed in, rejected, rate-limited or unavailable — keeping the token out of UI code and the password out of every cache and error report. |
+| Authenticated route guard | [route-guard.md](./features/route-guard.md)               | Asks the session one question before any private screen loads — may this navigation proceed? — and sends every visitor it cannot confirm to `/sign-in`, so protecting a screen is a matter of where its route file lives. A user-experience boundary, not a security one.  |
+
+### Reference slices — `entities/user`
+
+| Feature                       | Doc                                                   | Summary                                                                                                                                                                                                                                   |
+| ----------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| User profile (read path)      | [user-profile.md](./features/user-profile.md)         | The reference entity and the read path that proves the DTO → domain-model rule end to end: a route loader warms the cache, one query factory fetches, validates and maps, and `/users/$userId` renders a `User` in three explicit states. |
+| Update user name (write path) | [update-user-name.md](./features/update-user-name.md) | The reference write path: a validated form, a frontend-owned command (`UserNameChange`), an outbound DTO mapper, a schema-checked `PATCH`, and a cache invalidation that brings the server's state back on screen.                        |
+
+### User interface
+
+| Feature              | Doc                                                           | Summary                                                                                                                                                                                                                                                                          |
+| -------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Routing              | [routing.md](./features/routing.md)                           | Maps every URL to a screen through TanStack Router, runs guards and prefetches first, answers every other URL with a not-found page, and keeps route state inside `app`. The tree is generated from `src/app/routes`, so a link to an undeclared path fails `npm run typecheck`. |
+| Design system        | [design-system.md](./features/design-system.md)               | One set of semantic tokens in `src/shared/ui/theme.css` compiled by Tailwind CSS v4 into utilities, and accessible primitives — `Button`, `Input`, `Label` — vendored from shadcn/ui over Radix and styled only through those tokens.                                            |
+| Forms                | [forms.md](./features/forms.md)                               | Solves controlled field state, when a validation error may appear, its wiring to assistive technology, and the pending state once behind one hook — `useAppForm`. `src/shared/ui/form` is the only importer of TanStack Form and it names no validator.                          |
+| Internationalization | [internationalization.md](./features/internationalization.md) | Keeps every string a visitor reads or hears in per-locale JSON under `src/shared/i18n/locales`, reached through compiler-checked keys, so the app can ship in several languages without any component knowing which one is active.                                               |
+
+### Developer experience
+
+| Feature                    | Doc                                             | Summary                                                                                                                                                                                                                                           |
+| -------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unit and component testing | [unit-testing.md](./features/unit-testing.md)   | The harness behind the 90% per-file coverage floor — the `test` block of `vite.config.ts`, `vitest.setup.ts` and the coverage-scope gate — with the conventions its tests follow: assert on what a user perceives, and inject every collaborator. |
+| End-to-end testing         | [e2e-testing.md](./features/e2e-testing.md)     | Playwright drives a real Chromium against the production build, with the API answered inside the browser by stubs that pin their own copy of the wire contract and may not import `src/` — catching the drift the jsdom suite cannot see.         |
+| Quality gates              | [quality-gates.md](./features/quality-gates.md) | Chains every check into one command, `npm run audit`, run by a lefthook `pre-push` hook and by GitHub Actions on every push and pull request to `main`, beside the guards that keep the toolchain itself trustworthy.                             |
+
+## Notes on coverage
+
+Every capability discovered in this codebase was complete enough to document — none was skipped as in progress, and every doc above carries **Status: Complete**.
+
+**The home page is not documented on its own page, deliberately.** `pages/home` (with `shared/lib/format-duration`) is a worked example rather than product code: it exists so that every gate has something to bite, and the root README designates it for replacement by the first real slice. Documenting it as a capability would create a page that retires with it, so it is covered where it earns its keep instead — as the i18n worked example in [Internationalization](./features/internationalization.md) (`<Trans>`, a plural, a translated accessible name) and as the index route in [Routing](./features/routing.md). `pages/not-found` is the opposite case: it is a permanent slice and is documented as part of routing.
+
+**How these docs stay honest:**
+
+- Every doc states the commit it was checked against on its `Verified against` line, so a reader can `git diff` from there and see exactly what may have moved since.
+- When a doc describes something not yet in that commit, it says so rather than quietly claiming it: [Quality gates](./features/quality-gates.md#known-limitations) and [Architecture boundaries](./features/architecture-boundaries.md) both flag that `arch:graph`, its `dependency-cruiser` dependency and this `docs/` directory were still uncommitted at `1c193c6`.
+- A change to the code is a change to its doc. Update the feature doc in the same commit and move its `Verified against` SHA forward; a doc left behind is worse than no doc.
+- Run `npm run arch:graph` whenever imports change and commit the regenerated [`architecture-graph.md`](./architecture-graph.md) alongside them, so the picture is always derived from the source rather than remembered.

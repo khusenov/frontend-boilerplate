@@ -8,7 +8,11 @@ playwright-report
 blob-report
 playwright/.cache
 
-docs
+docs/*
+!docs/README.md
+!docs/architecture-graph.md
+!docs/features/
+!docs/features/**
 .claude
 .idea
 CLAUDE.md
