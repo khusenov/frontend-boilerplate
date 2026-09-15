@@ -85,6 +85,20 @@ describe('createSessionTokenSource', () => {
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
+  it('drops a renewal that settles after the session has ended', async () => {
+    const store = createStore(toAccessToken('token-1'));
+    const { refresh, settle } = createDeferredRefresh();
+    const source = createSessionTokenSource({ store, refresh });
+    const renewal = source.renewToken('token-1');
+
+    store.end();
+    settle({ status: 'refreshed', accessToken: FRESH_TOKEN });
+
+    await expect(renewal).resolves.toBeNull();
+    expect(store.read().status).toBe('anonymous');
+    expect(source.getToken()).toBeNull();
+  });
+
   it('hands the renewed token to a caller arriving after the renewal settled', async () => {
     const store = createStore();
     const refresh = resolving({ status: 'refreshed', accessToken: FRESH_TOKEN });

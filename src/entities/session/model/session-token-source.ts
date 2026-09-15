@@ -31,6 +31,12 @@ export function createSessionTokenSource(
 
         return null;
       case 'refreshed':
+        // A sign-out that lands mid-flight already ended the session. Starting it again here
+        // would hand the next visitor a live token from a renewal nobody is waiting for.
+        if (store.read().status === 'anonymous') {
+          return null;
+        }
+
         store.start(result.accessToken);
 
         return result.accessToken;
