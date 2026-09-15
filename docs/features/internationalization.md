@@ -1,6 +1,6 @@
 # Internationalization
 
-> **Status:** Complete · **Layers:** app, pages, features, shared, outside layers · **Verified against:** `19fe53b`
+> **Status:** Complete · **Layers:** app, pages, widgets, features, shared, outside layers · **Verified against:** `65a99bc`
 
 ## Purpose
 
@@ -65,9 +65,13 @@ and `home`.
    `i18n.changeLanguage(next)`. Shell copy switches synchronously because `common` is bundled;
    components re-render on i18next's `languageChanged` event, `DocumentLocaleSync` rewrites
    `<html lang dir>`, the detector caches the choice under `app.locale`, and a screen whose
-   namespace the new locale does not bundle suspends while it streams. No mounted component calls
-   `setLocale` yet (see [Known limitations](#known-limitations)), so today a visitor changes language
-   with `?lng=` on a full page load.
+   namespace the new locale does not bundle suspends while it streams. The runtime caller is
+   `LocaleSwitcher` (`features/switch-locale`): one `Button` per entry in `SUPPORTED_LOCALES`,
+   labelled with that locale's endonym from `LOCALES`. `widgets/app-header` renders it inside the
+   app-shell `<header>`, and the root route module `src/app/routes/__root.tsx` mounts
+   `<AppHeader appName={appConfig.name} />` above the `<Outlet />`, so the control is on every
+   route. `?lng=` on a full page load and the cached `app.locale` from a previous visit are the
+   other two ways a visitor arrives in a given locale.
 
 **Failure paths.**
 
@@ -105,7 +109,8 @@ instance from the `createI18n` factory, and the composition root binds it in one
 `AppProviders` constructs it in a `useState` initializer and renders `I18nProvider` with it inside
 `Suspense` (see [Composition root](./composition-root.md)); `vitest.setup.ts` is the only other
 binding site, for tests. Imports point downward only: `pages`, `features` and `shared/ui/form`
-import the `@/shared/i18n` barrel; `shared/i18n` imports nothing from the project outside itself,
+import the `@/shared/i18n` barrel, and `widgets/app-header` reaches the segment only transitively,
+through `@/features/switch-locale`; `shared/i18n` imports nothing from the project outside itself,
 only the i18next packages; and in `src/` only `app/entrypoint` imports `createI18n`. ESLint's
 `no-restricted-imports` enforces the last two: `i18next`, `react-i18next`,
 `i18next-browser-languagedetector` and `i18next-resources-to-backend` are banned in every layer
@@ -115,25 +120,28 @@ except `app/entrypoint`. steiger's `fsd/no-public-api-sidestep` rejects an impor
 from another layer. [Architecture boundaries](./architecture-boundaries.md) covers the rule set as a
 whole.
 
-| Component                                                                                                | Layer                        | Responsibility                                                                                                                        | File                                                   |
-| -------------------------------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| `createI18n`                                                                                             | `shared/i18n`                | Factory: builds an isolated i18next instance with the detector, the lazy backend and the bundled resources, initialized synchronously | `src/shared/i18n/create-i18n.ts`                       |
-| `I18nProvider`                                                                                           | `shared/i18n`                | Injection adapter: publishes an instance through `I18nextProvider` and mounts `DocumentLocaleSync`                                    | `src/shared/i18n/i18n-provider.tsx`                    |
-| `DocumentLocaleSync`                                                                                     | `shared/i18n` (internal)     | Mirrors the active locale and its direction onto `<html lang>` and `dir`                                                              | `src/shared/i18n/i18n-provider.tsx`                    |
-| `useLocale`                                                                                              | `shared/i18n`                | Returns the active `Locale` clamped to the registry, its `dir`, and `setLocale`                                                       | `src/shared/i18n/use-locale.ts`                        |
-| `SUPPORTED_LOCALES`, `LOCALES`, `isSupportedLocale`, `DEFAULT_LOCALE`, `NAMESPACES`, `DEFAULT_NAMESPACE` | `shared/i18n`                | Locale registry: codes, endonym labels, text directions, namespaces and defaults                                                      | `src/shared/i18n/registry.ts`                          |
-| `BUNDLED_RESOURCES`                                                                                      | `shared/i18n`                | Inline resources — every English namespace plus each locale's `common` — under a `satisfies` constraint                               | `src/shared/i18n/bundled-resources.ts`                 |
-| `loadLocaleNamespace`                                                                                    | `shared/i18n`                | Lazy backend: imports any other locale and namespace pair from a build-time `import.meta.glob` map                                    | `src/shared/i18n/lazy-locale-loader.ts`                |
-| `CustomTypeOptions` augmentation                                                                         | `shared/i18n`                | Types every namespace and key from the English JSON                                                                                   | `src/shared/i18n/i18next.d.ts`                         |
-| Locale JSON                                                                                              | `shared/i18n`                | The copy, one file per locale and namespace                                                                                           | `src/shared/i18n/locales/<locale>/<namespace>.json`    |
-| Barrel                                                                                                   | `shared/i18n`                | Public API; re-exports `Trans` and `useTranslation` from `react-i18next`                                                              | `src/shared/i18n/index.ts`                             |
-| `AppProviders`                                                                                           | `app/entrypoint`             | Constructs the instance in `useState` and renders `I18nProvider` inside `Suspense`                                                    | `src/app/entrypoint/app-providers.tsx`                 |
-| `HomeRoute`                                                                                              | `app/routes`                 | Route module for `/`: passes `appConfig` values to `HomePage` as props                                                                | `src/app/routes/index.tsx`                             |
-| `HomePage`                                                                                               | `pages/home · ui`            | Worked example: `<Trans>`, a plural, a translated accessible name                                                                     | `src/pages/home/ui/home-page.tsx`                      |
-| `useCredentialsSchema`                                                                                   | `features/sign-in · model`   | Reference `features`-layer consumer: resolves validation messages through `t` for a schema that cannot call a hook itself             | `src/features/sign-in/model/use-credentials-schema.ts` |
-| `formatDuration`                                                                                         | `shared/lib/format-duration` | Worked-example helper: milliseconds to `mm:ss` or `hh:mm:ss`                                                                          | `src/shared/lib/format-duration/format-duration.ts`    |
-| Global test instance                                                                                     | `outside layers`             | Registers a fresh English instance with `setI18n` before each test                                                                    | `vitest.setup.ts`                                      |
-| `I18N_VENDOR_IMPORT_PATHS`, `LOWER_LAYER_IMPORT_PATHS`                                                   | `outside layers`             | Fence the i18next packages into `shared/i18n` and `createI18n` into `app/entrypoint`                                                  | `eslint.config.js`                                     |
+| Component                                                                                                | Layer                         | Responsibility                                                                                                                        | File                                                   |
+| -------------------------------------------------------------------------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `createI18n`                                                                                             | `shared/i18n`                 | Factory: builds an isolated i18next instance with the detector, the lazy backend and the bundled resources, initialized synchronously | `src/shared/i18n/create-i18n.ts`                       |
+| `I18nProvider`                                                                                           | `shared/i18n`                 | Injection adapter: publishes an instance through `I18nextProvider` and mounts `DocumentLocaleSync`                                    | `src/shared/i18n/i18n-provider.tsx`                    |
+| `DocumentLocaleSync`                                                                                     | `shared/i18n` (internal)      | Mirrors the active locale and its direction onto `<html lang>` and `dir`                                                              | `src/shared/i18n/i18n-provider.tsx`                    |
+| `useLocale`                                                                                              | `shared/i18n`                 | Returns the active `Locale` clamped to the registry, its `dir`, and `setLocale`                                                       | `src/shared/i18n/use-locale.ts`                        |
+| `SUPPORTED_LOCALES`, `LOCALES`, `isSupportedLocale`, `DEFAULT_LOCALE`, `NAMESPACES`, `DEFAULT_NAMESPACE` | `shared/i18n`                 | Locale registry: codes, endonym labels, text directions, namespaces and defaults                                                      | `src/shared/i18n/registry.ts`                          |
+| `BUNDLED_RESOURCES`                                                                                      | `shared/i18n`                 | Inline resources — every English namespace plus each locale's `common` — under a `satisfies` constraint                               | `src/shared/i18n/bundled-resources.ts`                 |
+| `loadLocaleNamespace`                                                                                    | `shared/i18n`                 | Lazy backend: imports any other locale and namespace pair from a build-time `import.meta.glob` map                                    | `src/shared/i18n/lazy-locale-loader.ts`                |
+| `CustomTypeOptions` augmentation                                                                         | `shared/i18n`                 | Types every namespace and key from the English JSON                                                                                   | `src/shared/i18n/i18next.d.ts`                         |
+| Locale JSON                                                                                              | `shared/i18n`                 | The copy, one file per locale and namespace                                                                                           | `src/shared/i18n/locales/<locale>/<namespace>.json`    |
+| Barrel                                                                                                   | `shared/i18n`                 | Public API; re-exports `Trans` and `useTranslation` from `react-i18next`                                                              | `src/shared/i18n/index.ts`                             |
+| `AppProviders`                                                                                           | `app/entrypoint`              | Constructs the instance in `useState` and renders `I18nProvider` inside `Suspense`                                                    | `src/app/entrypoint/app-providers.tsx`                 |
+| `RootLayout`                                                                                             | `app/routes`                  | Root route component: mounts `<AppHeader appName={appConfig.name} />` above the `<Outlet />`, putting the switcher on every route     | `src/app/routes/__root.tsx`                            |
+| `HomeRoute`                                                                                              | `app/routes`                  | Route module for `/`: passes `appConfig` values to `HomePage` as props                                                                | `src/app/routes/index.tsx`                             |
+| `HomePage`                                                                                               | `pages/home · ui`             | Worked example: `<Trans>`, a plural, a translated accessible name                                                                     | `src/pages/home/ui/home-page.tsx`                      |
+| `AppHeader`                                                                                              | `widgets/app-header · ui`     | App-shell `<header>` banner: shows the application name and hosts the switcher                                                        | `src/widgets/app-header/ui/app-header.tsx`             |
+| `LocaleSwitcher`                                                                                         | `features/switch-locale · ui` | The runtime caller of `setLocale`: one `Button` per supported locale, labelled with its endonym                                       | `src/features/switch-locale/ui/locale-switcher.tsx`    |
+| `useCredentialsSchema`                                                                                   | `features/sign-in · model`    | Reference `features`-layer consumer: resolves validation messages through `t` for a schema that cannot call a hook itself             | `src/features/sign-in/model/use-credentials-schema.ts` |
+| `formatDuration`                                                                                         | `shared/lib/format-duration`  | Worked-example helper: milliseconds to `mm:ss` or `hh:mm:ss`                                                                          | `src/shared/lib/format-duration/format-duration.ts`    |
+| Global test instance                                                                                     | `outside layers`              | Registers a fresh English instance with `setI18n` before each test                                                                    | `vitest.setup.ts`                                      |
+| `I18N_VENDOR_IMPORT_PATHS`, `LOWER_LAYER_IMPORT_PATHS`                                                   | `outside layers`              | Fence the i18next packages into `shared/i18n` and `createI18n` into `app/entrypoint`                                                  | `eslint.config.js`                                     |
 
 ## Public surface
 
@@ -151,27 +159,36 @@ Two more render points serve translated copy without a path of their own: the ro
 `notFoundComponent` (`src/app/routes/__root.tsx`) renders `NotFoundPage` on the `notFound` keys, and
 the `_authenticated` layout route's `pendingComponent` (`src/app/routes/_authenticated.tsx`) renders
 `ResolvingSessionPage` on the `session` keys while the guard resolves. [Routing](./routing.md) owns
-the route tree itself.
+the route tree itself. One control appears on every one of those paths: the root route's
+`RootLayout` renders `AppHeader`, whose `LocaleSwitcher` is how a visitor changes language. It
+renders no translated copy of its own — its labels are the endonyms in `LOCALES`.
 
 **`@/shared/i18n`** — the segment's barrel, the only import path for i18n below `app`:
 
-| Export                   | Kind      | Signature                                                                                               | Contract                                                                                                                                                         |
-| ------------------------ | --------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `createI18n`             | function  | `createI18n(options?: CreateI18nOptions): i18n`                                                         | Returns a new, initialized i18next instance (`i18n` is i18next's instance type). Construct only in `app/entrypoint`; lint rejects the import elsewhere in `src/` |
-| `CreateI18nOptions`      | type      | `{ readonly locale?: Locale; readonly detection?: Partial<LocaleDetectionOptions> }`                    | See [Configuration](#configuration)                                                                                                                              |
-| `LocaleDetectionOptions` | type      | `{ readonly order: readonly string[]; readonly caches: readonly string[] }`                             | Detector names to read candidates from, and to persist the chosen tag to                                                                                         |
-| `I18nProvider`           | component | props `{ readonly i18n: i18n; readonly children: ReactNode }`                                           | Publishes `i18n` to its subtree and keeps `<html lang dir>` in sync. Render it inside a `Suspense` boundary                                                      |
-| `useTranslation`         | hook      | `useTranslation(ns?)` returning `{ t, i18n, ready }`                                                    | react-i18next's hook, re-exported. `t` is typed against the namespace; the component suspends while that namespace loads                                         |
-| `Trans`                  | component | `<Trans i18nKey t values components />`                                                                 | react-i18next's component, re-exported, for copy that carries markup                                                                                             |
-| `useLocale`              | hook      | `useLocale(): UseLocaleResult`                                                                          | Reads the instance from `I18nProvider` (in tests, from the global one) and never suspends                                                                        |
-| `UseLocaleResult`        | type      | `{ readonly locale: Locale; readonly dir: 'ltr' \| 'rtl'; readonly setLocale: (next: Locale) => void }` | `locale` is the resolved language narrowed to `Locale`, else `DEFAULT_LOCALE`; `setLocale` starts `changeLanguage` and returns nothing                           |
-| `Locale`                 | type      | `'en' \| 'ru'`                                                                                          | Derived from `SUPPORTED_LOCALES`                                                                                                                                 |
-| `DEFAULT_LOCALE`         | constant  | `'en'`                                                                                                  | The fallback locale                                                                                                                                              |
+| Export                   | Kind      | Signature                                                                                               | Contract                                                                                                                                                                                    |
+| ------------------------ | --------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createI18n`             | function  | `createI18n(options?: CreateI18nOptions): i18n`                                                         | Returns a new, initialized i18next instance (`i18n` is i18next's instance type). Construct only in `app/entrypoint`; lint rejects the import elsewhere in `src/`                            |
+| `CreateI18nOptions`      | type      | `{ readonly locale?: Locale; readonly detection?: Partial<LocaleDetectionOptions> }`                    | See [Configuration](#configuration)                                                                                                                                                         |
+| `LocaleDetectionOptions` | type      | `{ readonly order: readonly string[]; readonly caches: readonly string[] }`                             | Detector names to read candidates from, and to persist the chosen tag to                                                                                                                    |
+| `I18nProvider`           | component | props `{ readonly i18n: i18n; readonly children: ReactNode }`                                           | Publishes `i18n` to its subtree and keeps `<html lang dir>` in sync. Render it inside a `Suspense` boundary                                                                                 |
+| `useTranslation`         | hook      | `useTranslation(ns?)` returning `{ t, i18n, ready }`                                                    | react-i18next's hook, re-exported. `t` is typed against the namespace; the component suspends while that namespace loads                                                                    |
+| `Trans`                  | component | `<Trans i18nKey t values components />`                                                                 | react-i18next's component, re-exported, for copy that carries markup                                                                                                                        |
+| `useLocale`              | hook      | `useLocale(): UseLocaleResult`                                                                          | Reads the instance from `I18nProvider` (in tests, from the global one) and never suspends                                                                                                   |
+| `UseLocaleResult`        | type      | `{ readonly locale: Locale; readonly dir: 'ltr' \| 'rtl'; readonly setLocale: (next: Locale) => void }` | `locale` is the resolved language narrowed to `Locale`, else `DEFAULT_LOCALE`; `setLocale` starts `changeLanguage` and returns nothing                                                      |
+| `Locale`                 | type      | `'en' \| 'ru'`                                                                                          | Derived from `SUPPORTED_LOCALES`                                                                                                                                                            |
+| `DEFAULT_LOCALE`         | constant  | `'en'`                                                                                                  | The fallback locale                                                                                                                                                                         |
+| `SUPPORTED_LOCALES`      | constant  | `readonly ['en', 'ru']`                                                                                 | The registered locale codes, in registration order; `Locale` is `(typeof SUPPORTED_LOCALES)[number]` and `createI18n` passes it as `supportedLngs`. Map it to render one control per locale |
+| `LOCALES`                | constant  | `Record<Locale, { readonly label: string; readonly dir: 'ltr' \| 'rtl' }>`                              | One descriptor per locale: `label` is the endonym — the language's name in that language (`English`, `Русский`) — and `dir` its text direction                                              |
 
-Everything else in the segment is internal: `SUPPORTED_LOCALES`, `LOCALES`, `LocaleDescriptor`,
-`TextDirection`, `isSupportedLocale`, `NAMESPACES`, `Namespace`, `DEFAULT_NAMESPACE`,
-`BUNDLED_RESOURCES`, `loadLocaleNamespace` and `DocumentLocaleSync` are not exported from the
-barrel.
+Everything else in the segment is internal: `LocaleDescriptor`, `TextDirection`,
+`isSupportedLocale`, `NAMESPACES`, `Namespace`, `DEFAULT_NAMESPACE`, `BUNDLED_RESOURCES`,
+`loadLocaleNamespace` and `DocumentLocaleSync` are not exported from the barrel.
+
+`SUPPORTED_LOCALES` and `LOCALES` are the registry data a control needs to offer a choice; they are
+not a second way to read the _active_ locale's direction. That path stays `useLocale()`, which
+clamps an unrecognised `resolvedLanguage` to `DEFAULT_LOCALE` before indexing `LOCALES`. The types
+keep the two apart: `LOCALES` is constrained to `Record<Locale, …>`, so `LOCALES[i18n.language]`
+does not compile and reaching an unclamped value takes a deliberate cast.
 
 **Namespaces.** Each slice's keys are documented with that slice — see [Sign-in](./sign-in.md),
 [Update user name](./update-user-name.md), [User profile](./user-profile.md),
@@ -181,6 +198,18 @@ barrel.
 | ------------------ | ----------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `common` (default) | `en`, `ru`  | none              | `notFound` (`pages/not-found`), `session` (`pages/resolving-session`), `user` and `userProfile` (`pages/user-profile`), `signIn` (`pages/sign-in`, `features/sign-in`), `signOut` (`features/sign-out`), `updateUserName` (`features/update-user-name`), `validation` (`shared/ui/form`) |
 | `home`             | `en`        | `ru`              | `environment`, `elapsedLabel`, `addOneSecond`, `secondsAdded` (`pages/home`)                                                                                                                                                                                                             |
+
+**`@/features/switch-locale`** exports `LocaleSwitcher`, which takes no props: it reads the active
+locale from `useLocale()` and the choices from `SUPPORTED_LOCALES` and `LOCALES`. It renders one
+`Button` per locale, each carrying `aria-pressed` and `lang` set to the code it names — so a screen
+reader announces which one is chosen and pronounces `Русский` with Russian rules. The active button
+is `variant="default"` and pressed; the rest are `variant="outline"` and not. A click calls
+`setLocale(candidate)`.
+
+**`@/widgets/app-header`** exports `AppHeader`, with props `{ readonly appName: string }`. It
+renders a `<header>` — the implicit `banner` landmark — holding `appName` and the `LocaleSwitcher`.
+It takes the name as a prop rather than reading `appConfig`, so configuration stays read at the
+composition seam; `src/app/routes/__root.tsx` supplies it.
 
 **`@/pages/home`** exports `HomePage`, with props
 `{ readonly name: string; readonly mode: string; readonly apiBaseUrl: string }`. It renders `name`
@@ -537,7 +566,8 @@ The steps, for a hypothetical French locale, `fr`:
    Russian one in `create-i18n.test.ts` pins the new locale's forms.
 
 Nothing else changes: `supportedLngs` reads `SUPPORTED_LOCALES`, the glob picks up `fr/home.json`,
-and `DocumentLocaleSync` writes whatever `dir` the registry holds. Step 1 drives the compiler: until
+`DocumentLocaleSync` writes whatever `dir` the registry holds, and `LocaleSwitcher` grows a third
+control, because it maps the registry rather than a hand-written list. Step 1 drives the compiler: until
 `LOCALES` and `BUNDLED_RESOURCES` both have an `fr` entry, `npm run typecheck` fails (`TS1360` for a
 missing entry, `TS2322` for an entry without `common`), and the `BUNDLED_RESOURCES` entry cannot
 compile without `fr/common.json` on disk. Steps 2 (beyond `common`) and 4 are not enforced. One trap:
@@ -547,14 +577,29 @@ German means choosing another unsupported code there.
 
 ### Add a language switcher
 
-A switcher is a control that calls `useLocale().setLocale(next)`; `DocumentLocaleSync`, every
-`useTranslation` consumer and the `app.locale` cache follow on their own. The list of locales and
-their endonym labels live in `SUPPORTED_LOCALES` and `LOCALES`, which the barrel does not export
-today, so the change that adds the switcher also adds them to `src/shared/i18n/index.ts` — rather
-than importing `@/shared/i18n/registry` directly (see [Known limitations](#known-limitations)).
-[Architecture boundaries](./architecture-boundaries.md#add-a-slice) walks through building this
-exact slice, `features/switch-locale`, end to end, including the steiger override a
-single-consumer `features` slice needs.
+The switcher ships. `features/switch-locale` holds it — `LocaleSwitcher` in
+`src/features/switch-locale/ui/locale-switcher.tsx`, published by
+`src/features/switch-locale/index.ts` — and it is the whole of what a language control has to do:
+map `SUPPORTED_LOCALES`, label each entry with `LOCALES[candidate].label`, and call
+`useLocale().setLocale(candidate)` on click. Everything downstream follows on its own —
+`DocumentLocaleSync` rewrites `<html lang dir>`, every `useTranslation` consumer re-renders on
+`languageChanged`, a namespace the new locale does not bundle streams in, and the detector caches
+the choice under `app.locale` — so the slice holds no state and needs no `model/` segment.
+
+`widgets/app-header` composes it into the app-shell banner, and `src/app/routes/__root.tsx` mounts
+that widget above the `<Outlet />`, which is what puts the control on every route rather than on one
+screen. A block a single page rendered would have stayed in that page's `ui/` segment; a header that
+every route shows is a `widgets` slice.
+
+Adding a locale needs no edit here: [Add a locale](#add-a-locale) registers the code and its
+descriptor, and the extra `Button` appears because the switcher renders the registry rather than a
+hand-written list. Adding a locale also adds no key to any namespace, because the labels are
+endonyms, not copy — see [Design decisions](#design-decisions--trade-offs).
+
+[Architecture boundaries](./architecture-boundaries.md#add-a-slice) is the full slice walkthrough:
+it builds `features/switch-locale` and `widgets/app-header` step by step from the barrel export
+through the steiger override a single-consumer `features` slice needs, and is the reference to copy
+when adding the next slice on either layer.
 
 ## Design decisions & trade-offs
 
@@ -660,9 +705,33 @@ single-consumer `features` slice needs.
   library: `Intl` reads the platform's CLDR data, so Russian dates cost nothing in the bundle. A
   library earns its place when relative time or date arithmetic is needed, behind a
   `shared/lib/format-date` helper, with the domain model unchanged.
+- **The switcher adds no translation key, because a language's name is never translated.** Each
+  control shows the endonym from `LOCALES` — `English`, `Русский` — which is what a visitor who
+  cannot read the current UI language is looking for. Translating the names would put one key per
+  locale into `common`, which every locale bundles, so every visitor would pay for them in every
+  locale — and the result would fail exactly the person who needs the control most: an English UI
+  would offer "Russian" to someone who reads only Russian. So `en/common.json` and `ru/common.json` were
+  untouched by the change that added `features/switch-locale`. The labels are registry data, not
+  copy, and `lang` on each button tells a screen reader to pronounce each one with its own
+  language's rules.
+- **The switcher is a row of `aria-pressed` toggles today; a radio group is the upgrade.** Each
+  control is a `Button` with `aria-pressed`, so the set reads as independent toggles rather than as
+  one choice with one answer. The cost is concrete: activating the already-pressed button is a
+  no-op, so a screen-reader user who presses it perceives no change at all — no state transition,
+  no announcement, no reason given. That is the standard argument for radio semantics, where the
+  group is one control, arrow keys move a roving focus across the options, and the chosen one is
+  `aria-checked`. Taking it means a `shared/ui/toggle-group` group over Radix's `ToggleGroup`;
+  `radix-ui` is already a direct dependency, so it costs a new group under `shared/ui` rather than
+  a new dependency. It was left out of the first switcher because a `shared/ui` primitive earns its
+  place from real consumers and this is the first; the second control that offers a single choice
+  from a short set is the one that should build it, and move this slice onto it.
 - **Detection order is query string, then `localStorage`, then the browser, cached under
-  `app.locale`.** `?lng=ru` is what makes a non-English locale reachable, and verifiable in a
-  browser, while there is no switcher. The detector caches the tag it detected (`en-US`), not the
+  `app.locale`.** Those are three entry points into a locale, in that priority. `?lng=ru` pins one
+  for a link, a bug report or a manual check and outranks everything else; the cached `app.locale`
+  carries a previous visit's choice forward, whether the switcher or the detector made it; the
+  browser's languages decide a first visit. Inside a session the header switcher is the path a
+  visitor takes — `?lng=` is the one that needs no click, which is what makes it convenient for
+  reproducing a locale from a URL. The detector caches the tag it detected (`en-US`), not the
   resolved locale (`en`); both resolve to the same language. Because the first visit caches the
   browser's language and storage outranks the browser, a visitor who later changes their browser
   language keeps the stored one until `?lng=` or `setLocale` replaces it. `load: 'languageOnly'`
@@ -699,7 +768,9 @@ registers a fresh English instance —
 global with `setI18n`; after each test it removes `lang` and `dir` from `<html>`. `useTranslation`
 falls back to that global when no provider is mounted, which is how `home-page.test.tsx` renders
 `<HomePage />` bare and asserts on the copy a user reads (`'Add one second'`, `'0 seconds added'`).
-The instance is rebuilt per test so a language change cannot leak into the next test, and its
+`useLocale` reads the same global, so `locale-switcher.test.tsx` and `app-header.test.tsx` mount
+their components with no provider either, and a click that calls `setLocale` changes the language on
+that global instance. The instance is rebuilt per test so a language change cannot leak into the next test, and its
 detection and caching are off so it never reads or writes `app.locale` behind a storage assertion's
 back. Those steps sit behind `typeof window !== 'undefined'` because the setup file also runs for
 the three `// @vitest-environment node` files, where `localStorage` does not exist. The setup file
@@ -712,9 +783,20 @@ as a whole is covered in [Unit and component testing](./unit-testing.md).
 | `src/shared/i18n/use-locale.test.tsx`                    | hook        | Locale and direction; re-render after `setLocale`; `DEFAULT_LOCALE` before a language has resolved                                                                                                                                                                                                                  |
 | `src/shared/i18n/registry.test.ts`                       | unit        | The defaults are registered; every locale has a label and a direction; every locale bundles `common`; `isSupportedLocale` accepts every supported code and rejects `de`, `''` and `undefined`                                                                                                                       |
 | `src/shared/i18n/lazy-locale-loader.test.ts`             | unit        | Loading `ru/home`; rejecting an unknown language or namespace; rejecting the default locale (the glob drift guard) and `common` in every locale; every English key family present in Russian, plural suffixes stripped                                                                                              |
-| `src/app/entrypoint/app.test.tsx`                        | integration | A cold load with `app.locale` set to `ru` renders the Russian home button through the real composition root and sets `<html lang="ru">`                                                                                                                                                                             |
+| `src/features/switch-locale/ui/locale-switcher.test.tsx` | component   | Every supported locale offered under its own endonym, with the active one pressed; the pressed state moving when another locale is chosen; each button tagged with the `lang` it names                                                                                                                              |
+| `src/widgets/app-header/ui/app-header.test.tsx`          | component   | The banner names the application; the switcher is reachable `within` the banner, not merely co-present on the page                                                                                                                                                                                                  |
+| `src/app/entrypoint/app.test.tsx`                        | integration | A cold load with `app.locale` set to `ru` renders the Russian home button through the real composition root and sets `<html lang="ru">`; the header rendering with the configured name; clicking `Русский` in the header switching the home page's copy to `Добавить секунду` and `<html lang>` to `ru`             |
 | `src/pages/home/ui/home-page.test.tsx`                   | component   | Heading; the `environment` copy with its `<code>` elements; the elapsed `status` region's name and value; the plural switching from `0 seconds added` to `1 second added`                                                                                                                                           |
 | `src/shared/lib/format-duration/format-duration.test.ts` | unit        | `mm:ss` and `hh:mm:ss` at their boundaries; `RangeError` for negative and non-finite input                                                                                                                                                                                                                          |
+
+The switch journey in `app.test.tsx` is the first test that follows a locale change all the way to
+user-visible copy. It renders the real `App`, clicks `Русский` in the header, and then asserts on
+`Добавить секунду` — copy owned by a _different_ component, `HomePage`, in the `home` namespace,
+which `ru` does not bundle and therefore has to stream through `loadLocaleNamespace` — and on
+`document.documentElement.lang` becoming `ru`. Every earlier locale test asserted either against the
+instance (`create-i18n.test.ts`) or against a component it drove itself. The two header tests also
+pin the composition: deleting the `<AppHeader />` line from `__root.tsx` leaves `RootLayout` invoked
+and every slice-level test green, so these are the ones that catch it.
 
 `home-page.test.tsx` stands up no router, deliberately: it is the executable proof that a page below
 `app` reads no route state, so keep it that way. It also queries `heading` at `level: 1` with no
@@ -724,6 +806,7 @@ and a second `<main>` is a landmark ambiguity no gate catches.
 ```bash
 npm test
 npx vitest run src/shared/i18n
+npx vitest run src/features/switch-locale src/widgets/app-header
 npx vitest run src/pages/home/ui/home-page.test.tsx
 npx vitest run src/app/entrypoint/app.test.tsx
 npm run typecheck
@@ -733,16 +816,12 @@ npm run test:e2e
 `npm test` runs the whole Vitest suite. `npm run typecheck` is where a mistyped key, an unlisted
 namespace or a locale without bundled `common` fails. `npm run test:e2e` drives the production build
 in Chromium with `locale: 'en-US'` pinned in `playwright.config.ts`; `e2e/app-shell.spec.ts` asserts
-the not-found page's `common` copy (`Page not found`, `Back to home`) — see
-[End-to-end testing](./e2e-testing.md).
+the not-found page's `common` copy (`Page not found`, `Back to home`) and that the `banner` landmark
+is visible after navigating home, but asserts nothing about the switcher's controls or about Russian
+copy — see [End-to-end testing](./e2e-testing.md).
 
 ## Known limitations
 
-- **No language switcher, and `setLocale` has no runtime caller.** `useLocale().setLocale` is called
-  only from `use-locale.test.tsx` and `i18n-provider.test.tsx`; no mounted component renders a
-  language control. A visitor can change language only with `?lng=` on a full page load, after
-  which the choice is cached. The endonym `label` in `LOCALES` is likewise read only by
-  `registry.test.ts`.
 - **A failed lazy namespace degrades silently and for the rest of the visit.** The screen falls back
   to English copy, nothing subscribes to i18next's `failedLoading` event, so the `ErrorReporter`
   never hears of it, and i18next does not retry the namespace until the next full page load.
@@ -750,13 +829,19 @@ the not-found page's `common` copy (`Page not found`, `Back to home`) — see
   Router's built-in error component — "Something went wrong!" with a "Show Error" toggle — which
   renders for an uncaught route error because no route sets `errorComponent`. See
   [Error handling and reporting](./error-handling.md).
-- **Nothing end to end runs a non-English locale.** `playwright.config.ts` pins `locale: 'en-US'`
-  and no spec uses `?lng=` or asserts Russian copy, so the production build's `home-*.js` chunk is
-  never fetched under test. The lazy path is exercised only by Vitest (`app.test.tsx`,
-  `lazy-locale-loader.test.ts`) through Vite's test transform.
-- **Component tests below `app` render English only.** The `createI18n` ban and the `react-i18next`
-  ban apply to test files too, so a test in `pages`, `features`, `entities` or `shared` cannot build
-  a Russian instance; non-English rendering is tested only inside `src/shared/i18n` and in
+- **Nothing end to end runs a non-English locale, and language persistence has no journey test.**
+  `playwright.config.ts` pins `locale: 'en-US'`, and no spec uses `?lng=`, activates a switcher
+  control or asserts Russian copy, so the production build's `home-*.js` chunk is never fetched
+  under test. The journey only a real browser can settle — switch in the header, reload, confirm the
+  choice held — is therefore unwritten: caching under `app.locale` is covered by
+  `create-i18n.test.ts` in jsdom, but nothing proves it survives a real page load of the built app.
+  The lazy path is likewise exercised only by Vitest (`app.test.tsx`, `lazy-locale-loader.test.ts`)
+  through Vite's test transform.
+- **Non-English copy is asserted only inside the segment and at the composition root.** The `createI18n` ban and
+  the `react-i18next` ban apply to test files too, so a test in `pages`, `widgets`, `features`,
+  `entities` or `shared` cannot build a Russian instance. A test can still reach another locale
+  through the UI — `locale-switcher.test.tsx` clicks `Русский` — but the switcher renders registry
+  labels rather than copy, so non-English _copy_ is asserted only inside `src/shared/i18n` and in
   `app.test.tsx`.
 - **The drift guard is hand-maintained and compares key families, not plural forms.**
   `TRANSLATED_NAMESPACES` lists `common` and `home` for Russian explicitly, so a new namespace or

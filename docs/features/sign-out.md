@@ -1,6 +1,6 @@
 # Sign-out
 
-> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `19fe53b`
+> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `65a99bc`
 
 ## Purpose
 
@@ -82,12 +82,14 @@ Two failure paths matter:
 
 Feature-Sliced Design (FSD) stacks the code in _layers_ — the top-level folders under `src/`, which
 may import only downward in the order `app` → `pages` → `widgets` → `features` → `entities` →
-`shared`. This feature spans every one of them except `widgets`, which this repo does not have yet,
-plus two root config files the layers do not cover, which the table below marks `outside layers`. A
-_slice_ is one screen, user action or business noun inside a layer — here `pages/user-profile` (a
-screen), `features/sign-out` (a user action) and `entities/session` (a business noun) — and a
-_segment_ is a purpose-named folder inside a slice: `ui/` for components, `model/` for domain types,
-state, hooks and ports, `api/` for DTOs, wire schemas, mappers and HTTP calls. The table writes a
+`shared`. This feature spans every one of them except `widgets` — that layer now exists, but its
+only slice, `app-header`, hosts no part of this feature yet, for the reason given under
+[The move into `widgets`](#the-move-into-widgets) — plus two root config files the layers do not
+cover, which the table below marks `outside layers`. A _slice_ is one screen, user action or
+business noun inside a layer — here `pages/user-profile` (a screen), `features/sign-out` (a user
+action) and `entities/session` (a business noun) — and a _segment_ is a purpose-named folder inside
+a slice: `ui/` for components, `model/` for domain types, state, hooks and ports, `api/` for DTOs,
+wire schemas, mappers and HTTP calls. The table writes a
 component's home as `slice · segment`, so `features/sign-out · ui` means the `ui` folder of the
 `features/sign-out` slice; `app` and `shared` have segments but no slices, so their rows name the
 segment alone (`app/entrypoint`, `shared/api`).
@@ -110,29 +112,29 @@ Imports run strictly downward through each slice's public `index.ts` —
 constructors, so every layer below `app`, plus `app/routes` and `app/router`, is barred from
 building an ender and must take the port from the provider tree.
 
-| Component                                       | Layer                       | Responsibility                                                                                                   | File                                                                               |
-| ----------------------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `Route`, `UserProfileRoute`                     | `app/routes`                | Registers `/users/$userId` under the guard and supplies `onSignedOut` as `navigate({ to: '/sign-in' })`          | `src/app/routes/_authenticated/users.$userId.tsx`                                  |
-| `UserProfilePage`                               | `pages/user-profile · ui`   | Composes `SignOutButton` above the profile content and forwards `onSignedOut`; reads no route state              | `src/pages/user-profile/ui/user-profile-page.tsx`                                  |
-| `SignOutButton`                                 | `features/sign-out · ui`    | Container: wires `useSignOut` into the view                                                                      | `src/features/sign-out/ui/sign-out-button.tsx`                                     |
-| `SignOutButtonView`                             | `features/sign-out · ui`    | Presentational `Button` (`variant="outline"`): swaps its label and sets `aria-busy` and `disabled` while pending | `src/features/sign-out/ui/sign-out-button-view.tsx`                                |
-| `useSignOut`                                    | `features/sign-out · model` | Drives `SessionEnder.signOut` through `useMutation`; returns `isSigningOut` and a `signOut` that never rejects   | `src/features/sign-out/model/use-sign-out.ts`                                      |
-| `SessionEnder`, `createSessionEnder`            | `entities/session · model`  | The port, and its implementation: request the revocation, then end the local session in a `finally`              | `src/entities/session/model/session-ender.ts`                                      |
-| `SessionEndTarget`, `CreateSessionEnderOptions` | `entities/session · model`  | The narrowed store (`Pick<SessionStore, 'end'>`) and the factory's options; both internal to the slice           | `src/entities/session/model/session-ender.ts`                                      |
-| `useSessionEnder`, `SessionEnderContext`        | `entities/session · model`  | Reads the published ender; throws outside a provider                                                             | `src/entities/session/model/session-ender-context.ts`                              |
-| `SessionEnderProvider`                          | `entities/session · model`  | Publishes an ender to the tree below it                                                                          | `src/entities/session/model/session-ender-provider.tsx`                            |
-| `SignOutOutcome`                                | `entities/session · model`  | The two-member outcome the port returns: `signed-out` or `unavailable`                                           | `src/entities/session/model/sign-out-outcome.ts`                                   |
-| `createSessionStore` (`end`)                    | `entities/session · model`  | Publishes `anonymous` to every observer, unless the state already is                                             | `src/entities/session/model/session-store.ts`                                      |
-| `createSessionTokenSource` (`applyResult`)      | `entities/session · model`  | Drops a `refreshed` renewal once the store reads `anonymous`, so a late refresh cannot undo `store.end()`        | `src/entities/session/model/session-token-source.ts`                               |
-| `createSessionApi` (`signOut`)                  | `entities/session · api`    | `POST /auth/logout` with an empty body, and the 401 / other classification                                       | `src/entities/session/api/session-api.ts`                                          |
-| `noContentSchema`                               | `shared/api`                | The `ResponseSchema` that accepts only an empty body, so a 204 is validated like any other answer                | `src/shared/api/response-schema.ts`                                                |
-| `Button`                                        | `shared/ui`                 | The Radix + CVA primitive the view renders (see [Design system](./design-system.md))                             | `src/shared/ui/button/button.tsx`                                                  |
-| `signOut.*` keys                                | `shared/i18n`               | English and Russian copy for the idle and pending labels                                                         | `src/shared/i18n/locales/en/common.json`, `src/shared/i18n/locales/ru/common.json` |
-| `createAuthenticatedTransport`                  | `app/entrypoint`            | Builds the cookie-bearing unauthenticated client and binds `createSessionEnder({ store, requestSignOut })`       | `src/app/entrypoint/create-authenticated-transport.ts`                             |
-| `AppProviders`                                  | `app/entrypoint`            | Mounts `SessionEnderProvider` with the transport's ender and subscribes `clearCacheOnSessionEnd`                 | `src/app/entrypoint/app-providers.tsx`                                             |
-| `clearCacheOnSessionEnd`                        | `app/entrypoint`            | Clears the query cache on any transition whose previous status was `authenticated`; predates this feature        | `src/app/entrypoint/clear-cache-on-session-end.ts`                                 |
-| `SESSION_CONSTRUCTOR_NAMES`                     | `outside layers`            | Lists `createSessionEnder`, so only `app/entrypoint` may import it from `@/entities/session`                     | `eslint.config.js`                                                                 |
-| `fsd/insignificant-slice` override              | `outside layers`            | Keeps steiger from asking to merge `features/sign-out` into its single consumer                                  | `steiger.config.ts`                                                                |
+| Component                                       | Layer                       | Responsibility                                                                                                                                                                | File                                                                               |
+| ----------------------------------------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `Route`, `UserProfileRoute`                     | `app/routes`                | Registers `/users/$userId` under the guard and supplies `onSignedOut` as `navigate({ to: '/sign-in' })`                                                                       | `src/app/routes/_authenticated/users.$userId.tsx`                                  |
+| `UserProfilePage`                               | `pages/user-profile · ui`   | Composes `SignOutButton` above the profile content and forwards `onSignedOut`; reads no route state                                                                           | `src/pages/user-profile/ui/user-profile-page.tsx`                                  |
+| `SignOutButton`                                 | `features/sign-out · ui`    | Container: wires `useSignOut` into the view                                                                                                                                   | `src/features/sign-out/ui/sign-out-button.tsx`                                     |
+| `SignOutButtonView`                             | `features/sign-out · ui`    | Presentational `Button` (`variant="outline"`): swaps its label and sets `aria-busy` and `disabled` while pending                                                              | `src/features/sign-out/ui/sign-out-button-view.tsx`                                |
+| `useSignOut`                                    | `features/sign-out · model` | Drives `SessionEnder.signOut` through `useMutation`; returns `isSigningOut` and a `signOut` that never rejects                                                                | `src/features/sign-out/model/use-sign-out.ts`                                      |
+| `SessionEnder`, `createSessionEnder`            | `entities/session · model`  | The port, and its implementation: request the revocation, then end the local session in a `finally`                                                                           | `src/entities/session/model/session-ender.ts`                                      |
+| `SessionEndTarget`, `CreateSessionEnderOptions` | `entities/session · model`  | The narrowed store (`Pick<SessionStore, 'end'>`) and the factory's options; both internal to the slice                                                                        | `src/entities/session/model/session-ender.ts`                                      |
+| `useSessionEnder`, `SessionEnderContext`        | `entities/session · model`  | Reads the published ender; throws outside a provider                                                                                                                          | `src/entities/session/model/session-ender-context.ts`                              |
+| `SessionEnderProvider`                          | `entities/session · model`  | Publishes an ender to the tree below it                                                                                                                                       | `src/entities/session/model/session-ender-provider.tsx`                            |
+| `SignOutOutcome`                                | `entities/session · model`  | The two-member outcome the port returns: `signed-out` or `unavailable`                                                                                                        | `src/entities/session/model/sign-out-outcome.ts`                                   |
+| `createSessionStore` (`end`)                    | `entities/session · model`  | Publishes `anonymous` to every observer, unless the state already is                                                                                                          | `src/entities/session/model/session-store.ts`                                      |
+| `createSessionTokenSource` (`applyResult`)      | `entities/session · model`  | Drops a `refreshed` renewal once the store reads `anonymous`, so a late refresh cannot undo `store.end()`                                                                     | `src/entities/session/model/session-token-source.ts`                               |
+| `createSessionApi` (`signOut`)                  | `entities/session · api`    | `POST /auth/logout` with an empty body, and the 401 / other classification                                                                                                    | `src/entities/session/api/session-api.ts`                                          |
+| `noContentSchema`                               | `shared/api`                | The `ResponseSchema` that accepts only an empty body, so a 204 is validated like any other answer                                                                             | `src/shared/api/response-schema.ts`                                                |
+| `Button`                                        | `shared/ui`                 | The Radix + CVA primitive the view renders (see [Design system](./design-system.md))                                                                                          | `src/shared/ui/button/button.tsx`                                                  |
+| `signOut.*` keys                                | `shared/i18n`               | English and Russian copy for the idle and pending labels                                                                                                                      | `src/shared/i18n/locales/en/common.json`, `src/shared/i18n/locales/ru/common.json` |
+| `createAuthenticatedTransport`                  | `app/entrypoint`            | Builds the cookie-bearing unauthenticated client and binds `createSessionEnder({ store, requestSignOut })`                                                                    | `src/app/entrypoint/create-authenticated-transport.ts`                             |
+| `AppProviders`                                  | `app/entrypoint`            | Mounts `SessionEnderProvider` with the transport's ender and subscribes `clearCacheOnSessionEnd`                                                                              | `src/app/entrypoint/app-providers.tsx`                                             |
+| `clearCacheOnSessionEnd`                        | `app/entrypoint`            | Clears the query cache on any transition whose previous status was `authenticated`; predates this feature                                                                     | `src/app/entrypoint/clear-cache-on-session-end.ts`                                 |
+| `SESSION_CONSTRUCTOR_NAMES`                     | `outside layers`            | Lists `createSessionEnder`, so only `app/entrypoint` may import it from `@/entities/session`                                                                                  | `eslint.config.js`                                                                 |
+| `fsd/insignificant-slice` override              | `outside layers`            | Exempts four single-consumer feature slices — `sign-in`, `sign-out`, `switch-locale`, `update-user-name` — so steiger does not ask to merge each into its one consuming slice | `steiger.config.ts`                                                                |
 
 ## Public surface
 
@@ -333,9 +335,35 @@ Nothing in `features/sign-out`, `pages/user-profile` or `app/routes` changes: th
 
 ### The move into `widgets`
 
-The `widgets` layer does not exist yet; the repo creates it in the same commit as its first slice.
-When it lands, `SignOutButton` belongs in an app-shell header widget rather than on one screen, and
-`UserProfilePage` drops the `onSignedOut` prop while the shell's host supplies the callback.
+The `widgets` layer now exists, created in one commit with its first slice, `src/widgets/app-header`
+— exactly the shape this section predicted. `AppHeader` is a `<header>` banner that `RootLayout` in
+`src/app/routes/__root.tsx` mounts as `<AppHeader appName={appConfig.name} />` above the
+`<Outlet />`, so it renders on every route, and it already hosts one occupant: `LocaleSwitcher`, from
+`@/features/switch-locale`. That is the app shell this section always wanted `SignOutButton` to live
+in rather than on one screen.
+
+The move is still blocked, and by one concrete gap. A banner on every route must offer the control
+only while a session is live — mounted unconditionally it would put "Sign out" on `/sign-in` — and
+nothing below `app` can read session status today. `src/entities/session/index.ts` publishes three
+context/provider pairs, and none of them publishes a _status_ a component can subscribe to:
+
+- `SessionResolverProvider` / `useSessionResolver` — `resolve(): Promise<SessionStatus>` answers
+  once per call, for the route guard's `beforeLoad` ([Authenticated route guard](./route-guard.md));
+  it settles a pending renewal rather than reporting live state.
+- `SessionStarterProvider` / `useSessionStarter` — exchanges credentials ([Sign-in](./sign-in.md)).
+- `SessionEnderProvider` / `useSessionEnder` — this feature's port, `signOut()` and nothing else.
+
+`SessionObserver` — `status()` plus `subscribe()`, precisely the subscribable shape a header
+needs — is exported from the barrel as a **type** only. Its one instance is built in the composition
+root by `toSessionObserver(sessionStore)` inside `createAuthenticatedTransport`, and reaches exactly
+one consumer: `clearCacheOnSessionEnd`, subscribed in `AppProviders`' `useEffect`. There is no
+`SessionObserverProvider` and no `useSessionStatus` hook, and `__root.tsx` itself sees only what
+`AppRouterContext` carries — `httpClient`, `queryClient` and `sessionResolver`.
+
+Building that provider, the hook that reads it, their tests and the `AppProviders` wiring is a step
+of its own, and it belongs to [Session management](./session-management.md) rather than to this
+feature. Once it lands, `AppHeader` can render `SignOutButton` for an `authenticated` status alone,
+`UserProfilePage` drops its `onSignedOut` prop, and the header's host supplies the callback.
 Nothing inside `features/sign-out` changes in that move — which is the test of whether the slice was
 placed correctly.
 
@@ -421,12 +449,16 @@ placed correctly.
   so the label, `disabled` and `aria-busy` can be asserted against that one boolean and the view
   needs no test file of its own.
 - **`fsd/insignificant-slice` is off for this slice.** steiger's rule flags a slice with a single
-  consumer, and `features/sign-out` has exactly one today: `pages/user-profile`. The rule targets
-  premature slicing, and a user action whose one home is currently a single screen is not
-  that — keeping it in the `features` layer is what makes the planned move into an app-shell widget
-  a relocation rather than a rewrite. The override in `steiger.config.ts` names this slice's glob
-  beside `sign-in`'s and `update-user-name`'s, instead of switching the rule off for
-  `src/features/**`, so the next single-consumer slice is still flagged.
+  consuming slice, and `features/sign-out` has exactly one today: `pages/user-profile`. The rule
+  targets premature slicing, and a user action whose one home is currently a single host is not
+  that — keeping it in the `features` layer is what makes the move into `widgets/app-header` a
+  relocation rather than a rewrite. The override in `steiger.config.ts` names four globs —
+  `./src/features/sign-in/**`, `./src/features/sign-out/**`, `./src/features/switch-locale/**` and
+  `./src/features/update-user-name/**` — instead of switching the rule off for `src/features/**`, so
+  the next single-consumer slice is still flagged. The exempted consumer need not be a page:
+  `switch-locale`'s one consumer is the `widgets/app-header` slice
+  ([Internationalization](./internationalization.md)), which is why the rationale is "exactly one
+  consuming slice" rather than "exactly one screen".
 - **What the backend must do.** The endpoint receives a cookie-authenticated `POST` with an empty
   body, which is precisely the shape a cross-site request forgery can produce: any page can submit a
   form to it and sign the visitor out. The server must therefore reject cross-site requests —

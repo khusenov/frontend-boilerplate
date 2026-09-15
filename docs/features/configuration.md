@@ -1,6 +1,6 @@
 # Configuration and environment
 
-> **Status:** Complete · **Layers:** app, pages, entities, shared, outside layers · **Verified against:** `1c193c6`
+> **Status:** Complete · **Layers:** app, pages, widgets, entities, shared, outside layers · **Verified against:** `65a99bc`
 
 ## Purpose
 
@@ -38,24 +38,32 @@ together with the route modules under `src/app/routes`.
    three fields: `name`, the literal `'frontend-boilerplate'`; `mode`, which is
    `import.meta.env.MODE`; and `apiBaseUrl`, the trimmed value, or `DEFAULT_API_BASE_URL` (`'/v1'`)
    when the trimmed value is empty. The dev server hands each module the values it loaded at
-   startup; a production build compiles them in, so `dist/` contains no `import.meta.env` at all. In
-   today's build `appConfig` sits in a chunk of its own, `dist/assets/app-config-*.js`, which both
-   the entry chunk and the `/` route's chunk import — open it after `npm run build` to see exactly
-   what the build resolved.
-3. **The composition seam passes the values down — with one exception below it.** Exactly three
-   modules in `src/` import `appConfig`. Two of them make up the composition seam:
+   startup; a production build compiles them in, so `dist/` contains no `import.meta.env` at all.
+   Rollup inlines the resolved object into a shared chunk under `dist/assets/` that `index.html`
+   preloads, and that chunk's file name is content-derived rather than stable, so read what a build
+   resolved out of the output itself: minification keeps the keys, and after `npm run build`
+   `grep -rn 'apiBaseUrl:' dist/assets` finds the frozen object among its readers.
+3. **The composition seam passes the values down — with one exception below it.** Exactly four
+   modules in `src/` import `appConfig`. Three of them make up the composition seam:
    - `App` (`src/app/entrypoint/app.tsx`) passes `appConfig.apiBaseUrl` to `AppProviders` as its
      `apiBaseUrl` prop. `AppProviders` calls `createAuthenticatedTransport(apiBaseUrl)` once, in a
      `useState` initializer, and that factory gives the string to both HTTP clients as `baseUrl`,
      which becomes axios's `baseURL`. Every API path is joined beneath it: with the default, the
      session refresh is `POST /v1/auth/refresh` and a profile read is `GET /v1/users/{id}`.
      [HTTP transport](./http-transport.md) covers the clients.
+   - `RootLayout` (`src/app/routes/__root.tsx`) passes `appConfig.name` to `AppHeader` as its
+     `appName` prop. `AppHeader` — the app-shell banner that sits above every route's `Outlet`, and
+     the `widgets` layer's only slice today — also hosts the locale switcher
+     ([Internationalization](./internationalization.md)). It takes the name as a prop rather than
+     importing `@/shared/config` itself, which is the convention working as intended: the widget
+     declares `readonly appName: string` and `src/widgets/app-header/ui/app-header.test.tsx` renders
+     it from a literal, with no router and no environment stub.
    - `HomeRoute` (`src/app/routes/index.tsx`) passes all three fields to `HomePage` as its `name`,
      `mode` and `apiBaseUrl` props. The page renders `name` as its heading and the other two through
      the `home` namespace's `environment.mode` and `environment.api` strings
      ([Internationalization](./internationalization.md)), so `npm run dev` shows
      `mode: development · api: /v1` under the heading.
-   - **The third reader is a documented exception, not part of the seam:**
+   - **The fourth reader is a documented exception, not part of the seam:**
      `src/entities/session/model/session-token-source.ts` sits in the `entities` layer and imports
      `appConfig` itself, building `REFRESH_TASK_NAME` from `appConfig.name` when the module loads.
      The result, `frontend-boilerplate:session-refresh`, is the name of the Web Lock —
@@ -101,10 +109,11 @@ against, so that whatever sits behind it can change; for configuration the seam 
 plain data. Below the composition seam nothing programs
 against `appConfig`: each consumer declares the scalar it needs — the `apiBaseUrl: string` prop of
 `AppProviders`, the `baseUrl` parameter of `createAuthenticatedTransport`, the `baseUrl` option of
-`createHttpClient`, the three `readonly` string props of `HomePage` — and receives it from above.
-The one concrete source of those values is `appConfig`, a module constant in `shared/config` that
-imports nothing and is the only reader of `import.meta.env`, and the composition seam binds it:
-`app/entrypoint/app.tsx` and `app/routes/index.tsx` read it and pass flat values down
+`createHttpClient`, the `appName: string` prop of `AppHeader`, the three `readonly` string props of
+`HomePage` — and receives it from above. The one concrete source of those values is `appConfig`, a
+module constant in `shared/config` that imports nothing and is the only reader of `import.meta.env`,
+and the composition seam binds it: `app/entrypoint/app.tsx`, `app/routes/__root.tsx` and
+`app/routes/index.tsx` read it and pass flat values down
 ([Composition root](./composition-root.md)). Every import points downward, as the Import Rule
 requires: `app` → `shared/config`, plus `entities/session` → `shared/config` in
 `session-token-source.ts`, the one reader below `app`. That import passes both gates —
@@ -130,6 +139,8 @@ configuration at the composition seam is a convention, not a fence
 | `AppProviders`                     | `app/entrypoint`           | Takes `apiBaseUrl` as a prop and builds the transport with it once, in `useState`                                            | `src/app/entrypoint/app-providers.tsx`                 |
 | `createAuthenticatedTransport`     | `app/entrypoint`           | Gives the base URL to both HTTP clients as `baseUrl`                                                                         | `src/app/entrypoint/create-authenticated-transport.ts` |
 | `createHttpClient`                 | `shared/api`               | Turns `baseUrl` into axios's `baseURL` ([HTTP transport](./http-transport.md))                                               | `src/shared/api/http-client.ts`                        |
+| `RootLayout`                       | `app/routes`               | Reads `appConfig.name` and passes it to `AppHeader` as its `appName` prop                                                    | `src/app/routes/__root.tsx`                            |
+| `AppHeader`                        | `widgets/app-header · ui`  | Renders the app-shell banner from the `appName` prop; imports no configuration of its own                                    | `src/widgets/app-header/ui/app-header.tsx`             |
 | `HomeRoute`                        | `app/routes`               | Reads all three fields and passes them to `HomePage` as props                                                                | `src/app/routes/index.tsx`                             |
 | `HomePage`                         | `pages/home · ui`          | Receives `name`, `mode` and `apiBaseUrl` as `readonly` string props and displays them                                        | `src/pages/home/ui/home-page.tsx`                      |
 | `REFRESH_TASK_NAME`                | `entities/session · model` | `appConfig.name` plus `:session-refresh`, the refresh lock's name; the one read of `appConfig` below `app`                   | `src/entities/session/model/session-token-source.ts`   |
@@ -149,7 +160,7 @@ read-only at compile time; the object itself is not frozen. `DEFAULT_API_BASE_UR
 
 | Field        | Type                     | Source                       | Value                                                                                                                                                                                                                                        |
 | ------------ | ------------------------ | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`       | `'frontend-boilerplate'` | A literal in `app-config.ts` | The heading of `/` and the namespace of the refresh lock. Code, not environment: changing it is a commit                                                                                                                                     |
+| `name`       | `'frontend-boilerplate'` | A literal in `app-config.ts` | The text of the app-shell header on every route, the heading of `/`, and the namespace of the refresh lock. Code, not environment: changing it is a commit                                                                                   |
 | `mode`       | `string`                 | `import.meta.env.MODE`       | `development` under `npm run dev`; `production` in `npm run build` output, and so under `npm run preview` and the end-to-end suite; `test` under Vitest. Nothing branches on it: `HomeRoute` passes it to `HomePage`, which only displays it |
 | `apiBaseUrl` | `string`                 | `VITE_API_BASE_URL`          | The variable, trimmed — or `'/v1'` when it is unset, empty or whitespace-only                                                                                                                                                                |
 
@@ -183,7 +194,7 @@ so both see the defaults ([Quality gates](./quality-gates.md)).
 | ---------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `VITE_API_BASE_URL`                                        | `/v1` (`DEFAULT_API_BASE_URL`), also when empty or whitespace-only | Base URL of every API request: a path on the app's own origin, such as `/v1`, or an absolute URL, such as `https://api.example.com/v1`. Trimmed, then exposed as `appConfig.apiBaseUrl`. axios drops trailing slashes when it joins the base and a path, so `/v1/` behaves like `/v1`. Keep the `/v1` segment — the refresh cookie depends on it ([Session management](./session-management.md)) |
 | `import.meta.env.MODE`                                     | Set by Vite: `development`, `production` or `test`                 | Exposed as `appConfig.mode`. The same mode is what `vite.config.ts` compares (`mode === 'test'`) to leave the router plugin out of Vitest runs ([Routing](./routing.md))                                                                                                                                                                                                                         |
-| `appConfig.name`                                           | `'frontend-boilerplate'`                                           | A literal, not a variable: the heading of `/` and the refresh-lock namespace                                                                                                                                                                                                                                                                                                                     |
+| `appConfig.name`                                           | `'frontend-boilerplate'`                                           | A literal, not a variable: the text of the app-shell header on every route, the heading of `/`, and the refresh-lock namespace                                                                                                                                                                                                                                                                   |
 | `strictImportMetaEnv` (`ViteTypeOptions` in `env.d.ts`)    | On                                                                 | Removes the `Record<string, any>` fallback from `ImportMetaEnv`, so reading an undeclared key fails `tsc`                                                                                                                                                                                                                                                                                        |
 | `server.proxy['/v1']` (`vite.config.ts`)                   | `'http://localhost:8000'`                                          | Dev-server forwarding of every request path under `/v1`, unchanged, to a local API. It reads no environment variable                                                                                                                                                                                                                                                                             |
 | `preview.proxy` (`vite.config.ts`)                         | Unset, so `server.proxy` applies                                   | `npm run preview` forwards `/v1` the same way                                                                                                                                                                                                                                                                                                                                                    |
@@ -248,8 +259,8 @@ origin, which is what makes the second option below workable at all.
   error of any kind — the refresh is answered `401` and every session looks expired
   ([Session management](./session-management.md)). Each API origin needs its own build.
 
-In today's build the resolved values are visible in `dist/assets/app-config-*.js`; check them there
-before shipping.
+The resolved values are compiled into the emitted chunks, so `grep -rn 'apiBaseUrl:' dist/assets`
+prints what the build actually froze in; check it before shipping.
 
 ### Add a variable
 
@@ -349,8 +360,9 @@ for a hypothetical `/support` page.
 - Import `appConfig` only in `src/app/entrypoint/app.tsx` and in route modules under
   `src/app/routes`, and only through the barrel, `@/shared/config`.
 - Below `app`, take the value as a prop or a factory argument. No lint rule stops a module in the
-  `pages`, `features` or `entities` layer from importing `@/shared/config`, so the rule holds only
-  as long as review holds it;
+  `pages`, `widgets`, `features` or `entities` layer from importing `@/shared/config`, so the rule
+  holds only as long as review holds it. `AppHeader` is the convention kept —
+  `src/app/routes/__root.tsx` reads `appConfig.name` and hands it over as `appName` — and
   `session-token-source.ts` is the one existing exception
   ([Design decisions](#design-decisions--trade-offs)).
 - Read `import.meta.env` nowhere but `src/shared/config`. A second reader would need the
@@ -375,11 +387,15 @@ spells `/v1`:
 
 `appConfig.name` namespaces the refresh lock, and Web Locks are per origin: two apps built from this
 template and served from one origin would otherwise queue behind each other's refreshes. Change it
-in `src/shared/config/app-config.ts`. It is also the heading of `/`, so update the four tests that
-assert that heading's text — `src/main.test.ts`, `src/app/entrypoint/app.test.tsx`,
-`src/app/router/app-router-provider.test.tsx` and `src/app/router/create-app-router.test.tsx`;
-`src/pages/home/ui/home-page.test.tsx` passes the name as a literal and needs no change. Three other
-copies of the name do not follow `appConfig.name` and change separately: the `<title>` in
+in `src/shared/config/app-config.ts`. It is also the heading of `/` and the text of the app-shell
+header on every route, so update the four test files that render the real `appConfig` and assert
+that text. `src/main.test.ts`, `src/app/router/app-router-provider.test.tsx` and
+`src/app/router/create-app-router.test.tsx` assert the `<h1>` alone;
+`src/app/entrypoint/app.test.tsx` asserts it twice — once as the `<h1>`, once as the text of the
+`banner` the `AppHeader` renders. The two component tests that pass the name in as a literal prop
+need no change: `src/pages/home/ui/home-page.test.tsx` and
+`src/widgets/app-header/ui/app-header.test.tsx`. Three other copies of the name do not follow
+`appConfig.name` and change separately: the `<title>` in
 `index.html`, `name` in `package.json`, and `SCHEMA_VENDOR` in `src/shared/api/response-schema.ts`.
 
 ## Design decisions & trade-offs
@@ -396,11 +412,12 @@ copies of the name do not follow `appConfig.name` and change separately: the `<t
   component that imported `appConfig` could get a different value in a test only by stubbing the
   environment or mocking the module, and could never render two values side by side; reading at the
   top and passing narrow props avoids both, which is why `HomePage` takes three strings and
-  `home-page.test.tsx` renders it with neither a router nor an environment stub. Route modules are
-  part of the seam, not an exception to it: `src/app/routes/index.tsx` is where `HomePage` gets its
-  props, and the router tests exercise it against the real values. The rule is not linted, and it
-  has one real exception: `session-token-source.ts` in `entities/session` reads `appConfig.name`
-  when the module loads. The exception is cheap because `name` is a literal no environment changes,
+  `home-page.test.tsx` renders it with neither a router nor an environment stub, and why `AppHeader`
+  takes an `appName` string instead of reading the name itself. Route modules are part of the seam,
+  not an exception to it: `src/app/routes/index.tsx` is where `HomePage` gets its props and
+  `src/app/routes/__root.tsx` is where `AppHeader` gets `appName`, and the router tests exercise
+  both against the real values. The rule is not linted, and it has one real exception:
+  `session-token-source.ts` in `entities/session` reads `appConfig.name` when the module loads. The exception is cheap because `name` is a literal no environment changes,
   so no test of the token source has anything to stub; its cost is that the lock namespace is fixed
   per bundle — `CreateSessionTokenSourceOptions` accepts only `store` and `refresh`.
 - **Build-time values, no runtime configuration.** Vite compiles each value into the bundle, so the
@@ -411,8 +428,8 @@ copies of the name do not follow `appConfig.name` and change separately: the `<t
   page, so one `dist/` runs on every host that forwards `/v1` to the API, and only a cross-origin
   API needs a build per environment. Because the value is compiled in, it also changes the bundle's
   bytes, which is why bundle-size baselines are recorded with no `.env` present. The module itself
-  costs next to nothing: in today's build `appConfig` is an 86-byte chunk that `index.html`
-  preloads.
+  costs next to nothing: three fields of plain data that Rollup inlines into a shared chunk
+  `index.html` already preloads, so it adds no request of its own.
 - **The default is a path, and the path is `/v1`.** The default was `/api` until `224db35` moved it
   to `/v1` and added the dev proxy in the same change. A path keeps every request same-origin
   behind a reverse proxy — the dev server's in development, the production host's in production —
@@ -462,13 +479,14 @@ copies of the name do not follow `appConfig.name` and change separately: the `<t
 
 Unit tests sit beside the modules they cover ([Unit and component testing](./unit-testing.md)):
 
-| Test file                                                                                                                                         | What it proves                                                                                                                                                                            |
-| ------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/shared/config/app-config.test.ts`                                                                                                            | A set `VITE_API_BASE_URL` is used; unset, empty and whitespace-only values fall back to `/v1`; surrounding whitespace is trimmed; `mode` is `test` under Vitest                           |
-| `src/pages/home/ui/home-page.test.tsx`                                                                                                            | The page renders whichever `name`, `mode` and `apiBaseUrl` it is given — `production` and `https://api.example.test` included — from literals, with no router and no environment stub     |
-| `src/app/entrypoint/create-authenticated-transport.test.ts`                                                                                       | Given the literal base `https://api.test`, both clients send their requests beneath it: the MSW server errors on any request its handlers, all registered under that origin, do not match |
-| `src/app/entrypoint/app.test.tsx`, `src/app/router/create-app-router.test.tsx`, `src/app/router/app-router-provider.test.tsx`, `src/main.test.ts` | Render `/` through the real `HomeRoute`, and so through the real `appConfig`, and find its `name`, `frontend-boilerplate`, as the heading                                                 |
-| `e2e/**/*.spec.ts`                                                                                                                                | Run against a production build pinned to `VITE_API_BASE_URL=/v1`. The stubs answer only requests under `/v1`, so a build whose base URL lost the prefix fails every spec that loads data  |
+| Test file                                                                                                                                         | What it proves                                                                                                                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/shared/config/app-config.test.ts`                                                                                                            | A set `VITE_API_BASE_URL` is used; unset, empty and whitespace-only values fall back to `/v1`; surrounding whitespace is trimmed; `mode` is `test` under Vitest                                                                                             |
+| `src/pages/home/ui/home-page.test.tsx`                                                                                                            | The page renders whichever `name`, `mode` and `apiBaseUrl` it is given — `production` and `https://api.example.test` included — from literals, with no router and no environment stub                                                                       |
+| `src/widgets/app-header/ui/app-header.test.tsx`                                                                                                   | The app-shell banner renders whichever `appName` it is given, from a literal, with no router and no environment stub                                                                                                                                        |
+| `src/app/entrypoint/create-authenticated-transport.test.ts`                                                                                       | Given the literal base `https://api.test`, both clients send their requests beneath it: the MSW server errors on any request its handlers, all registered under that origin, do not match                                                                   |
+| `src/app/entrypoint/app.test.tsx`, `src/app/router/create-app-router.test.tsx`, `src/app/router/app-router-provider.test.tsx`, `src/main.test.ts` | Render `/` through the real `RootLayout` and `HomeRoute`, and so through the real `appConfig`, and find its `name`, `frontend-boilerplate`, as the `<h1>` heading — and, in `app.test.tsx` alone, also as the text of the `banner` that `AppHeader` renders |
+| `e2e/**/*.spec.ts`                                                                                                                                | Run against a production build pinned to `VITE_API_BASE_URL=/v1`. The stubs answer only requests under `/v1`, so a build whose base URL lost the prefix fails every spec that loads data                                                                    |
 
 `appConfig` is computed when its module is evaluated, so each case in `app-config.test.ts` stubs the
 variable with `vi.stubEnv()` and then imports the module afresh through `loadConfig()`, a dynamic
@@ -493,8 +511,8 @@ every `/v1` request inside the browser, so none reaches the preview server's pro
 ## Known limitations
 
 - **The composition-seam rule is unenforced.** ESLint has no rule for `@/shared/config` and steiger
-  accepts any downward import, so a module in the `pages`, `features` or `entities` layer that
-  imports `appConfig` passes every gate; `src/entities/session/model/session-token-source.ts`
+  accepts any downward import, so a module in the `pages`, `widgets`, `features` or `entities` layer
+  that imports `appConfig` passes every gate; `src/entities/session/model/session-token-source.ts`
   already does. The only check is
   `grep -rn "@/shared/config" src`.
 - **The value is not validated.** `app-config.ts` trims and falls back, nothing more: any non-blank

@@ -19,6 +19,8 @@ Clone it, rename it, and start writing features on top of infrastructure that is
   imports and vendor fences, enforced by steiger and ESLint rather than by review.
 - **[Routing](./docs/features/routing.md)** — TanStack Router, route tree generated from
   `src/app/routes`, typed paths, per-route code splitting, a 404 screen.
+- **[App shell](./docs/features/app-shell.md)** — `widgets/app-header` is the reference widget: a
+  banner mounted once in the root layout, hosting the locale switcher on every route.
 - **[Route guard](./docs/features/route-guard.md)** — a screen is private by living under
   `_authenticated/`; the guard resolves the session before the screen loads.
 - **[Session management](./docs/features/session-management.md)** — in-memory access token,
@@ -116,16 +118,17 @@ npm run preview   # serves dist/ on http://localhost:4173
 
 Four places carry the name, and only one of them propagates:
 
-| Where                                                                      | What to change                                                                 |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| [`src/shared/config/app-config.ts`](./src/shared/config/app-config.ts)     | `appConfig.name` — the `<h1>` of `/` and the `<name>:session-refresh` Web Lock |
-| [`index.html`](./index.html)                                               | `<title>`                                                                      |
-| [`package.json`](./package.json)                                           | `name`                                                                         |
-| [`src/shared/api/response-schema.ts`](./src/shared/api/response-schema.ts) | `SCHEMA_VENDOR`                                                                |
+| Where                                                                      | What to change                                                                                        |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| [`src/shared/config/app-config.ts`](./src/shared/config/app-config.ts)     | `appConfig.name` — the app-shell header, the `<h1>` of `/`, and the `<name>:session-refresh` Web Lock |
+| [`index.html`](./index.html)                                               | `<title>`                                                                                             |
+| [`package.json`](./package.json)                                           | `name`                                                                                                |
+| [`src/shared/api/response-schema.ts`](./src/shared/api/response-schema.ts) | `SCHEMA_VENDOR`                                                                                       |
 
 `appConfig.name` is the one that matters beyond cosmetics: Web Locks are scoped per origin, so two
 apps built from this template and served from one origin would otherwise queue behind each other's
-token refreshes. Changing it also breaks four tests that assert the heading text — `src/main.test.ts`,
+token refreshes. Changing it also breaks four test files that assert the rendered name — the `<h1>`
+of `/` and, in `app.test.tsx`, the app-shell banner: `src/main.test.ts`,
 `src/app/entrypoint/app.test.tsx`, `src/app/router/app-router-provider.test.tsx` and
 `src/app/router/create-app-router.test.tsx`. Translation files carry no product name, so no locale
 needs editing. See
@@ -136,14 +139,14 @@ needs editing. See
 `src/` is divided into **layers**, and a module may import only from layers **below** it, through
 the importee's public `index.ts` and never through an inner file.
 
-| Layer (`src/…`) | Contains                                                          | May import           |
-| --------------- | ----------------------------------------------------------------- | -------------------- |
-| `app`           | Composition root, providers, router, route modules, global styles | Everything below     |
-| `pages`         | Route-level screens, assembled and router-free                    | `widgets` and below  |
-| `widgets`       | Self-contained blocks shared by several screens — unused today    | `features` and below |
-| `features`      | One user action that changes state                                | `entities`, `shared` |
-| `entities`      | Business nouns: model, DTO schema, mapper, HTTP calls             | `shared`             |
-| `shared`        | `api`, `config`, `i18n`, `lib`, `observability`, `ui`             | Nothing above it     |
+| Layer (`src/…`) | Contains                                                             | May import           |
+| --------------- | -------------------------------------------------------------------- | -------------------- |
+| `app`           | Composition root, providers, router, route modules, global styles    | Everything below     |
+| `pages`         | Route-level screens, assembled and router-free                       | `widgets` and below  |
+| `widgets`       | Self-contained blocks shared by several screens — today `app-header` | `features` and below |
+| `features`      | One user action that changes state                                   | `entities`, `shared` |
+| `entities`      | Business nouns: model, DTO schema, mapper, HTTP calls                | `shared`             |
+| `shared`        | `api`, `config`, `i18n`, `lib`, `observability`, `ui`                | Nothing above it     |
 
 `src/main.tsx` sits outside the layer system, so steiger cannot analyse it and a lint rule stands
 in: `@/app` is the only `@/` path it may import.

@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from './app';
@@ -22,6 +23,25 @@ describe('App', () => {
     localStorage.setItem('app.locale', 'ru');
 
     render(<App />);
+
+    expect(await screen.findByRole('button', { name: 'Добавить секунду' })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(document.documentElement.lang).toBe('ru');
+    });
+  });
+
+  it('renders the application header with the configured name', async () => {
+    render(<App />);
+
+    expect(await screen.findByRole('banner')).toHaveTextContent('frontend-boilerplate');
+  });
+
+  it('switches the application language from the app-shell header', async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole('button', { name: 'Русский' }));
 
     expect(await screen.findByRole('button', { name: 'Добавить секунду' })).toBeInTheDocument();
     await waitFor(() => {

@@ -7,11 +7,12 @@ export default defineConfig([
     files: [
       './src/features/sign-in/**',
       './src/features/sign-out/**',
+      './src/features/switch-locale/**',
       './src/features/update-user-name/**',
     ],
     rules: {
-      // Each reference feature is consumed by exactly one page, which is what the rule flags.
-      // It targets premature slicing; a screen that genuinely has one home is not that.
+      // Each of these features has exactly one consuming slice, which is what the rule flags.
+      // It targets premature slicing; a feature with one genuine host is not that.
       'fsd/insignificant-slice': 'off',
     },
   },
