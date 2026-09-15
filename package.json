@@ -28,6 +28,7 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:report": "playwright show-report",
     "arch": "steiger ./src",
+    "arch:graph": "{ echo '```mermaid'; depcruise src --no-config --ts-config tsconfig.app.json --include-only '^src' --exclude '\\.test\\.tsx?$' --output-type mermaid --collapse '^src/[^/]+/[^/]+'; echo '```'; } > docs/architecture-graph.md",
     "audit": "npm run verify:lock && npm run format:check && npm run lint && npm run lint:a11y && npm run typecheck && npm run arch && npm run build && npm run test:coverage && npm run verify:coverage-scope"
   },
   "dependencies": {
@@ -69,6 +70,7 @@
     "@vitejs/plugin-react": "^6.1.0",
     "@vitest/coverage-v8": "^4.1.11",
     "@vitest/eslint-plugin": "^1.6.27",
+    "dependency-cruiser": "^18.2.0",
     "eslint": "^10.9.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-import-x": "^4.17.1",
