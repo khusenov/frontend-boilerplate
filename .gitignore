@@ -36,6 +36,8 @@ playwright/.cache
 .env.*
 !.env.example
 
+AGENTS.md
 CLAUDE.md
 .claude
+.agents
 docs/next-step.md
