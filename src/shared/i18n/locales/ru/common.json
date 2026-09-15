@@ -47,6 +47,10 @@
       "passwordRequired": "Введите пароль."
     }
   },
+  "signOut": {
+    "action": "Выйти",
+    "inProgress": "Выходим…"
+  },
   "session": {
     "resolving": "Проверяем вашу сессию…"
   },

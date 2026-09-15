@@ -1,5 +1,9 @@
 export { createSessionApi } from './api/session-api';
 export type { Credentials } from './model/credentials';
+export { createSessionEnder } from './model/session-ender';
+export type { SessionEnder } from './model/session-ender';
+export { useSessionEnder } from './model/session-ender-context';
+export { SessionEnderProvider } from './model/session-ender-provider';
 export { createSessionResolver } from './model/session-resolver';
 export type { SessionResolver } from './model/session-resolver';
 export { useSessionResolver } from './model/session-resolver-context';
@@ -13,3 +17,4 @@ export { createSessionStore, toSessionObserver } from './model/session-store';
 export type { SessionObserver } from './model/session-store';
 export { createSessionTokenSource } from './model/session-token-source';
 export type { SignInOutcome } from './model/sign-in-result';
+export type { SignOutOutcome } from './model/sign-out-outcome';

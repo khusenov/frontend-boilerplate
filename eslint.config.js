@@ -12,6 +12,7 @@ import tseslint from 'typescript-eslint';
 
 const SESSION_CONSTRUCTOR_NAMES = [
   'createSessionApi',
+  'createSessionEnder',
   'createSessionResolver',
   'createSessionStarter',
   'createSessionStore',

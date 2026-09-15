@@ -47,6 +47,10 @@
       "passwordRequired": "Enter your password."
     }
   },
+  "signOut": {
+    "action": "Sign out",
+    "inProgress": "Signing out…"
+  },
   "session": {
     "resolving": "Checking your session…"
   },

@@ -3,7 +3,7 @@ import { createMemoryHistory, RouterProvider } from '@tanstack/react-router';
 import { render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { SessionStarterProvider } from '@/entities/session';
+import { SessionEnderProvider, SessionStarterProvider } from '@/entities/session';
 import type { SessionStatus } from '@/entities/session';
 import { HttpClientProvider, toHttpError } from '@/shared/api';
 import type { HttpClient } from '@/shared/api';
@@ -22,6 +22,7 @@ const adaPayload = {
 const notCalled = (): Promise<never> =>
   Promise.reject(toHttpError(new Error('The guard tests issue no writes.')));
 
+const sessionEnder = { signOut: () => Promise.resolve({ status: 'signed-out' } as const) };
 const sessionStarter = { signIn: () => Promise.resolve({ status: 'rejected' } as const) };
 
 const PENDING_TIMEOUT_MILLISECONDS = 3000;
@@ -56,7 +57,9 @@ function renderGuardedRoute(resolve: () => Promise<SessionStatus>) {
     <QueryClientProvider client={queryClient}>
       <HttpClientProvider client={httpClient}>
         <SessionStarterProvider sessionStarter={sessionStarter}>
-          <RouterProvider router={router} />
+          <SessionEnderProvider sessionEnder={sessionEnder}>
+            <RouterProvider router={router} />
+          </SessionEnderProvider>
         </SessionStarterProvider>
       </HttpClientProvider>
     </QueryClientProvider>,
