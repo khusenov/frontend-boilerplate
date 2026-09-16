@@ -1,6 +1,6 @@
 # Design system
 
-> **Status:** Complete · **Layers:** app, pages, widgets, features, shared, outside layers · **Verified against:** `65a99bc`
+> **Status:** Complete · **Layers:** app, pages, widgets, features, shared, outside layers · **Verified against:** `5c55de1`
 
 ## Purpose
 
@@ -238,6 +238,7 @@ the theme, in tool configuration and in the component defaults:
 | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `source()` on `@import 'tailwindcss'` (`theme.css`)      | `'../../'`, which resolves to `src/`                                                                   | Where Tailwind looks for class names. Without it, Tailwind v4 scans every non-ignored file from the project root, `README.md` and `docs/` included            |
 | `@custom-variant dark` (`theme.css`)                     | `(&:is(.dark *))`                                                                                      | What `dark:` utilities match: a `.dark` ancestor, not the operating-system preference                                                                         |
+| `dark` class name (`theme.css`)                          | `dark`                                                                                                 | The one literal the kit owns and `shared/theme` mirrors in `DARK_THEME_CLASS_NAME`; the storage key and media query belong to the composition root instead    |
 | `color-scheme` (`theme.css`)                             | `light` on `:root`, `dark` on `.dark`                                                                  | The scheme native controls and scrollbars use, bound to the active token set                                                                                  |
 | `--radius` (`theme.css`)                                 | `0.625rem`                                                                                             | Base corner radius; `--radius-sm`, `--radius-md`, `--radius-lg` and `--radius-xl` derive from it                                                              |
 | `--font-sans` (`theme.css`)                              | `system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif`                                             | Default font family                                                                                                                                           |
@@ -490,14 +491,35 @@ hand.
    [Architecture boundaries](./architecture-boundaries.md)). Delete the flat file.
 6. Add the co-located test and run the gates, as in [Add a primitive](#add-a-primitive).
 
-### Enable dark mode
+### Switch the theme
 
-Put the `dark` class on an ancestor of the content — normally `<html>` — and both mechanisms switch
-together: the `.dark` block redefines every colour token, which the cascade carries to its
-descendants, and every `dark:` utility starts to match. `color-scheme: dark` comes with the block,
-so scrollbars and native controls follow. The variant matches descendants only (`:is(.dark *)`), so
-a `dark:` utility on the element that carries the class does not apply to that element. Nothing in
-`src/` or `index.html` sets the class today (see [Known limitations](#known-limitations)).
+The `dark` class on an ancestor of the content — in this app always `<html>` — drives both
+mechanisms at once: the `.dark` block redefines every colour token, which the cascade carries to its
+descendants, and every `dark:` utility starts to match. The variant matches descendants only
+(`:is(.dark *)`), so a `dark:` utility on the element that carries the class does not apply to that
+element.
+
+Nothing in the kit puts the class there. `shared/theme` does, and it is the only thing that should —
+read and change the theme through its hook rather than touching `classList` yourself:
+
+```tsx
+import { useTheme } from '@/shared/theme';
+
+const { preference, resolved, setPreference } = useTheme();
+```
+
+`preference` is `'system' | 'light' | 'dark'` and `resolved` is the `'light' | 'dark'` the page is
+actually painting. Setting a preference persists it and re-paints; leaving it at `'system'` follows
+the operating system live. See [Composition root](./composition-root.md) for how the seam is wired
+and how `index.html` paints the first frame before React exists.
+
+**Do not set `<html>`'s class or `style.colorScheme` directly.** An inline `style` on `<html>`
+outranks every rule in `theme.css`, where `color-scheme` is declared without `!important` on both
+`:root` and `.dark`. Toggle the class alone and the browser's own canvas, scrollbars, `<select>`
+popups and date pickers stay pinned to whatever scheme was set at load: the page goes dark while
+the native chrome stays light. That is why applying a theme is one operation in this codebase —
+`createDocumentThemeApplier` always writes both — and why `src/app/entrypoint/theme-bootstrap.test.ts`
+holds the two implementations to byte-identical output.
 
 ## Design decisions & trade-offs
 
@@ -531,8 +553,11 @@ a `dark:` utility on the element that carries the class does not apply to that e
   `dark:bg-input/30` and `dark:bg-destructive/60` layered over the light tokens.
 - **`color-scheme` is bound to each token set.** `:root` declares `light` and `.dark` declares
   `dark`, instead of `color-scheme: light dark` on the root. The latter lets the browser draw dark
-  scrollbars and native controls around a light page for a visitor whose system prefers dark — and
-  with no toggle shipped, the page is always light.
+  scrollbars and native controls around a light page for a visitor whose system prefers dark, which
+  is exactly the mismatch the bound declarations avoid. Neither declaration carries `!important`, so
+  an inline `style` on `<html>` outranks both — which is why the only writer of that inline style,
+  `createDocumentThemeApplier`, sets it on every application rather than only at boot, and why it
+  moves the class and the scheme together (see [Switch the theme](#switch-the-theme)).
 - **`--ring` is darker than the registry's.** `oklch(0.45 0 0)` measures 7.4:1 against white, where
   the registry's value measures 2.59:1 — below the 3:1 that WCAG 2.2 success criterion 1.4.11
   requires of a focus indicator. The indicator it protects is the 1px `focus-visible:border-ring` on
@@ -595,8 +620,13 @@ a `dark:` utility on the element that carries the class does not apply to that e
   `.container`, `.transition` and `.uppercase` that no component used — 1.25 kB raw / 0.22 kB gzip
   of dead CSS — while the stylesheet's size moved with every documentation edit. `24f6071` added the
   argument: `index.css` fell from 21.18 to 19.93 kB raw, and its hash became stable across
-  documentation-only changes. `index.html` holds no class names, so `src/` is the whole real
-  surface, and the class names in this document do not ship.
+  documentation-only changes. `src/` is the whole real surface and the class names in this document
+  do not ship. `index.html` is the one file outside it that names a class — its pre-paint script
+  calls `classList.add('dark')` — and that is harmless: `.dark` is authored in `theme.css`, not
+  minted from a scan, so the page needs no scanning to reach it. The flip side is that _every_
+  string under `src/` is scanned, test files included, so a junk fixture value that happens to be a
+  real utility name (`sepia`, `inline`, `grid`, `truncate`, `container`) emits a dead rule into the
+  shipped stylesheet. The theme tests use `'twilight'` for that reason.
 - **The stylesheet is global and follows the source, not the import graph.** Every utility found
   under `src/` ships in the one `index-*.css` on every page, whether or not the page renders it.
   `Input` and `Label` are code-split into the lazily loaded `form-*.js` chunk, yet their utilities
@@ -684,12 +714,12 @@ Commands:
 
 ## Known limitations
 
-- **Dark mode is defined but unreachable.** The `.dark` token set, `color-scheme: dark` and the
-  `dark:` utilities in `button-variants.ts` and `input.tsx` all ship — the stylesheet carries rules
-  such as `.dark\:bg-input\/30:is(.dark *)` — but nothing applies the `dark` class: the `<html>`
-  element in `index.html` carries only `lang`, and no module in `src/` changes the root element's
-  classes (`I18nProvider` sets only `lang` and `dir`, see
-  [Internationalization](./internationalization.md)). No test renders under `.dark`.
+- **No user-facing theme control ships yet.** `shared/theme` resolves and applies a theme, and an
+  explicit preference can be set through `useTheme().setPreference`, but no rendered control calls
+  it: a visitor gets their operating system's scheme and cannot override it from the page. The
+  switcher, its translated labels and a Playwright spec are the next step. No component test renders
+  under `.dark` either — the primitives' `dark:` variants are exercised by the stylesheet, not by an
+  assertion.
 - **Most of `Button`'s API still has no runtime caller.** The six call sites — `HomePage`,
   `AppCrashFallback`, `LocaleSwitcher`, `SignOutButtonView`, and `SubmitButton` as rendered by
   `SignInFormView` and `UpdateUserNameFormView` — reach two of the six variants (`default`, and

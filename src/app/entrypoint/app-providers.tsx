@@ -10,6 +10,13 @@ import {
 } from '@/entities/session';
 import { createQueryClient, HttpClientProvider } from '@/shared/api';
 import { createI18n, I18nProvider } from '@/shared/i18n';
+import {
+  createBrowserThemeStorage,
+  createDocumentThemeApplier,
+  createSystemThemeSource,
+  createThemeController,
+  ThemeProvider,
+} from '@/shared/theme';
 
 import { clearCacheOnSessionEnd } from './clear-cache-on-session-end';
 import { createAuthenticatedTransport } from './create-authenticated-transport';
@@ -25,6 +32,13 @@ export function AppProviders({ apiBaseUrl, queryErrorHandlers, children }: AppPr
   const [transport] = useState(() => createAuthenticatedTransport(apiBaseUrl));
   const [queryClient] = useState(() => createQueryClient(queryErrorHandlers));
   const [i18n] = useState(() => createI18n());
+  const [themeController] = useState(() =>
+    createThemeController({
+      storage: createBrowserThemeStorage(),
+      systemTheme: createSystemThemeSource(),
+    }),
+  );
+  const [applyTheme] = useState(() => createDocumentThemeApplier());
 
   useEffect(
     () => clearCacheOnSessionEnd(transport.sessionObserver, queryClient),
@@ -32,21 +46,23 @@ export function AppProviders({ apiBaseUrl, queryErrorHandlers, children }: AppPr
   );
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <Suspense fallback={null}>
-        <I18nProvider i18n={i18n}>
-          <HttpClientProvider client={transport.httpClient}>
-            <SessionResolverProvider sessionResolver={transport.sessionResolver}>
-              <SessionStarterProvider sessionStarter={transport.sessionStarter}>
-                <SessionEnderProvider sessionEnder={transport.sessionEnder}>
-                  {children}
-                </SessionEnderProvider>
-              </SessionStarterProvider>
-            </SessionResolverProvider>
-          </HttpClientProvider>
-        </I18nProvider>
-      </Suspense>
-      <ReactQueryDevtools initialIsOpen={false} />
-    </QueryClientProvider>
+    <ThemeProvider controller={themeController} applyTheme={applyTheme}>
+      <QueryClientProvider client={queryClient}>
+        <Suspense fallback={null}>
+          <I18nProvider i18n={i18n}>
+            <HttpClientProvider client={transport.httpClient}>
+              <SessionResolverProvider sessionResolver={transport.sessionResolver}>
+                <SessionStarterProvider sessionStarter={transport.sessionStarter}>
+                  <SessionEnderProvider sessionEnder={transport.sessionEnder}>
+                    {children}
+                  </SessionEnderProvider>
+                </SessionStarterProvider>
+              </SessionResolverProvider>
+            </HttpClientProvider>
+          </I18nProvider>
+        </Suspense>
+        <ReactQueryDevtools initialIsOpen={false} />
+      </QueryClientProvider>
+    </ThemeProvider>
   );
 }

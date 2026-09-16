@@ -46,6 +46,16 @@ const LOWER_LAYER_IMPORT_PATHS = [
       'Construct the error reporter only in the app layer. Below app, take an ErrorReporter as a prop or a factory argument.',
   },
   {
+    name: '@/shared/theme',
+    importNames: [
+      'createBrowserThemeStorage',
+      'createDocumentThemeApplier',
+      'createSystemThemeSource',
+      'createThemeController',
+    ],
+    message: 'Construct the theme only in the app layer. Reach it with useTheme().',
+  },
+  {
     name: '@/entities/session',
     importNames: SESSION_CONSTRUCTOR_NAMES,
     message:
@@ -70,6 +80,10 @@ const LOWER_LAYER_IMPORT_PATTERNS = [
   {
     regex: '^@/shared/observability/',
     message: 'Import the segment public API: @/shared/observability.',
+  },
+  {
+    regex: '^@/shared/theme/',
+    message: 'Import the segment public API: @/shared/theme.',
   },
   {
     regex: '^@tanstack/(react-)?router-core',
@@ -463,6 +477,17 @@ export default tseslint.config(
                 'Route and router modules receive the error reporter through props or context. Only app/entrypoint constructs one.',
             },
             {
+              name: '@/shared/theme',
+              importNames: [
+                'createBrowserThemeStorage',
+                'createDocumentThemeApplier',
+                'createSystemThemeSource',
+                'createThemeController',
+              ],
+              message:
+                'Route and router modules receive the theme through the provider tree. Only app/entrypoint constructs one.',
+            },
+            {
               name: '@/entities/session',
               importNames: SESSION_CONSTRUCTOR_NAMES,
               message:
@@ -488,6 +513,10 @@ export default tseslint.config(
             {
               regex: '^@/shared/observability/',
               message: 'Import the segment public API: @/shared/observability.',
+            },
+            {
+              regex: '^@/shared/theme/',
+              message: 'Import the segment public API: @/shared/theme.',
             },
             {
               regex: '^@/(entities|features|widgets|pages)/[^/]+/(?!@x/).+',

@@ -59,7 +59,11 @@ Query cache.
 Holding the token in memory keeps it from outliving the tab, but it cannot stop script running in
 the page from using the session. Before deploying:
 
-- Send a strict `Content-Security-Policy` header — neither `index.html` nor the build sets one
+- Send a strict `Content-Security-Policy` header — neither `index.html` nor the build sets one.
+  `index.html` ships one inline script, the pre-paint theme block in `<head>` that prevents a flash
+  of white; emit its `sha256-` hash into `script-src` rather than loosening the directive with
+  `'unsafe-inline'`. A bare `script-src 'self'` silently kills that script — the flash returns while
+  every gate stays green
 - Keep secrets out of `VITE_*` variables — Vite inlines them into the bundle every visitor downloads
 - Serve the app over HTTPS from the same site as the API instead of relaxing the backend's
   `SameSite=Strict` refresh cookie
