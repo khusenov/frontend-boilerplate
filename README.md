@@ -92,12 +92,14 @@ Then make it yours before the first feature:
    gh api --method PUT repos/{owner}/{repo}/private-vulnerability-reporting
    gh api --method PUT repos/{owner}/{repo}/vulnerability-alerts
    gh api --method PUT repos/{owner}/{repo}/automated-security-fixes
+   gh api --method PATCH repos/{owner}/{repo}/code-scanning/default-setup -f state=configured
    gh repo edit --enable-squash-merge --enable-merge-commit=false --enable-rebase-merge=false \
      --delete-branch-on-merge --enable-auto-merge --enable-discussions
    ```
 
-   A private repository on GitHub's free plan cannot enforce the rulesets or use private
-   vulnerability reporting; [Quality gates](./docs/features/quality-gates.md#make-ci-block-merges)
+   The CodeQL analysis reports a `CodeQL` check that the `main` ruleset can also require. A private
+   repository on GitHub's free plan cannot enforce the rulesets, use private vulnerability reporting
+   or run CodeQL; [Quality gates](./docs/features/quality-gates.md#make-ci-block-merges)
    explains what still protects it.
 
 4. **Point it at your API** — see [Configuration](#configuration). The shipped slices speak
