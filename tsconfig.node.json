@@ -32,6 +32,7 @@
     "steiger.config.ts",
     "eslint.config.js",
     "scripts/**/*.mjs",
-    "scripts/**/*.ts"
+    "scripts/**/*.ts",
+    "commitlint.config.ts"
   ]
 }

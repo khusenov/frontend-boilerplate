@@ -1,6 +1,6 @@
 # Session management
 
-> **Status:** Complete · **Layers:** app, entities, shared, outside layers · **Verified against:** `19fe53b`
+> **Status:** Complete · **Layers:** app, entities, shared, outside layers · **Verified against:** `65a99bc`
 
 ## Purpose
 

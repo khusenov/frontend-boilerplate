@@ -2,7 +2,7 @@
 
 A React + TypeScript single-page-application template built on **Vite**, organised by **Feature-Sliced Design**, with **TanStack Router / Query / Form**, **axios** behind an `HttpClient` port, **Zod** response validation and **i18next**. This directory is the documentation index; every capability is explained in its own document under [`features/`](./features/).
 
-> **Verified against:** `7ce79de`
+> **Verified against:** `9a7d7af`
 
 ## Getting started
 
@@ -70,6 +70,7 @@ One row per document under [`features/`](./features/), grouped by concern. Each 
 | Design system        | [design-system.md](./features/design-system.md)               | One set of semantic tokens in `src/shared/ui/theme.css` compiled by Tailwind CSS v4 into utilities, accessible primitives — `Button`, `Input`, `Label` — vendored from shadcn/ui over Radix and styled only through those tokens, and a `shared/theme` seam that follows the operating system's colour scheme and paints it before the first frame. |
 | Forms                | [forms.md](./features/forms.md)                               | Solves controlled field state, when a validation error may appear, its wiring to assistive technology, and the pending state once behind one hook — `useAppForm`. `src/shared/ui/form` is the only importer of TanStack Form and it names no validator.                                                                                             |
 | Internationalization | [internationalization.md](./features/internationalization.md) | Keeps every string a visitor reads or hears in per-locale JSON under `src/shared/i18n/locales`, reached through compiler-checked keys, so the app can ship in several languages without any component knowing which one is active.                                                                                                                  |
+| Notifications        | [notifications.md](./features/notifications.md)               | Gives transient feedback — "Name updated." — one port, `Notifier`, raised through `useNotifier()` and drawn by sonner behind an adapter the composition root binds, so a feature never names the toast library and a test reads what was raised from an array.                                                                                      |
 
 ### Developer experience
 

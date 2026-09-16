@@ -1,5 +1,11 @@
 # Security Policy
 
+## Supported versions
+
+Fixes land on `main` only. This is a template: a project created from it owns its copy from that
+moment, so a fix published here reaches it only when that project applies the change itself —
+watch this repository's security advisories and releases to know when to.
+
 ## Reporting a vulnerability
 
 Please do not open a public issue for security problems.

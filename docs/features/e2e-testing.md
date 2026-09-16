@@ -857,6 +857,7 @@ forms narrow it to one file or to the tests whose title matches. `npm run typech
   only Chromium; Firefox, WebKit and mobile viewports are not exercised.
 - **A flaky test does not fail CI.** With `retries: 2` and no `failOnFlakyTests`, a test that fails
   and then passes is reported as flaky, and the job stays green; only the uploaded report shows it.
-- **Nothing in the repository makes the job blocking.** The `End-to-end tests` job runs on every
-  pull request, but whether its failure blocks a merge is a required-status-check setting on GitHub,
-  outside the repository ([Quality gates](./quality-gates.md)).
+- **The job blocks a merge only where a ruleset requires it.** `.github/rulesets/main.json` lists
+  `End-to-end tests` and `Container image` among the required checks, and this repository applies
+  it, but a repository created from the template starts without it
+  ([Quality gates](./quality-gates.md#make-ci-block-merges)).
