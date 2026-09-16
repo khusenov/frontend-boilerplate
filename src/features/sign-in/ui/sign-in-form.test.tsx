@@ -1,10 +1,10 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { screen, waitFor, within } from '@testing-library/react';
+import type { UserEvent } from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { SessionStarterProvider } from '@/entities/session';
 import type { Credentials, SessionStarter, SignInOutcome } from '@/entities/session';
+import { renderWithProviders } from '@/shared/testing';
 
 import { SignInForm } from './sign-in-form';
 
@@ -31,21 +31,20 @@ function createRecordingStarter(
 }
 
 function renderForm(sessionStarter: SessionStarter) {
-  const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
   const onSignedIn = vi.fn();
 
-  render(
-    <QueryClientProvider client={queryClient}>
-      <SessionStarterProvider sessionStarter={sessionStarter}>
-        <SignInForm onSignedIn={onSignedIn} />
-      </SessionStarterProvider>
-    </QueryClientProvider>,
-  );
+  const { user } = renderWithProviders(<SignInForm onSignedIn={onSignedIn} />, {
+    wrappers: [
+      ({ children }) => (
+        <SessionStarterProvider sessionStarter={sessionStarter}>{children}</SessionStarterProvider>
+      ),
+    ],
+  });
 
-  return { onSignedIn, user: userEvent.setup() };
+  return { onSignedIn, user };
 }
 
-async function fillIn(user: ReturnType<typeof userEvent.setup>, email: string, password: string) {
+async function fillIn(user: UserEvent, email: string, password: string) {
   await user.type(screen.getByLabelText('Email'), email);
   await user.type(screen.getByLabelText('Password'), password);
 }

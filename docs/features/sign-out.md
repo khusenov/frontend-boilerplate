@@ -1,6 +1,6 @@
 # Sign-out
 
-> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `65a99bc`
+> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `33ee487`
 
 ## Purpose
 
@@ -443,9 +443,10 @@ placed correctly.
   free to change. This matches `features/sign-in`, whose barrel exports `SignInForm` alone.
 - **The container/view split is what keeps the control cheap to test.** `SignOutButton` depends on
   exactly one port — the `SessionEnder` it reads through `useSignOut` — so
-  `sign-out-button.test.tsx` stands the whole control up under a `QueryClientProvider` and a
-  `SessionEnderProvider` holding a one-method object literal, with no HTTP, no store and no router
-  underneath. `SignOutButtonView` in turn decides its entire pending appearance from `isSigningOut`,
+  `sign-out-button.test.tsx` stands the whole control up through `renderWithProviders`, passing a
+  `SessionEnderProvider` holding a one-method object literal as its one extra wrapper, with no store
+  and no router underneath. The harness also mounts an `HttpClientProvider` over a stub whose every
+  verb rejects by name, so the control's "no HTTP" claim is now asserted rather than assumed. `SignOutButtonView` in turn decides its entire pending appearance from `isSigningOut`,
   so the label, `disabled` and `aria-busy` can be asserted against that one boolean and the view
   needs no test file of its own.
 - **`fsd/insignificant-slice` is off for this slice.** steiger's rule flags a slice with a single

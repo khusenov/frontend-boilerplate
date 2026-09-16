@@ -33,13 +33,14 @@ O["config"]
 P["i18n"]
 Q["lib"]
 R["observability"]
-S["ui"]
+S["testing"]
+T["ui"]
 end
-subgraph T["widgets"]
-U["app-header"]
+subgraph U["widgets"]
+V["app-header"]
 end
 end
-2-->S
+2-->T
 2-->R
 2-->8
 2-->N
@@ -53,7 +54,7 @@ end
 4-->5
 5-->I
 5-->O
-5-->U
+5-->V
 5-->J
 5-->9
 5-->L
@@ -65,20 +66,20 @@ end
 9-->N
 B-->P
 B-->8
-B-->S
+B-->T
 C-->8
 C-->P
-C-->S
+C-->T
 D-->P
-D-->S
+D-->T
 E-->9
 E-->N
 E-->P
-E-->S
+E-->T
 F-->3
 H-->P
 H-->Q
-H-->S
+H-->T
 I-->P
 J-->P
 K-->B
@@ -88,7 +89,8 @@ L-->E
 L-->P
 L-->9
 L-->N
-S-->Q
-S-->P
-U-->D
+S-->N
+T-->Q
+T-->P
+V-->D
 ```

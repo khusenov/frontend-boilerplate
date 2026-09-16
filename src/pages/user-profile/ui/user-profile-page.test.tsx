@@ -1,12 +1,11 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { SessionEnderProvider } from '@/entities/session';
 import { toUserId } from '@/entities/user';
-import { HttpClientProvider, toHttpError } from '@/shared/api';
+import { toHttpError } from '@/shared/api';
 import type { HttpClient, ResponseSchema } from '@/shared/api';
+import { createHttpClientStub, renderWithProviders } from '@/shared/testing';
 
 import { UserProfilePage } from './user-profile-page';
 
@@ -18,20 +17,6 @@ const adaPayload = {
   role: 'ADMIN',
   created_at: '2024-01-05T12:00:00.000Z',
 };
-
-const notCalled = (): Promise<never> =>
-  Promise.reject(toHttpError(new Error('The profile page performs no such request.')));
-
-function createClientStub(overrides: Partial<HttpClient>): HttpClient {
-  return {
-    get: notCalled,
-    post: notCalled,
-    put: notCalled,
-    patch: notCalled,
-    delete: notCalled,
-    ...overrides,
-  };
-}
 
 interface NamePayload {
   readonly first_name: string;
@@ -59,22 +44,22 @@ async function parse<TValue>(schema: ResponseSchema<TValue>, payload: unknown): 
   return result.value;
 }
 
-const resolvingClient = createClientStub({
+const resolvingClient = createHttpClientStub({
   get: (_url, config) => parse(config.schema, adaPayload),
 });
 
-const failingClient = createClientStub({
+const failingClient = createHttpClientStub({
   get: () => Promise.reject(toHttpError(new Error('offline'))),
 });
 
-const pendingClient = createClientStub({ get: () => new Promise<never>(() => undefined) });
+const pendingClient = createHttpClientStub({ get: () => new Promise<never>(() => undefined) });
 
 const sessionEnder = { signOut: () => Promise.resolve({ status: 'signed-out' } as const) };
 
 function createRenamingClient(): HttpClient {
   let currentPayload = adaPayload;
 
-  return createClientStub({
+  return createHttpClientStub({
     get: (_url, config) => parse(config.schema, currentPayload),
     patch: (_url, config) => {
       if (!isNamePayload(config.body)) {
@@ -89,22 +74,21 @@ function createRenamingClient(): HttpClient {
 }
 
 function renderPage(httpClient: HttpClient) {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
   const onSignedOut = vi.fn();
 
-  render(
-    <QueryClientProvider client={queryClient}>
-      <HttpClientProvider client={httpClient}>
-        <SessionEnderProvider sessionEnder={sessionEnder}>
-          <UserProfilePage userId={toUserId('u_1')} onSignedOut={onSignedOut} />
-        </SessionEnderProvider>
-      </HttpClientProvider>
-    </QueryClientProvider>,
+  const { user } = renderWithProviders(
+    <UserProfilePage userId={toUserId('u_1')} onSignedOut={onSignedOut} />,
+    {
+      httpClient,
+      wrappers: [
+        ({ children }) => (
+          <SessionEnderProvider sessionEnder={sessionEnder}>{children}</SessionEnderProvider>
+        ),
+      ],
+    },
   );
 
-  return { onSignedOut };
+  return { onSignedOut, user };
 }
 
 describe('UserProfilePage', () => {
@@ -127,8 +111,7 @@ describe('UserProfilePage', () => {
   });
 
   it('refetches the profile so the heading shows the name the form just saved', async () => {
-    const user = userEvent.setup();
-    renderPage(createRenamingClient());
+    const { user } = renderPage(createRenamingClient());
 
     expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent('Ada Lovelace');
 

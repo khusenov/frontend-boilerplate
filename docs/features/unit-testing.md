@@ -1,6 +1,6 @@
 # Unit and component testing
 
-> **Status:** Complete · **Layers:** app, pages, widgets, features, entities, shared, outside layers · **Verified against:** `65a99bc`
+> **Status:** Complete · **Layers:** app, pages, widgets, features, entities, shared, outside layers · **Verified against:** `33ee487`
 
 ## Purpose
 
@@ -9,9 +9,10 @@ tests that provide it sit beside the code they cover and run in seconds. To make
 harness standardizes the parts each test would otherwise reinvent: a DOM, the assertion matchers, an
 English translation instance, browser state that is clean at the start of every test, and one
 coverage policy with an independent check that no source file slipped out of it. This feature is
-that harness — the `test` block of `vite.config.ts`, `vitest.setup.ts`, the coverage-scope gate in
-`scripts/verify-coverage-scope.mjs` and the lint rules for test files — together with the
-conventions its tests follow: assert on what a user perceives (roles, accessible names, copy), and
+that harness — the `test` block of `vite.config.ts`, `vitest.setup.ts`, the shared render harness in
+`src/shared/testing`, the coverage-scope gate in `scripts/verify-coverage-scope.mjs`, the
+import-fence gate in `scripts/verify-import-fence.mjs` and the lint rules for test files — together
+with the conventions its tests follow: assert on what a user perceives (roles, accessible names, copy), and
 hand every unit its collaborators through the providers, props and factory arguments it already
 accepts. Browser tests against the production build are a separate harness, described in
 [End-to-end testing](./e2e-testing.md).
@@ -134,6 +135,9 @@ the rule set as a whole.
 | `mode === 'test'` plugin gate                                  | `outside layers`            | Leaves `routerPlugin` out of every Vitest run                                                                                                   | `vite.config.ts`                                                                                                |
 | `routeFileIgnorePattern`                                       | `outside layers`            | `'\\.test\\.tsx?$'` keeps route tests co-located in `src/app/routes/` out of the generated route tree                                           | `vite.config.ts`                                                                                                |
 | Setup file                                                     | `outside layers`            | jest-dom matchers, the `scrollTo` stub, a per-test `localStorage` reset and English i18n instance, `cleanup()`, the `<html lang dir>` reset     | `vitest.setup.ts`                                                                                               |
+| Render harness                                                 | `shared/testing`            | `renderWithProviders` and `renderHookWithProviders`: the two shared providers, caller-supplied wrappers, a ready `userEvent` instance           | `src/shared/testing/render-with-providers.tsx`, `create-test-harness.tsx`                                       |
+| Collaborator factories                                         | `shared/testing`            | `createHttpClientStub` (every unstubbed verb rejects by name) and `createTestQueryClient` (retries off)                                         | `src/shared/testing/create-http-client-stub.ts`, `create-test-query-client.ts`                                  |
+| Import-fence gate                                              | `outside layers`            | Gate 10: proves `import-x/no-restricted-paths` keeps `@/shared/testing` out of production files and out of nothing else                         | `scripts/verify-import-fence.mjs`, `eslint.config.js`                                                           |
 | Coverage-scope gate (`measuredFiles`, `measurableSourceFiles`) | `outside layers`            | Fails when a source file is missing from `coverage/lcov.info`                                                                                   | `scripts/verify-coverage-scope.mjs`                                                                             |
 | Vitest lint block                                              | `outside layers`            | `vitest.configs.recommended` over `src/**/*.test.{ts,tsx}`                                                                                      | `eslint.config.js`                                                                                              |
 | Test-file import carve-outs                                    | `outside layers`            | The `src/shared/api/**/*.test.{ts,tsx}` block and the `ignores` on the `shared/ui/form` and `shared/ui/error-boundary` blocks                   | `eslint.config.js`                                                                                              |
@@ -145,8 +149,8 @@ the rule set as a whole.
 | `AppHeader` test                                               | `widgets/app-header`        | The `banner` landmark naming the app, and the switcher reachable `within` it — composition, not co-presence                                     | `src/widgets/app-header/ui/app-header.test.tsx`                                                                 |
 | `createAppRouter` test                                         | `app/router`                | The real route tree over a memory history; asserts the routing policy; the `@ts-expect-error` link gate                                         | `src/app/router/create-app-router.test.tsx`                                                                     |
 | `HomePage` test                                                | `pages/home · ui`           | A router-free, provider-free component test: the proof that a page reads no route state                                                         | `src/pages/home/ui/home-page.test.tsx`                                                                          |
-| `SignInForm` test                                              | `features/sign-in · ui`     | Collaborators injected through providers; validation, outcomes and a keyboard-only sign-in                                                      | `src/features/sign-in/ui/sign-in-form.test.tsx`                                                                 |
-| `useSignOut` test                                              | `features/sign-out · model` | `renderHook` with a `wrapper`: the caller is notified `onSettled`, so even a rejecting port resolves                                            | `src/features/sign-out/model/use-sign-out.test.tsx`                                                             |
+| `SignInForm` test                                              | `features/sign-in · ui`     | `renderWithProviders` with a `SessionStarterProvider` wrapper; validation, outcomes and a keyboard-only sign-in                                 | `src/features/sign-in/ui/sign-in-form.test.tsx`                                                                 |
+| `useSignOut` test                                              | `features/sign-out · model` | `renderHookWithProviders` with one wrapper: the caller is notified `onSettled`, so even a rejecting port resolves                               | `src/features/sign-out/model/use-sign-out.test.tsx`                                                             |
 | `SignOutButton` test                                           | `features/sign-out · ui`    | A `SessionEnder` stubbed through `SessionEnderProvider`: the idle label, the busy disabled button, and no second request while one is in flight | `src/features/sign-out/ui/sign-out-button.test.tsx`                                                             |
 | `createSessionEnder` and `useSessionEnder` tests               | `entities/session · model`  | The factory's `finally` counted on every path; the context/provider pair and its throw outside a provider                                       | `src/entities/session/model/session-ender.test.ts`, `src/entities/session/model/session-ender-context.test.tsx` |
 | `toUser` and `toUpdateUserNameDto` test                        | `entities/user · api`       | A pure unit test of the DTO mappers                                                                                                             | `src/entities/user/api/user-mapper.test.ts`                                                                     |
@@ -331,13 +335,13 @@ A unit below `app` receives its collaborators as props, providers or factory arg
 passes doubles through the same channel. From `src/features/sign-in/ui/sign-in-form.test.tsx`:
 
 ```tsx
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { screen, waitFor } from '@testing-library/react';
+import type { UserEvent } from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { SessionStarterProvider } from '@/entities/session';
 import type { Credentials, SessionStarter, SignInOutcome } from '@/entities/session';
+import { renderWithProviders } from '@/shared/testing';
 
 import { SignInForm } from './sign-in-form';
 
@@ -355,21 +359,20 @@ function createRecordingStarter(
 }
 
 function renderForm(sessionStarter: SessionStarter) {
-  const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
   const onSignedIn = vi.fn();
 
-  render(
-    <QueryClientProvider client={queryClient}>
-      <SessionStarterProvider sessionStarter={sessionStarter}>
-        <SignInForm onSignedIn={onSignedIn} />
-      </SessionStarterProvider>
-    </QueryClientProvider>,
-  );
+  const { user } = renderWithProviders(<SignInForm onSignedIn={onSignedIn} />, {
+    wrappers: [
+      ({ children }) => (
+        <SessionStarterProvider sessionStarter={sessionStarter}>{children}</SessionStarterProvider>
+      ),
+    ],
+  });
 
-  return { onSignedIn, user: userEvent.setup() };
+  return { onSignedIn, user };
 }
 
-async function fillIn(user: ReturnType<typeof userEvent.setup>, email: string, password: string) {
+async function fillIn(user: UserEvent, email: string, password: string) {
   await user.type(screen.getByLabelText('Email'), email);
   await user.type(screen.getByLabelText('Password'), password);
 }
@@ -405,11 +408,12 @@ describe('SignInForm', () => {
 
 The pattern generalizes:
 
-- **Build the providers the unit reads, and nothing more.** There is no shared render helper; each
-  test mounts exactly the providers its unit consumes, so its dependencies are visible where it
-  renders. Create a fresh `QueryClient` inside the render helper, so no cache state crosses tests,
-  and set `retry: false` on the kind of operation under test (`queries` or `mutations`), as these
-  tests do, so a failure settles at once.
+- **Render through the shared harness, and add only the providers the unit also reads.**
+  `renderWithProviders` from `@/shared/testing` mounts the two providers every test needs — a fresh
+  `QueryClient` with retries off, so no cache state crosses tests and a failure settles at once, and
+  an `HttpClientProvider` over a stub whose every verb rejects by name. Anything above that is
+  named at the call site through `wrappers`, so a unit's extra dependencies stay visible exactly
+  where it renders. The [section below](#the-shared-render-harness) covers the segment.
 - **Type every double as its port.** A plain object annotated as the port, such as `SessionStarter`
   here or `HttpClient` in the page and route tests, is checked by the compiler like the concrete it
   replaces. Give a method the test must never reach a rejecting stub instead of omitting it, so an
@@ -430,16 +434,15 @@ The pattern generalizes:
 
   `toHttpError` comes from `@/shared/api`, so an unexpected call rejects with the same `HttpError`
   the real transport produces and the unit's own error path — not a `TypeError` — is what the test
-  observes. `src/app/router/create-app-router.test.tsx` declares exactly that;
-  `src/pages/user-profile/ui/user-profile-page.test.tsx` wraps the same base in a
-  `createClientStub(overrides: Partial<HttpClient>)` helper so each test spreads in only the one
-  method it exercises. A stub that returns data runs the real response schema over a fixture, so a
+  observes. `src/app/router/create-app-router.test.tsx` declares exactly that by hand; every test
+  outside `app` gets the same shape from `createHttpClientStub`, overriding only the verbs it
+  exercises. A stub that returns data runs the real response schema over a fixture, so a
   wire-shape mismatch still fails the test — see
   [HTTP transport](./http-transport.md#test-a-consumer-without-a-network).
 
-- **Test a hook with `renderHook` and a `wrapper`.**
-  `src/features/sign-in/model/use-sign-in.test.tsx` wraps `useSignIn` in the same two providers and
-  calls `result.current.submit(ada)` inside `act()`. A context/provider pair is tested the same way,
+- **Test a hook with `renderHookWithProviders`.**
+  `src/features/sign-in/model/use-sign-in.test.tsx` passes `SessionStarterProvider` as its one
+  wrapper and calls `result.current.submit(ada)` inside `act()`. A context/provider pair is tested the same way,
   including the hook throwing outside its provider (`src/shared/api/http-client-provider.test.tsx`).
 - **Drive a route through the real route tree.** Route and router tests call
   `createAppRouter({ context, history: createMemoryHistory({ initialEntries: ['/sign-in'] }) })` and
@@ -461,6 +464,61 @@ The pattern generalizes:
   `SessionEnderProvider` innermost, exactly as `AppProviders` does; a missing
   `SessionEnderProvider` surfaces as `useSessionEnder must be called inside a SessionEnderProvider`
   thrown out of the first render, not as a failed assertion.
+
+### The shared render harness
+
+`src/shared/testing` is the one place the provider stack is written down. It exports four things:
+
+| Export                    | What it gives the test                                                                                                |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `renderWithProviders`     | Testing Library's `render`, plus `httpClient`, `queryClient` and a `userEvent` instance already set up                |
+| `renderHookWithProviders` | The same for `renderHook`; it returns no `user`, because a hook test has no DOM to drive                              |
+| `createHttpClientStub`    | A full `HttpClient` whose every verb rejects with an `HttpError` naming the verb, minus the ones the caller overrides |
+| `createTestQueryClient`   | A `QueryClient` with query and mutation retries off, so a failure settles at once                                     |
+
+Both helpers take `httpClient`, `queryClient` and `wrappers`, all optional, and pass every other
+option through to Testing Library unchanged. `renderWithProviders` also takes `userEventOptions`.
+
+```tsx
+const { user, httpClient } = renderWithProviders(<SignOutButton onSignedOut={onSignedOut} />, {
+  wrappers: [
+    ({ children }) => (
+      <SessionEnderProvider sessionEnder={sessionEnder}>{children}</SessionEnderProvider>
+    ),
+  ],
+});
+```
+
+**Why `wrappers` exists rather than a `withSession` flag.** The harness lives in `shared`, the
+bottom layer, so it may not import `@/entities/session` — steiger's `fsd/forbidden-imports` and the
+`no-restricted-imports` block on `src/{entities,features,widgets,pages,shared}/**` both forbid it —
+and it may not import `@tanstack/react-router` either. It therefore cannot know that session
+providers or routers exist. Instead it composes the two genuinely universal providers and takes any
+further provider as a component: the layers that own those providers inject them downward. The
+constraint is the linters'; the inversion is the answer to it. `wrappers[0]` is the outermost, so
+order matters when one wrapper reads another's context, and each is mounted as its own component
+rather than called inline, which is what gives it its own fiber and its own hook order.
+
+**It uses Testing Library's `wrapper` option, not a `<TestProviders>` element.** Only under
+`wrapper` does `rerender(newUi)` re-apply the providers instead of replacing the whole tree;
+`render-with-providers.test.tsx` regression-tests exactly that.
+
+**No i18n provider.** `vitest.setup.ts` already installs a global English instance in a `beforeEach`,
+so translations resolve without one, and `createI18n` is lint-banned outside `app/entrypoint`.
+
+**Only test files may import it.** The segment pulls in `@testing-library/react` and
+`@testing-library/user-event`, both devDependencies, so an `import` from a production module would
+ship Testing Library into the bundle with nothing to stop it — `tsc`, `vite build` and steiger all
+pass on such an import. `import-x/no-restricted-paths` in `eslint.config.js` blocks it, exempting
+`*.test.{ts,tsx}` and the segment itself, and `npm run verify:import-fence` (gate 10) proves the
+fence is still live in both directions. That gate is not decoration: the rule needs an `import-x`
+resolver that understands `.ts`/`.tsx` and the `@/` mapping, and without one it resolves nothing and
+passes silently.
+
+**The four router tests do not use it.** `src/app/router/**` and `src/app/routes/**` build a
+`createMemoryHistory` router alongside their providers, and only `app` may import
+`@tanstack/react-router`, so their harness would have to live in `app` and compose on top of this
+one. They keep their hand-built stacks for now.
 
 ### Drive real HTTP through MSW
 
@@ -803,10 +861,11 @@ swallowed by accident.
 
 ## Testing
 
-The harness has no test file of its own; the suite is its test. At `65a99bc` that suite is **68
-test files and 461 tests**; `npm run test:coverage` reports 100% statements, branches, functions
-and lines, and `npm run verify:coverage-scope` then prints
-`Coverage scope verified: 130 source files measured.` The 90% per-file thresholds are the floor the
+Only `src/shared/testing` is covered by tests of its own — `create-http-client-stub.test.ts` and
+`render-with-providers.test.tsx`, fifteen cases between them. For the rest of the harness the suite
+is the test. At `33ee487` that suite is **70 test files and 476 tests**; `npm run test:coverage`
+reports 100% statements, branches, functions and lines, and `npm run verify:coverage-scope` then
+prints `Coverage scope verified: 135 source files measured.` The 90% per-file thresholds are the floor the
 gate enforces, not a description of where the suite stands.
 
 Each setup responsibility is load-bearing for specific files:
@@ -868,14 +927,29 @@ proves every source file was measured. `npm run lint` applies the Vitest rules, 
   `src/shared/ui/button/button.tsx`, and `button.test.tsx` pins that default with "defaults to type
   button so it never submits an enclosing form".
 - **The MSW lifecycle is copied into each file.** All three node-environment files create their own
-  `setupServer()` with the same `beforeAll`, `afterEach` and `afterAll` hooks. There is no shared
-  test-support module, so a new MSW-driven file repeats the block.
+  `setupServer()` with the same `beforeAll`, `afterEach` and `afterAll` hooks. `shared/testing`
+  deliberately does not cover them — they render no React and share nothing with the provider
+  problem — so a new MSW-driven file repeats the block.
 - **`vi.unstubAllGlobals()` also removes the setup file's `scrollTo` stub** for the rest of that
   file. `single-flight.test.ts` calls it after each test and mounts no router, so it is harmless
   today, but a file that does both prints jsdom's not-implemented error on every navigation unless
   it stubs `scrollTo` again.
-- **Nothing tests the lint configuration.** The comment above the order-sensitive blocks in
-  `eslint.config.js` says so outright. Flat config replaces `no-restricted-imports` options rather
-  than merging them, so a block appended later that also matches test files would swap their fences
-  wholesale, and a relaxation would pass every gate. The test-file carve-outs are verified only by
-  today's files linting clean.
+- **The harness's `QueryClient` is not production's.** `createTestQueryClient` is a bare client with
+  retries off, while `createQueryClient` runs `staleTime: 30_000`, `gcTime: 300_000` and a
+  `shouldRetryQuery` policy. Component tests therefore see refetch-on-mount behaviour production does
+  not, and a change to the shared query policy in `shared/api` is felt by no test. Closing the gap
+  means reusing `createQueryClient` behind a lint exemption, which would change the behaviour of
+  every migrated test at once; it is worth its own step.
+- **`wrappers` nests only inside the two built-in providers.** A caller cannot place anything above
+  `QueryClientProvider` or `HttpClientProvider` — notably the `Suspense` boundary `AppProviders` puts
+  between them, or an `ErrorBoundary` around the query provider. Nothing needs that today; a second,
+  outer seam can be added when something does.
+- **Five test files each hand-write a one-line session-provider wrapper.** A `withSessionEnder`
+  helper in `entities/session` would remove the repetition and the fence would not block it, but it
+  would put test-only exports into a runtime public API, which is a decision of its own.
+- **Almost nothing tests the lint configuration.** `verify:import-fence` covers one rule — the
+  `@/shared/testing` fence and the `import-x` resolver it rests on — and nothing else. The comment
+  above the order-sensitive blocks in `eslint.config.js` still holds for the rest: flat config
+  replaces `no-restricted-imports` options rather than merging them, so a block appended later that
+  also matches test files would swap their fences wholesale, and a relaxation would pass every gate.
+  The test-file carve-outs are verified only by today's files linting clean.

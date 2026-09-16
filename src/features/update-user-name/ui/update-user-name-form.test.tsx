@@ -1,11 +1,10 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import { toUserId } from '@/entities/user';
-import { HttpClientProvider, toHttpError } from '@/shared/api';
+import { toHttpError } from '@/shared/api';
 import type { HttpClient, ResponseSchema } from '@/shared/api';
+import { createHttpClientStub, renderWithProviders } from '@/shared/testing';
 
 import { MAXIMUM_NAME_LENGTH } from '../model/user-name-change-schema';
 
@@ -18,13 +17,6 @@ interface RecordedRequest {
 
 const ada = { id: toUserId('u_1'), firstName: 'Ada', lastName: 'Lovelace' };
 
-const notCalled = (): Promise<never> =>
-  Promise.reject(toHttpError(new Error('This form issues only a patch.')));
-
-function createClientStub(patch: HttpClient['patch']): HttpClient {
-  return { get: notCalled, post: notCalled, put: notCalled, patch, delete: notCalled };
-}
-
 async function parseEmptyResponse<TValue>(schema: ResponseSchema<TValue>): Promise<TValue> {
   const result = await schema['~standard'].validate(null);
 
@@ -36,14 +28,18 @@ async function parseEmptyResponse<TValue>(schema: ResponseSchema<TValue>): Promi
 }
 
 function createRecordingClient(requests: RecordedRequest[]): HttpClient {
-  return createClientStub((url, config) => {
-    requests.push({ url, body: config.body });
+  return createHttpClientStub({
+    patch: (url, config) => {
+      requests.push({ url, body: config.body });
 
-    return parseEmptyResponse(config.schema);
+      return parseEmptyResponse(config.schema);
+    },
   });
 }
 
-const failingClient = createClientStub(() => Promise.reject(toHttpError(new Error('offline'))));
+const failingClient = createHttpClientStub({
+  patch: () => Promise.reject(toHttpError(new Error('offline'))),
+});
 
 function createDeferred() {
   let resolve!: () => void;
@@ -55,17 +51,7 @@ function createDeferred() {
 }
 
 function renderForm(httpClient: HttpClient) {
-  const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
-
-  render(
-    <QueryClientProvider client={queryClient}>
-      <HttpClientProvider client={httpClient}>
-        <UpdateUserNameForm user={ada} />
-      </HttpClientProvider>
-    </QueryClientProvider>,
-  );
-
-  return { user: userEvent.setup() };
+  return renderWithProviders(<UpdateUserNameForm user={ada} />, { httpClient });
 }
 
 function formFields() {
@@ -161,10 +147,12 @@ describe('UpdateUserNameForm', () => {
   it('shows the pending label on a disabled button while the request is in flight', async () => {
     const deferred = createDeferred();
     const { user } = renderForm(
-      createClientStub(async (_url, config) => {
-        await deferred.promise;
+      createHttpClientStub({
+        patch: async (_url, config) => {
+          await deferred.promise;
 
-        return parseEmptyResponse(config.schema);
+          return parseEmptyResponse(config.schema);
+        },
       }),
     );
 

@@ -1,6 +1,6 @@
 # Quality gates
 
-> **Status:** Complete · **Layers:** outside layers · **Verified against:** `65a99bc`
+> **Status:** Complete · **Layers:** outside layers · **Verified against:** `33ee487`
 
 ## Purpose
 
@@ -56,25 +56,27 @@ aborts the commit:
    rule list against oxlint's schema.
 5. `lockfile` — when `package.json` or `package-lock.json` is staged, checks that the two agree.
 
-**Push.** The `pre-push` hook runs `npm run audit`: nine gates chained with `&&`, so the first
+**Push.** The `pre-push` hook runs `npm run audit`: ten gates chained with `&&`, so the first
 failure stops the run and aborts the push.
 
-| #   | Script                  | Runs                                                                | Fails when                                                             | Scope                                                       |
-| --- | ----------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------- |
-| 1   | `verify:lock`           | `npm ci --dry-run --ignore-scripts`                                 | `package-lock.json` no longer matches `package.json`                   | The lockfile                                                |
-| 2   | `format:check`          | `prettier --check .`                                                | A file differs from Prettier's output                                  | Every file Prettier does not ignore                         |
-| 3   | `lint`                  | `eslint . --max-warnings 0`                                         | Any ESLint error or warning                                            | `**/*.{js,mjs,ts,tsx}` minus ESLint's `ignores`             |
-| 4   | `lint:a11y`             | `node scripts/a11y-rules.mjs --check && oxlint --deny-warnings src` | `.oxlintrc.json` has drifted from oxlint's schema, or any a11y finding | `src`                                                       |
-| 5   | `typecheck`             | `tsc -b --pretty`                                                   | A type error in any of the three TypeScript projects                   | `src`, root configs, `scripts`, `e2e`                       |
-| 6   | `arch`                  | `steiger ./src`                                                     | A Feature-Sliced Design rule is broken                                 | `src`                                                       |
-| 7   | `build`                 | `tsc -b && vite build`                                              | The production bundle does not build                                   | The app                                                     |
-| 8   | `test:coverage`         | `vitest run --coverage`                                             | A test fails, or a file drops below 90% on any coverage metric         | `src/**/*.{test,spec}.{ts,tsx}`                             |
-| 9   | `verify:coverage-scope` | `node scripts/verify-coverage-scope.mjs`                            | A source file is missing from the coverage report                      | `src/**/*.{ts,tsx}` minus tests, `.d.ts` and the route tree |
+| #   | Script                  | Runs                                                                | Fails when                                                              | Scope                                                          |
+| --- | ----------------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------- |
+| 1   | `verify:lock`           | `npm ci --dry-run --ignore-scripts`                                 | `package-lock.json` no longer matches `package.json`                    | The lockfile                                                   |
+| 2   | `format:check`          | `prettier --check .`                                                | A file differs from Prettier's output                                   | Every file Prettier does not ignore                            |
+| 3   | `lint`                  | `eslint . --max-warnings 0`                                         | Any ESLint error or warning                                             | `**/*.{js,mjs,ts,tsx}` minus ESLint's `ignores`                |
+| 4   | `lint:a11y`             | `node scripts/a11y-rules.mjs --check && oxlint --deny-warnings src` | `.oxlintrc.json` has drifted from oxlint's schema, or any a11y finding  | `src`                                                          |
+| 5   | `typecheck`             | `tsc -b --pretty`                                                   | A type error in any of the three TypeScript projects                    | `src`, root configs, `scripts`, `e2e`                          |
+| 6   | `arch`                  | `steiger ./src`                                                     | A Feature-Sliced Design rule is broken                                  | `src`                                                          |
+| 7   | `build`                 | `tsc -b && vite build`                                              | The production bundle does not build                                    | The app                                                        |
+| 8   | `test:coverage`         | `vitest run --coverage`                                             | A test fails, or a file drops below 90% on any coverage metric          | `src/**/*.{test,spec}.{ts,tsx}`                                |
+| 9   | `verify:coverage-scope` | `node scripts/verify-coverage-scope.mjs`                            | A source file is missing from the coverage report                       | `src/**/*.{ts,tsx}` minus tests, `.d.ts` and the route tree    |
+| 10  | `verify:import-fence`   | `node scripts/verify-import-fence.mjs`                              | The `@/shared/testing` fence stopped firing, or started firing in tests | Two probe files written into `src/shared/config`, then deleted |
 
 The static checks come first and the build and tests last. `build` is the only gate that runs the
 Vite plugins: `vite.config.ts` drops `@tanstack/router-plugin` in test mode, so route-tree
 generation and `autoCodeSplitting` are exercised under `audit` only here. `verify:coverage-scope`
 has to follow `test:coverage`, because it reads the `coverage/lcov.info` that run writes.
+`verify:import-fence` is appended rather than inserted, so every earlier gate keeps its number.
 
 **Push or pull request to `main`.** `.github/workflows/ci.yml` starts three jobs on
 `ubuntu-latest`, each from a fresh checkout with the Node version read from `.nvmrc`:
@@ -155,7 +157,8 @@ Every script in `package.json`:
 | Script                  | Runs                                                                | Role                                                                                                         |
 | ----------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `verify:lock`           | `npm ci --dry-run --ignore-scripts`                                 | Gate 1 of `audit`, and the `lockfile` pre-commit job: validates the lockfile without touching `node_modules` |
-| `verify:coverage-scope` | `node scripts/verify-coverage-scope.mjs`                            | Gate 9, the last of `audit`                                                                                  |
+| `verify:coverage-scope` | `node scripts/verify-coverage-scope.mjs`                            | Gate 9                                                                                                       |
+| `verify:import-fence`   | `node scripts/verify-import-fence.mjs`                              | Gate 10, the last of `audit`: proves the `@/shared/testing` import fence is live                             |
 | `audit:deps`            | `npm audit --omit=dev --audit-level=high`                           | CI's `Dependency audit`; it needs the network, so it is not part of `audit`                                  |
 | `dev`                   | `vite`                                                              | Dev server with HMR; also regenerates the route tree                                                         |
 | `build`                 | `tsc -b && vite build`                                              | Gate 7: type-checks, then bundles into `dist/`                                                               |
@@ -175,12 +178,12 @@ Every script in `package.json`:
 | `test:e2e:report`       | `playwright show-report`                                            | Opens the HTML report of the last `test:e2e` run                                                             |
 | `arch`                  | `steiger ./src`                                                     | Gate 6                                                                                                       |
 | `arch:graph`            | Below                                                               | Regenerates `docs/architecture-graph.md`; not a gate                                                         |
-| `audit`                 | Below                                                               | Runs gates 1 to 9 in order                                                                                   |
+| `audit`                 | Below                                                               | Runs gates 1 to 10 in order                                                                                  |
 
 `audit`:
 
 ```sh
-npm run verify:lock && npm run format:check && npm run lint && npm run lint:a11y && npm run typecheck && npm run arch && npm run build && npm run test:coverage && npm run verify:coverage-scope
+npm run verify:lock && npm run format:check && npm run lint && npm run lint:a11y && npm run typecheck && npm run arch && npm run build && npm run test:coverage && npm run verify:coverage-scope && npm run verify:import-fence
 ```
 
 `arch:graph`, as the shell receives it (`package.json` stores the backslashes JSON-escaped):
@@ -243,8 +246,8 @@ Both uploads use `actions/upload-artifact@v7` with `if: ${{ !cancelled() }}` and
 
 `scripts/verify-coverage-scope.mjs` (run as `npm run verify:coverage-scope`) cross-checks
 `coverage/lcov.info` against the source tree so a `coverage.exclude` pattern that swallows a
-file cannot hide it from the 90% threshold; a clean run at `65a99bc` prints
-`Coverage scope verified: 130 source files measured.`
+file cannot hide it from the 90% threshold; a clean run at `33ee487` prints
+`Coverage scope verified: 135 source files measured.`
 [Unit and component testing](./unit-testing.md) owns the gate's full contract, including its
 failure output.
 
@@ -256,9 +259,10 @@ barrel rule are explained in [Architecture boundaries](./architecture-boundaries
 | Files                                                                         | Rule sets                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `**/*.{js,mjs,ts,tsx}`                                                        | `js.configs.recommended`; typescript-eslint `recommendedTypeChecked` and `stylisticTypeChecked`, typed through `projectService: true`; `consistent-type-imports` (`prefer: 'type-imports'`, `fixStyle: 'separate-type-imports'`), `no-import-type-side-effects`, `no-floating-promises`, `no-misused-promises`; `import-x/order` (builtin, external, internal `^@/`, parent, sibling, index; blank line between groups; alphabetized) |
-| `src/**/*.{ts,tsx}`, `vitest.setup.ts`                                        | `@eslint-react/eslint-plugin` `recommended-typescript`, `eslint-plugin-react-hooks` `recommended`, `eslint-plugin-react-refresh` `vite`; browser globals                                                                                                                                                                                                                                                                              |
+| `src/**/*.{ts,tsx}`, `vitest.setup.ts`                                        | `@eslint-react/eslint-plugin` `recommended-typescript`, `eslint-plugin-react-hooks` `recommended`, `eslint-plugin-react-refresh` `vite`; browser globals; `import-x/resolver-next`, the TypeScript-aware resolver — without it every path-based `import-x` rule silently skips `src/`                                                                                                                                                 |
 | `src/**/*.{ts,tsx}`                                                           | TanStack Query and TanStack Router `flat/recommended`; `@typescript-eslint/no-unused-vars` with `ignoreRestSiblings: true`; the `no-restricted-imports` fences                                                                                                                                                                                                                                                                        |
 | `src/**/*.test.{ts,tsx}`                                                      | `@vitest/eslint-plugin` `recommended`                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `src/**/*.{ts,tsx}` minus `*.test.{ts,tsx}` and `src/shared/testing/**`       | `import-x/no-restricted-paths`: nothing in the production graph may import `@/shared/testing`, which is devDependency-backed. Verified by gate 10                                                                                                                                                                                                                                                                                     |
 | `src/app/routes/**/*.tsx`                                                     | `react-refresh/only-export-components` off: every route module exports a `Route` constant beside its components                                                                                                                                                                                                                                                                                                                       |
 | `src/**/index.ts`                                                             | `no-restricted-syntax`: a barrel may only import and re-export                                                                                                                                                                                                                                                                                                                                                                        |
 | `eslint.config.js`, `vite.config.ts`, `steiger.config.ts`, `scripts/**/*.mjs` | Node globals                                                                                                                                                                                                                                                                                                                                                                                                                          |
@@ -374,6 +378,7 @@ If the hooks are missing — a clone installed with `--ignore-scripts`, or a han
 | `build`                                       | `tsc -b` passed as gate 5 and runs again first, so the error is `vite build`'s: read the Rollup/Vite message and fix the reported module or plugin config. This is the only gate that runs the Vite plugins, so a route-tree or code-splitting failure surfaces here and nowhere earlier |
 | `test:coverage`                               | Add tests until the file clears 90% (see [Unit and component testing](./unit-testing.md))                                                                                                                                                                                                |
 | `verify:coverage-scope`                       | A pattern in `coverage.exclude` in `vite.config.ts` swallowed a source file — typically a `.ts` pattern that also matches a `.tsx` file; narrow it                                                                                                                                       |
+| `verify:import-fence`                         | The `import-x` resolver or the `no-restricted-paths` block in `eslint.config.js` moved or lost its `basePath`; the message says which direction failed                                                                                                                                   |
 | `audit:deps`                                  | Upgrade the vulnerable package, usually by merging Dependabot's pull request                                                                                                                                                                                                             |
 
 ### Add a gate
@@ -600,7 +605,7 @@ has not been added: CI is advisory here, and `pre-push` is the real gate.
 - **One gate list, called by name.** `audit` in `package.json` is the only place the gates are
   listed; the `pre-push` job and the `Quality gates` job both run `npm run audit` instead of
   restating its steps in YAML, where the local and CI lists would drift apart. The cost is
-  granularity: CI runs the nine gates in one job, so a formatting slip and a failing test both
+  granularity: CI runs the ten gates in one job, so a formatting slip and a failing test both
   surface as one red `Quality gates` check, and the log says which.
 - **Cheapest checks first, at every level.** `pre-commit` touches only staged files and fixes
   formatting itself; `pre-push` runs the whole-program gates a staged-file check cannot see — types,
@@ -730,19 +735,23 @@ has not been added: CI is advisory here, and `pre-push` is the real gate.
 The pipeline has no co-located tests of its own. Vitest collects only
 `src/**/*.{test,spec}.{ts,tsx}`, so neither `scripts/*.mjs` nor `eslint.config.js`, `lefthook.yml`
 or the workflow is under test — `eslint.config.js` says as much about its order-sensitive
-`no-restricted-imports` blocks: "nothing tests the flat config". The gates are verified by running
+`no-restricted-imports` blocks: "nothing tests the flat config". One narrow exception now exists:
+gate 10, `verify:import-fence`, lints a pair of throwaway probe files to prove the
+`@/shared/testing` fence and the `import-x` resolver it depends on are both live. Block ordering
+for `no-restricted-imports` remains untested. The gates are otherwise verified by running
 them, and every push runs all of them. What they execute is documented elsewhere: the Vitest suite
 and its coverage policy in [Unit and component testing](./unit-testing.md), the Playwright suite in
 [End-to-end testing](./e2e-testing.md).
 
 | Command                                         | What it proves                                                                                     |
 | ----------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `npm run audit`                                 | All nine gates pass, in CI's order                                                                 |
+| `npm run audit`                                 | All ten gates pass, in CI's order                                                                  |
 | `npx lefthook run pre-commit`                   | The five commit jobs pass on what is staged                                                        |
 | `npx lefthook run pre-push`                     | The push hook passes                                                                               |
 | `node scripts/a11y-rules.mjs --check`           | `.oxlintrc.json` matches the installed oxlint: `.oxlintrc.json is in sync: 36 jsx-a11y rules.`     |
 | `npm run test:coverage`                         | The suite passes with 90% per file, and writes `coverage/lcov.info`                                |
-| `npm run verify:coverage-scope`                 | Every source file was measured: `Coverage scope verified: 130 source files measured.` at `65a99bc` |
+| `npm run verify:coverage-scope`                 | Every source file was measured: `Coverage scope verified: 135 source files measured.` at `33ee487` |
+| `npm run verify:import-fence`                   | The `@/shared/testing` fence blocks production files and exempts test files                        |
 | `npm test`                                      | The unit and component suite, without coverage                                                     |
 | `npx vitest run src/shared/lib/format-duration` | One folder or file of it                                                                           |
 | `npm run test:e2e`                              | Playwright over the production build                                                               |

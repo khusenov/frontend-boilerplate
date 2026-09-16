@@ -2,7 +2,7 @@
 
 A React + TypeScript single-page-application template built on **Vite**, organised by **Feature-Sliced Design**, with **TanStack Router / Query / Form**, **axios** behind an `HttpClient` port, **Zod** response validation and **i18next**. This directory is the documentation index; every capability is explained in its own document under [`features/`](./features/).
 
-> **Verified against:** `65a99bc`
+> **Verified against:** `33ee487`
 
 ## Getting started
 
@@ -21,7 +21,7 @@ Install, copy `.env.example`, run `npm run dev` — the full sequence, plus what
 | `widgets`  | `src/widgets/**`  | Self-contained blocks composed from features and entities and shown on more than one screen — today `app-header`, the app-shell banner the root layout mounts on every route                                                                   | `features`, `entities`, `shared`                                                |
 | `features` | `src/features/**` | Single user actions that change state (`sign-in`, `sign-out`, `switch-locale`, `update-user-name`): the action's UI, its validation schema where it takes input, the hook that drives the action                                               | `entities`, `shared`                                                            |
 | `entities` | `src/entities/**` | Business nouns (`user`, `session`): frontend-owned models and ports in `model/`; DTOs, wire schemas, mappers, HTTP calls and query option factories in `api/`                                                                                  | `shared`                                                                        |
-| `shared`   | `src/shared/**`   | Segments, no slices: `api`, `config`, `i18n`, `lib`, `observability`, `ui`                                                                                                                                                                     | Nothing above `shared`; one segment uses another only through its public API    |
+| `shared`   | `src/shared/**`   | Segments, no slices: `api`, `config`, `i18n`, `lib`, `observability`, `testing`, `ui` (`testing` is importable only from test files)                                                                                                           | Nothing above `shared`; one segment uses another only through its public API    |
 
 **Outside the layers.** `src/main.tsx` only mounts `<App />` from `@/app` inside `StrictMode` and may import nothing else; `e2e/` observes the built app through a real browser and may not import `src/`.
 

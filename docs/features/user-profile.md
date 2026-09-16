@@ -1,6 +1,6 @@
 # User profile (read path)
 
-> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `65a99bc`
+> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `33ee487`
 
 ## Purpose
 
@@ -743,8 +743,10 @@ Run `npx vite build` (or keep `npm run dev` running) to regenerate `src/app/rout
 and commit it; until then the new module is a `npm run typecheck` error. Copy
 `src/pages/user-profile/ui/user-profile-page.test.tsx` and
 `src/app/routes/_authenticated/users.$userId.test.tsx` for the page and route tests, and drop their
-`SessionStarterProvider` and `SessionEnderProvider` wrappers: `ProjectOverviewPage` composes no
-`features` slice, so nothing in its tree calls `useSessionStarter()` or `useSessionEnder()`.
+`SessionStarterProvider` and `SessionEnderProvider` wrappers — in the page test that means removing
+the entry from `renderWithProviders`'s `wrappers` array, leaving the option off entirely:
+`ProjectOverviewPage` composes no `features` slice, so nothing in its tree calls
+`useSessionStarter()` or `useSessionEnder()`.
 
 **10. The gates.** Run `npm run audit` ([Quality gates](./quality-gates.md)). Its coverage step
 enforces 90% per file, which is why each new module needs the tests above. `fsd/insignificant-slice` passes because `entities/project` has
@@ -881,7 +883,7 @@ registration in `e2e/fixtures/harness.ts` ([End-to-end testing](./e2e-testing.md
 | `src/entities/user/api/user-mapper.test.ts`            | Unit                                                                                                                                                               | `toUser` joins and trims the display name (an empty surname, padded parts), keeps `firstName` and `lastName`, translates every wire role, parses `created_at` into a `Date`, carries the id across, and leaves no wire field name on the model. Its `toUpdateUserNameDto` cases belong to the [write path](./update-user-name.md).            |
 | `src/entities/user/api/user-queries.test.ts`           | Unit, with a real `QueryClient` and a one-method `UserReadClient`                                                                                                  | Every key sits under `['users']` and `detail` nests under it as a prefix; `detail` requests `/users/u_1` and resolves the mapped `User`; `../admin` goes out as `/users/..%2Fadmin`; `..` is refused with a `dot segment` message and kind `unknown`; a role of `OWNER`, an email of `not-an-email` and a `created_at` of `yesterday` reject. |
 | `src/pages/user-profile/ui/user-profile-view.test.tsx` | Component, no providers                                                                                                                                            | The display name is the `<h1>`; field labels are translated; `Administrator` renders and `ADMIN` does not; the join date is a `<time>` whose `datetime` is `2024-01-05T12:00:00.000Z`.                                                                                                                                                        |
-| `src/pages/user-profile/ui/user-profile-page.test.tsx` | Component, `QueryClientProvider`, `HttpClientProvider` and `SessionEnderProvider` with stub collaborators, no router                                               | A `status` region while pending; the heading once the query resolves; an `alert` when it fails; after the form saves a new last name, the refetched heading reads `Ada King`, which proves the write path's invalidation reaches this query; and the `Sign out` button is enabled beside the alert while the profile is failing to load.      |
+| `src/pages/user-profile/ui/user-profile-page.test.tsx` | Component, `renderWithProviders` (`QueryClientProvider` and `HttpClientProvider`) plus a `SessionEnderProvider` wrapper, all with stub collaborators, no router    | A `status` region while pending; the heading once the query resolves; an `alert` when it fails; after the form saves a new last name, the refetched heading reads `Ada King`, which proves the write path's invalidation reaches this query; and the `Sign out` button is enabled beside the alert while the profile is failing to load.      |
 | `src/app/routes/_authenticated/users.$userId.test.tsx` | Integration through `createAppRouter` and the generated route tree, memory history at `/users/u_1`, wrapped in `SessionStarterProvider` and `SessionEnderProvider` | With a resolver that answers `authenticated`, the route requests `/users/u_1` and renders `Ada Lovelace`; clicking `Sign out` then lands on `/sign-in`, which is what proves the route's `onSignedOut` callback reaches the router.                                                                                                           |
 | `e2e/user-profile.spec.ts`                             | End to end, Chromium against the production build                                                                                                                  | The scenarios below.                                                                                                                                                                                                                                                                                                                          |
 

@@ -1,6 +1,6 @@
 # Forms
 
-> **Status:** Complete · **Layers:** features, shared, outside layers · **Verified against:** `65a99bc`
+> **Status:** Complete · **Layers:** features, shared, outside layers · **Verified against:** `33ee487`
 
 ## Purpose
 
@@ -467,7 +467,8 @@ from a list needs its own component inside `src/shared/ui/form`, modelled on `te
   `shared/i18n` strikes with `i18next`. `src/shared/ui/form` is exempt through its own block. Flat
   config replaces rather than merges `no-restricted-imports` options, so that block must stay the
   last one matching the seam's files; the comment above it warns that a `src/shared/**` block
-  appended below "would silently kill that form exemption", and nothing tests the flat config.
+  appended below "would silently kill that form exemption", and nothing tests that ordering.
+  (`verify:import-fence`, the one flat-config gate, covers only the `@/shared/testing` fence.)
 - **The seam never names a validator.** `VALIDATOR_IMPORT_PATTERNS`
   (`^(zod|valibot|arktype|yup|joi|superstruct)(/|$)`) applies to the seam's non-test files, and to
   `shared/api`'s, so the Standard Schema dependency is enforced rather than intended. It is a

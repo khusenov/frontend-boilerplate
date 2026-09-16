@@ -146,7 +146,7 @@ the importee's public `index.ts` and never through an inner file.
 | `widgets`       | Self-contained blocks shared by several screens — today `app-header` | `features` and below |
 | `features`      | One user action that changes state                                   | `entities`, `shared` |
 | `entities`      | Business nouns: model, DTO schema, mapper, HTTP calls                | `shared`             |
-| `shared`        | `api`, `config`, `i18n`, `lib`, `observability`, `ui`                | Nothing above it     |
+| `shared`        | `api`, `config`, `i18n`, `lib`, `observability`, `testing`, `ui`     | Nothing above it     |
 
 `src/main.tsx` sits outside the layer system, so steiger cannot analyse it and a lint rule stands
 in: `@/app` is the only `@/` path it may import.

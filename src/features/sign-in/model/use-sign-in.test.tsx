@@ -1,31 +1,28 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, renderHook, waitFor } from '@testing-library/react';
-import type { ReactNode } from 'react';
+import { act, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { SessionStarterProvider } from '@/entities/session';
 import type { SessionStarter } from '@/entities/session';
+import { renderHookWithProviders } from '@/shared/testing';
 
 import { useSignIn } from './use-sign-in';
 
 const ada = { email: 'ada@example.test', password: 'correct horse' };
 
 function renderSignIn(sessionStarter: SessionStarter) {
-  const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
   const onSignedIn = vi.fn();
-
-  function Wrapper({ children }: { readonly children: ReactNode }) {
-    return (
-      <QueryClientProvider client={queryClient}>
-        <SessionStarterProvider sessionStarter={sessionStarter}>{children}</SessionStarterProvider>
-      </QueryClientProvider>
-    );
-  }
 
   return {
     onSignedIn,
-    queryClient,
-    ...renderHook(() => useSignIn({ onSignedIn }), { wrapper: Wrapper }),
+    ...renderHookWithProviders(() => useSignIn({ onSignedIn }), {
+      wrappers: [
+        ({ children }) => (
+          <SessionStarterProvider sessionStarter={sessionStarter}>
+            {children}
+          </SessionStarterProvider>
+        ),
+      ],
+    }),
   };
 }
 

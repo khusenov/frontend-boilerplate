@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import js from '@eslint/js';
 import eslintReact from '@eslint-react/eslint-plugin';
 import pluginQuery from '@tanstack/eslint-plugin-query';
@@ -187,6 +189,21 @@ export default tseslint.config(
       ],
     },
   },
+  // import-x configures no resolver by default, and without one that understands .ts/.tsx and
+  // the @/ path mapping every path-based import-x rule silently skips every file in src/ —
+  // including the no-restricted-paths fence below. The glob is exactly what tsconfig.app.json
+  // owns; a wider one would disagree with the compiler about e2e/ and scripts/.
+  {
+    files: ['src/**/*.{ts,tsx}', 'vitest.setup.ts'],
+    settings: {
+      'import-x/resolver-next': [
+        importX.createNodeResolver({
+          extensions: ['.ts', '.tsx', '.js', '.jsx', '.json'],
+          tsconfig: { configFile: path.join(import.meta.dirname, 'tsconfig.app.json') },
+        }),
+      ],
+    },
+  },
   {
     files: ['src/**/*.{ts,tsx}', 'vitest.setup.ts'],
     extends: [
@@ -317,7 +334,8 @@ export default tseslint.config(
   // lift the axios ban for the one segment that owns axios; its *.test.* twin must follow that
   // to lift the validator ban for tests; and the form block must stay last among blocks matching
   // src/shared/ui/form/**. A src/shared/** block appended below would silently kill that form
-  // exemption, and nothing tests the flat config.
+  // exemption, and nothing tests that ordering — scripts/verify-import-fence.mjs covers only the
+  // no-restricted-paths fence at the bottom of this file.
   // The src/shared/ui/error-boundary/** block follows the same rule: it must sit after the
   // src/{...,shared}/** block to lift the react-error-boundary ban for the one group that owns the
   // vendor. Its glob does not overlap src/shared/ui/form/**, so it is safe beside the form block.
@@ -520,6 +538,31 @@ export default tseslint.config(
     files: ['src/**/*.{ts,tsx}'],
     rules: {
       '@typescript-eslint/no-unused-vars': ['error', { ignoreRestSiblings: true }],
+    },
+  },
+  // no-restricted-paths, not no-restricted-imports: a repeated rule has its options replaced
+  // rather than merged, so another no-restricted-imports block matching src/** would wipe out
+  // the vendor fences above. basePath is load-bearing too — without it the zone paths resolve
+  // against process.cwd(), so the fence goes inert whenever ESLint runs from a subdirectory
+  // and the run still exits 0. scripts/verify-import-fence.mjs is what proves it still fires.
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/**/*.test.{ts,tsx}', 'src/shared/testing/**'],
+    rules: {
+      'import-x/no-restricted-paths': [
+        'error',
+        {
+          basePath: import.meta.dirname,
+          zones: [
+            {
+              target: './src',
+              from: './src/shared/testing',
+              message:
+                'The test harness is devDependency-backed and must stay out of the production graph. Import @/shared/testing only from test files.',
+            },
+          ],
+        },
+      ],
     },
   },
   prettier,
