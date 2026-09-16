@@ -1,6 +1,6 @@
 # Quality gates
 
-> **Status:** Complete · **Layers:** outside layers · **Verified against:** `9a7d7af`
+> **Status:** Complete · **Layers:** outside layers · **Verified against:** `6cf48b8`
 
 ## Purpose
 
@@ -658,10 +658,14 @@ gh api --method POST repos/{owner}/{repo}/rulesets --input .github/rulesets/main
 gh api --method POST repos/{owner}/{repo}/rulesets --input .github/rulesets/version-tags.json
 ```
 
-A repository that also turns on CodeQL's default setup can require its checks too; this one adds
-`Analyze (actions)` and `Analyze (javascript-typescript)` to the list. Rulesets on a private
-repository are enforced only on a paid GitHub plan, so a private project on the free plan keeps CI
-advisory and `pre-push` as its real gate.
+A repository that also turns on CodeQL's default setup can require its `CodeQL` check too, as this
+one does. Require that summary check, not the per-language `Analyze (…)` jobs: CodeQL skips a pull
+request that changes nothing it analyzes — a lockfile bump, say — and then only the summary reports,
+as skipped, which satisfies the rule, while the `Analyze` checks never appear and would block the
+pull request for good. The summary is also the check that fails when a pull request introduces an
+alert; the analysis jobs pass either way. Rulesets on a private repository are enforced only on a
+paid GitHub plan, so a private project on the free plan keeps CI advisory and `pre-push` as its real
+gate.
 
 ## Design decisions & trade-offs
 
