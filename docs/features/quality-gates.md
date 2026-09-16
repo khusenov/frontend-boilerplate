@@ -547,7 +547,7 @@ copied `public/favicon.svg`:
 | `index-*.js`         | 363.53 kB | 117.91 kB | Up front: the entry script, including sonner and the CSS string it injects at module scope |
 | `button-*.js`        | 103.47 kB | 34.33 kB  | Up front (`modulepreload`): the `shared/ui` primitives and i18next                         |
 | `session-*.js`       | 32.44 kB  | 11.21 kB  | Up front (`modulepreload`): `zod/mini`, TanStack Query's core and `entities/session`       |
-| `index-*.css`        | 20.52 kB  | 4.45 kB   | Up front: the single stylesheet                                                            |
+| `index-*.css`        | 20.55 kB  | 4.46 kB   | Up front: the single stylesheet                                                            |
 | `index.html`         | 1.37 kB   | 0.64 kB   | The document, including the inline pre-paint theme script Vite does not minify             |
 | `form-*.js`          | 74.03 kB  | 19.06 kB  | With `/sign-in` or `/users/$userId`: TanStack Form and the fields                          |
 | `routes-*.js`        | 12.01 kB  | 5.09 kB   | With `/`: the home page                                                                    |

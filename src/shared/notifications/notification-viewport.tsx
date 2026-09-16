@@ -16,7 +16,9 @@ const TOAST_THEME_TOKENS = {
   '--gray5': 'var(--border)',
 } as CSSProperties;
 
-const FOCUS_RING = 'focus-visible:ring-2 focus-visible:ring-ring';
+// sonner injects its stylesheet unlayered, which outranks Tailwind's @layer utilities, so its
+// 20%-black focus ring wins unless the box-shadow utility is !important.
+const FOCUS_RING = 'focus-visible:ring-2! focus-visible:ring-ring';
 
 export function NotificationViewport() {
   const { t } = useTranslation();
