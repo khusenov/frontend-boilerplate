@@ -1,6 +1,6 @@
 # Production container
 
-> **Status:** Complete · **Layers:** outside layers · **Verified against:** `7ce79de`
+> **Status:** Complete · **Layers:** outside layers · **Verified against:** `5385d7a`
 
 ## Purpose
 
@@ -24,7 +24,7 @@ starts from `node:24-bookworm-slim`, installs the locked dependencies with
 `npm run build` with `VITE_API_BASE_URL` taken from a build argument whose default is `/v1`. It then
 runs `node scripts/security-headers.ts nginx dist/index.html`, which prints one
 `add_header … always;` directive per header into `security-headers.conf`. The `runtime` stage
-starts from `nginxinc/nginx-unprivileged:1.30-alpine` and copies three things: `dist/` to
+starts from `nginxinc/nginx-unprivileged:1.31-alpine` and copies three things: `dist/` to
 `/usr/share/nginx/html`, the headers file to `/etc/nginx/snippets/security-headers.conf`, and
 `docker/nginx/default.conf.template` to `/etc/nginx/templates/`.
 
@@ -183,7 +183,7 @@ environment, and prints the directives; anything else prints its usage and exits
 | `WEB_PORT` (compose only)               | `8080`                                                             | The host port the `web` service publishes                                                                                                                                                                            |
 | `E2E_BASE_URL` (`playwright.config.ts`) | Unset                                                              | When set, the suite runs against that server and starts none of its own; when unset, it builds and previews on port 4173                                                                                             |
 | `preview.headers` (`vite.config.ts`)    | Computed when `vite preview` starts                                | The same headers the container sends, from `dist/index.html` as it is at that moment                                                                                                                                 |
-| Base images (`Dockerfile`)              | `node:24-bookworm-slim`, `nginxinc/nginx-unprivileged:1.30-alpine` | The build toolchain and the server; Dependabot proposes their updates weekly                                                                                                                                         |
+| Base images (`Dockerfile`)              | `node:24-bookworm-slim`, `nginxinc/nginx-unprivileged:1.31-alpine` | The build toolchain and the server, nginx's mainline line; Dependabot proposes their updates weekly                                                                                                                  |
 
 `docker compose` reads the project's `.env` for `${…}` substitution, so a `VITE_API_BASE_URL` set
 there for development also reaches the image.
@@ -279,7 +279,9 @@ origin or site, for the reasons [Session management](./session-management.md) gi
   CSS on every page load, and any regression surfaces wherever it happens.
 - **Unprivileged nginx on Alpine.** The image runs as uid 101, listens on 8080 — a port that needs
   no privilege — and ships the environment-variable template step already, so the repository adds no
-  entrypoint script. Caddy or a Node server would have served the files just as well, but nginx's
+  entrypoint script. It tracks nginx's mainline line — an odd minor such as 1.31, the line the
+  official image's `latest` tag follows — so fixes reach the image first, and whichever newer line
+  Dependabot proposes next, mainline or stable, can be taken without an ignore rule. Caddy or a Node server would have served the files just as well, but nginx's
   `try_files` and header semantics are the ones most platforms document, and the official
   unprivileged variant is maintained by the nginx team.
 - **The upstream is resolved once, at start-up.** A literal `proxy_pass` host is resolved when nginx
