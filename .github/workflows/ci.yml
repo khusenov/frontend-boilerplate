@@ -75,6 +75,89 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  container:
+    name: Container image
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build the image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          tags: frontend-boilerplate:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Start the container
+        run: >
+          docker run --detach --name web --publish 8080:8080
+          --add-host=host.docker.internal:host-gateway frontend-boilerplate:ci
+
+      - name: Wait until the container reports healthy
+        timeout-minutes: 2
+        run: |
+          until [ "$(docker inspect --format '{{.State.Health.Status}}' web)" = healthy ]; do
+            sleep 2
+          done
+
+      - name: Assert a deep link falls back to the app with its security headers
+        run: |
+          headers=$(curl --fail --silent --show-error --dump-header - --output /dev/null \
+            http://localhost:8080/users/0198f0a2-7b1c-7d3e-8f00-123456789abc)
+          echo "$headers"
+          grep --quiet --ignore-case "^content-security-policy: default-src 'self'; script-src 'self' 'sha256-" <<<"$headers"
+          grep --quiet --ignore-case '^cache-control: no-cache' <<<"$headers"
+
+      - name: Assert hashed assets are cached immutably and never fall back to the app
+        run: |
+          page=$(curl --fail --silent --show-error http://localhost:8080/)
+          asset=$(grep --only-matching --extended-regexp '/assets/index-[^"]+\.js' <<<"$page" | head --lines=1)
+          headers=$(curl --fail --silent --show-error --dump-header - --output /dev/null "http://localhost:8080${asset}")
+          grep --quiet --ignore-case '^cache-control: public, max-age=31536000, immutable' <<<"$headers"
+          status=$(curl --silent --output /dev/null --write-out '%{http_code}' http://localhost:8080/assets/missing.js)
+          test "$status" = 404
+
+      - name: Assert the API prefix is proxied upstream
+        run: |
+          status=$(curl --silent --output /dev/null --write-out '%{http_code}' --request POST http://localhost:8080/v1/auth/refresh)
+          test "$status" = 502
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run the end-to-end suite against the container
+        run: npm run test:e2e
+        env:
+          E2E_BASE_URL: http://localhost:8080
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report-container
+          path: playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Dump container logs on failure
+        if: failure()
+        run: docker logs web
+
   dependency-audit:
     name: Dependency audit
     runs-on: ubuntu-latest

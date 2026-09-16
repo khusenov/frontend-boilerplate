@@ -27,6 +27,16 @@ hook is what formats your staged files; the pre-push hook runs `npm run audit`.
 If `npm run test:e2e` will not start, something holds port 4173 — usually a leftover
 `npm run preview`. The suite serves its own build and never reuses a running server.
 
+A change to the `Dockerfile`, `docker/`, `scripts/security-headers.ts` or anything the
+Content-Security-Policy has to admit also deserves a run against the production container, which
+CI's `Container image` job repeats:
+
+```bash
+docker compose up --build --wait
+E2E_BASE_URL=http://localhost:8080 npm run test:e2e
+docker compose down
+```
+
 ## What the build enforces
 
 Five gates fail the build, and none of them are negotiable in review.

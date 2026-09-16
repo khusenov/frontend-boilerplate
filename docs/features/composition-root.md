@@ -793,7 +793,9 @@ it from `appConfig.name` or translates it.
   own script text against stubs and requires byte-identical output to the real adapter chain, for
   every stored value the vocabulary allows. Renaming a literal on one side, inverting the
   resolution ternary, or adding a fourth preference each turn it red. The residual cost is a CSP
-  one: an inline script needs a `sha256-` hash in `script-src`, which `SECURITY.md` records.
+  one: an inline script needs a `sha256-` hash in `script-src`, which `scripts/security-headers.ts`
+  computes from the built `index.html` for the container and `vite preview` alike
+  ([Production container](./deployment.md)).
 - **The root boundary wraps the providers.** A boundary inside `AppProviders` could not catch a
   throw from its own initializers, so `ErrorBoundary` sits in `app.tsx`, above everything it
   protects. As a result `AppCrashFallback` renders without a provider, which is why its copy is

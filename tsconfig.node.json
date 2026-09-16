@@ -27,5 +27,11 @@
     "erasableSyntaxOnly": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["vite.config.ts", "steiger.config.ts", "eslint.config.js", "scripts/**/*.mjs"]
+  "include": [
+    "vite.config.ts",
+    "steiger.config.ts",
+    "eslint.config.js",
+    "scripts/**/*.mjs",
+    "scripts/**/*.ts"
+  ]
 }

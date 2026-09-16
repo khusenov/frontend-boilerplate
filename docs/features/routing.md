@@ -451,7 +451,11 @@ The host must answer every path that is not a real file with `/index.html` — n
 `try_files $uri /index.html;`, a Netlify `_redirects` rule `/* /index.html 200`, an S3 or CloudFront
 error document, a `404.html` copy of `index.html` on GitHub Pages. Vite's dev server and
 `vite preview` do this on their own, which is why forgetting it is invisible until production, where
-every deep link and every reload off `/` then gets the host's 404 instead of the app.
+every deep link and every reload off `/` then gets the host's 404 instead of the app. The production
+container already does it, and its `Container image` CI job opens a deep link to prove it
+([Production container](./deployment.md)); keep a missing file under `/assets/` a real `404`, so a
+tab running an older build fails its chunk request and reloads rather than parsing `index.html` as
+JavaScript.
 
 ## Design decisions & trade-offs
 

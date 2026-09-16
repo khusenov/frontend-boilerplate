@@ -2,7 +2,7 @@
 
 A React + TypeScript single-page-application template built on **Vite**, organised by **Feature-Sliced Design**, with **TanStack Router / Query / Form**, **axios** behind an `HttpClient` port, **Zod** response validation and **i18next**. This directory is the documentation index; every capability is explained in its own document under [`features/`](./features/).
 
-> **Verified against:** `d6deb01`
+> **Verified against:** `7ce79de`
 
 ## Getting started
 
@@ -23,7 +23,7 @@ Install, copy `.env.example`, run `npm run dev` — the full sequence, plus what
 | `entities` | `src/entities/**` | Business nouns (`user`, `session`): frontend-owned models and ports in `model/`; DTOs, wire schemas, mappers, HTTP calls, query option factories and cache helpers in `api/`; components that present a model value, such as `UserStatusLabel`, in `ui/` | `shared`                                                                        |
 | `shared`   | `src/shared/**`   | Segments, no slices: `api`, `config`, `i18n`, `lib`, `notifications`, `observability`, `testing`, `theme`, `ui` (`testing` is importable only from test files)                                                                                           | Nothing above `shared`; one segment uses another only through its public API    |
 
-**Outside the layers.** `src/main.tsx` only mounts `<App />` from `@/app` inside `StrictMode` and may import nothing else; `e2e/` observes the built app through a real browser and may not import `src/`.
+**Outside the layers.** `src/main.tsx` only mounts `<App />` from `@/app` inside `StrictMode` and may import nothing else; `e2e/` observes the built app through a real browser and may not import `src/`; the `Dockerfile`, `docker/nginx/` and `scripts/security-headers.ts` package the build for production, and no module under `src/` knows they exist.
 
 **The Import Rule:** a module imports only from layers **strictly below** its own — `app` → `pages` → `widgets` → `features` → `entities` → `shared`. Slices on one layer are **isolated** from each other. Any import across a slice boundary goes **through that slice's public `index.ts`** (`@/entities/user`, never `@/entities/user/model/user`); within its own slice a module uses relative paths. `shared/lib` and `shared/ui` are imported per group (`@/shared/lib/single-flight`), never as a bare segment. Every `index.ts` only re-exports. `npm run arch` (steiger) and `npm run lint` (ESLint `no-restricted-imports`) enforce this, and both run inside `npm run audit`.
 
@@ -78,6 +78,12 @@ One row per document under [`features/`](./features/), grouped by concern. Each 
 | Unit and component testing | [unit-testing.md](./features/unit-testing.md)   | The harness behind the 90% per-file coverage floor — the `test` block of `vite.config.ts`, `vitest.setup.ts` and the coverage-scope gate — with the conventions its tests follow: assert on what a user perceives, and inject every collaborator. |
 | End-to-end testing         | [e2e-testing.md](./features/e2e-testing.md)     | Playwright drives a real Chromium against the production build, with the API answered inside the browser by stubs that pin their own copy of the wire contract and may not import `src/` — catching the drift the jsdom suite cannot see.         |
 | Quality gates              | [quality-gates.md](./features/quality-gates.md) | Chains every check into one command, `npm run audit`, run by a lefthook `pre-push` hook and by GitHub Actions on every push and pull request to `main`, beside the guards that keep the toolchain itself trustworthy.                             |
+
+### Delivery
+
+| Feature              | Doc                                       | Summary                                                                                                                                                                                                                                                                                            |
+| -------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Production container | [deployment.md](./features/deployment.md) | A two-stage `Dockerfile` that serves the build from unprivileged nginx — deep-link fallback, immutable assets, a same-origin `/v1` proxy — with a Content-Security-Policy derived from the build itself, which `vite preview` sends too, so the end-to-end suite runs under the production policy. |
 
 ## Notes on coverage
 
