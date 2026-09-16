@@ -1,6 +1,6 @@
 # Quality gates
 
-> **Status:** Complete · **Layers:** outside layers · **Verified against:** `d442a06`
+> **Status:** Complete · **Layers:** outside layers · **Verified against:** `d6deb01`
 
 ## Purpose
 
@@ -246,8 +246,8 @@ Both uploads use `actions/upload-artifact@v7` with `if: ${{ !cancelled() }}` and
 
 `scripts/verify-coverage-scope.mjs` (run as `npm run verify:coverage-scope`) cross-checks
 `coverage/lcov.info` against the source tree so a `coverage.exclude` pattern that swallows a
-file cannot hide it from the 90% threshold; a clean run at `5c55de1` prints
-`Coverage scope verified: 155 source files measured.`
+file cannot hide it from the 90% threshold; a clean run of today's tree prints
+`Coverage scope verified: 158 source files measured.`
 [Unit and component testing](./unit-testing.md) owns the gate's full contract, including its
 failure output.
 
@@ -538,31 +538,33 @@ instead of skipping it.
 ### Measure the bundle
 
 No gate limits bundle size; the baseline below makes growth visible, and a jump against it is a
-review item, not a failure. It was recorded from `npm run build` at `d442a06` with no `.env` present
-— Vite 8.2.2, production mode, 618 modules transformed, ten entries in Vite's size table beside the
-copied `public/favicon.svg`:
+review item, not a failure. It was recorded from `npm run build` once `entities/user` had been
+re-pinned to backend-boilerplate's contract, with no `.env` present — Vite 8.2.2, production mode,
+620 modules transformed, ten entries in Vite's size table beside the copied `public/favicon.svg`:
 
 | Asset                | Raw       | Gzip      | Loaded                                                                                     |
 | -------------------- | --------- | --------- | ------------------------------------------------------------------------------------------ |
-| `index-*.js`         | 363.53 kB | 117.91 kB | Up front: the entry script, including sonner and the CSS string it injects at module scope |
-| `button-*.js`        | 103.47 kB | 34.33 kB  | Up front (`modulepreload`): the `shared/ui` primitives and i18next                         |
-| `session-*.js`       | 32.44 kB  | 11.21 kB  | Up front (`modulepreload`): `zod/mini`, TanStack Query's core and `entities/session`       |
+| `index-*.js`         | 363.72 kB | 117.94 kB | Up front: the entry script, including sonner and the CSS string it injects at module scope |
+| `button-*.js`        | 103.52 kB | 34.34 kB  | Up front (`modulepreload`): the `shared/ui` primitives and i18next                         |
+| `session-*.js`       | 33.13 kB  | 11.43 kB  | Up front (`modulepreload`): `zod/mini`, TanStack Query's core and `entities/session`       |
 | `index-*.css`        | 20.55 kB  | 4.46 kB   | Up front: the single stylesheet                                                            |
 | `index.html`         | 1.37 kB   | 0.64 kB   | The document, including the inline pre-paint theme script Vite does not minify             |
 | `form-*.js`          | 74.03 kB  | 19.06 kB  | With `/sign-in` or `/users/$userId`: TanStack Form and the fields                          |
 | `routes-*.js`        | 12.01 kB  | 5.09 kB   | With `/`: the home page                                                                    |
-| `users._userId-*.js` | 12.84 kB  | 4.60 kB   | With `/users/$userId`                                                                      |
+| `users._userId-*.js` | 12.78 kB  | 4.56 kB   | With `/users/$userId`                                                                      |
 | `sign-in-*.js`       | 2.57 kB   | 1.14 kB   | With `/sign-in`                                                                            |
 | `home-*.js`          | 0.63 kB   | 0.31 kB   | On demand: the Russian `home` namespace                                                    |
 
-The three chunks `dist/index.html` loads up front total 499.44 kB raw and 163.45 kB gzip, plus the
-stylesheet. sonner accounts for the whole of the entry chunk's jump from `5c55de1`'s 328.83 kB /
-108.55 kB: most of it is 14,916 bytes of minified CSS that sonner inlines as a JavaScript string and
-injects into `document.head` at module-evaluation time, which never passes through Vite's CSS
-pipeline and cannot be preloaded. The rest is fetched on navigation: `autoCodeSplitting` gives each route component a
-chunk of its own, and modules that two routes share are hoisted into shared chunks — `form-*.js` is
-imported by both `sign-in-*.js` and `users._userId-*.js`. Why each chunk weighs what it does belongs
-to the capability that owns it: [Design system](./design-system.md), [Forms](./forms.md),
+The three chunks `dist/index.html` loads up front total 500.37 kB raw and 163.71 kB gzip, plus the
+stylesheet. Re-pinning the user entity moved them by less than 1 kB: the write-through cache helper
+lands in the entry chunk, and `zm.uuid()` adds 0.22 kB gzip to `session-*.js`. sonner accounts for
+nearly all of the entry chunk's jump from `5c55de1`'s 328.83 kB / 108.55 kB: most of it is 14,916
+bytes of minified CSS that sonner inlines as a JavaScript string and injects into `document.head` at
+module-evaluation time, which never passes through Vite's CSS pipeline and cannot be preloaded. The
+rest is fetched on navigation: `autoCodeSplitting` gives each route component a chunk of its own,
+and modules that two routes share are hoisted into shared chunks — `form-*.js` is imported by both
+`sign-in-*.js` and `users._userId-*.js`. Why each chunk weighs what it does belongs to the
+capability that owns it: [Design system](./design-system.md), [Forms](./forms.md),
 [Internationalization](./internationalization.md), [Routing](./routing.md) and
 [Session management](./session-management.md).
 
@@ -746,19 +748,19 @@ them, and every push runs all of them. What they execute is documented elsewhere
 and its coverage policy in [Unit and component testing](./unit-testing.md), the Playwright suite in
 [End-to-end testing](./e2e-testing.md).
 
-| Command                                         | What it proves                                                                                     |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `npm run audit`                                 | All ten gates pass, in CI's order                                                                  |
-| `npx lefthook run pre-commit`                   | The five commit jobs pass on what is staged                                                        |
-| `npx lefthook run pre-push`                     | The push hook passes                                                                               |
-| `node scripts/a11y-rules.mjs --check`           | `.oxlintrc.json` matches the installed oxlint: `.oxlintrc.json is in sync: 36 jsx-a11y rules.`     |
-| `npm run test:coverage`                         | The suite passes with 90% per file, and writes `coverage/lcov.info`                                |
-| `npm run verify:coverage-scope`                 | Every source file was measured: `Coverage scope verified: 155 source files measured.` at `d442a06` |
-| `npm run verify:import-fence`                   | The `@/shared/testing` fence blocks production files and exempts test files                        |
-| `npm test`                                      | The unit and component suite, without coverage                                                     |
-| `npx vitest run src/shared/lib/format-duration` | One folder or file of it                                                                           |
-| `npm run test:e2e`                              | Playwright over the production build                                                               |
-| `npm run audit:deps`                            | No `high` or `critical` advisory against a production dependency; needs the network                |
+| Command                                         | What it proves                                                                                 |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `npm run audit`                                 | All ten gates pass, in CI's order                                                              |
+| `npx lefthook run pre-commit`                   | The five commit jobs pass on what is staged                                                    |
+| `npx lefthook run pre-push`                     | The push hook passes                                                                           |
+| `node scripts/a11y-rules.mjs --check`           | `.oxlintrc.json` matches the installed oxlint: `.oxlintrc.json is in sync: 36 jsx-a11y rules.` |
+| `npm run test:coverage`                         | The suite passes with 90% per file, and writes `coverage/lcov.info`                            |
+| `npm run verify:coverage-scope`                 | Every source file was measured: `Coverage scope verified: 158 source files measured.` today    |
+| `npm run verify:import-fence`                   | The `@/shared/testing` fence blocks production files and exempts test files                    |
+| `npm test`                                      | The unit and component suite, without coverage                                                 |
+| `npx vitest run src/shared/lib/format-duration` | One folder or file of it                                                                       |
+| `npm run test:e2e`                              | Playwright over the production build                                                           |
+| `npm run audit:deps`                            | No `high` or `critical` advisory against a production dependency; needs the network            |
 
 To see a gate bite before trusting it, break it on purpose and revert: set
 `"jsx-a11y/no-autofocus"` to `"warn"` in `.oxlintrc.json` and `node scripts/a11y-rules.mjs --check`

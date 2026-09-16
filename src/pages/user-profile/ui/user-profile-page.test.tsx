@@ -1,51 +1,38 @@
 import { screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 
 import { SessionEnderProvider } from '@/entities/session';
 import { toUserId } from '@/entities/user';
 import { toHttpError } from '@/shared/api';
-import type { HttpClient, ResponseSchema } from '@/shared/api';
-import { createHttpClientStub, renderWithProviders } from '@/shared/testing';
+import type { HttpClient } from '@/shared/api';
+import { createHttpClientStub, parseStubResponse, renderWithProviders } from '@/shared/testing';
 
 import { UserProfilePage } from './user-profile-page';
 
+interface RenamingBackend {
+  readonly httpClient: HttpClient;
+  readonly readPaths: readonly string[];
+}
+
+const ADA_ID = '0198f0a2-7b1c-7d3e-8f00-123456789abc';
+const ADA_RESOURCE_PATH = `/users/${ADA_ID}`;
+
 const adaPayload = {
-  id: 'u_1',
-  first_name: 'Ada',
-  last_name: 'Lovelace',
+  id: ADA_ID,
+  firstName: 'Ada',
+  lastName: 'Lovelace',
+  fullName: 'Ada Lovelace',
   email: 'ada@example.test',
-  role: 'ADMIN',
-  created_at: '2024-01-05T12:00:00.000Z',
+  status: 'active',
+  createdAt: '2024-01-05T12:00:00.000Z',
+  updatedAt: '2024-01-05T12:00:00.000Z',
 };
 
-interface NamePayload {
-  readonly first_name: string;
-  readonly last_name: string;
-}
-
-function isNamePayload(body: unknown): body is NamePayload {
-  return (
-    typeof body === 'object' &&
-    body !== null &&
-    'first_name' in body &&
-    'last_name' in body &&
-    typeof body.first_name === 'string' &&
-    typeof body.last_name === 'string'
-  );
-}
-
-async function parse<TValue>(schema: ResponseSchema<TValue>, payload: unknown): Promise<TValue> {
-  const result = await schema['~standard'].validate(payload);
-
-  if (result.issues !== undefined) {
-    throw toHttpError(new Error('the payload does not satisfy the request schema'));
-  }
-
-  return result.value;
-}
+const namePatchSchema = z.object({ firstName: z.string(), lastName: z.string() });
 
 const resolvingClient = createHttpClientStub({
-  get: (_url, config) => parse(config.schema, adaPayload),
+  get: (_url, config) => parseStubResponse(config.schema, adaPayload),
 });
 
 const failingClient = createHttpClientStub({
@@ -56,28 +43,42 @@ const pendingClient = createHttpClientStub({ get: () => new Promise<never>(() =>
 
 const sessionEnder = { signOut: () => Promise.resolve({ status: 'signed-out' } as const) };
 
-function createRenamingClient(): HttpClient {
+function createRenamingBackend(): RenamingBackend {
+  const readPaths: string[] = [];
   let currentPayload = adaPayload;
 
-  return createHttpClientStub({
-    get: (_url, config) => parse(config.schema, currentPayload),
-    patch: (_url, config) => {
-      if (!isNamePayload(config.body)) {
-        throw toHttpError(new Error('the patch body does not carry both name parts'));
+  const httpClient = createHttpClientStub({
+    get: (url, config) => {
+      readPaths.push(url);
+
+      return parseStubResponse(config.schema, currentPayload);
+    },
+    patch: async (_url, config) => {
+      const namePatch = namePatchSchema.safeParse(config.body);
+
+      if (!namePatch.success) {
+        throw toHttpError(namePatch.error);
       }
 
-      currentPayload = { ...currentPayload, ...config.body };
+      const { firstName, lastName } = namePatch.data;
 
-      return parse(config.schema, null);
+      currentPayload = {
+        ...currentPayload,
+        firstName,
+        lastName,
+        fullName: `${firstName} ${lastName}`,
+      };
+
+      return parseStubResponse(config.schema, currentPayload);
     },
   });
+
+  return { httpClient, readPaths };
 }
 
 function renderPage(httpClient: HttpClient) {
-  const onSignedOut = vi.fn();
-
   const { user } = renderWithProviders(
-    <UserProfilePage userId={toUserId('u_1')} onSignedOut={onSignedOut} />,
+    <UserProfilePage userId={toUserId(ADA_ID)} onSignedOut={vi.fn()} />,
     {
       httpClient,
       wrappers: [
@@ -88,7 +89,7 @@ function renderPage(httpClient: HttpClient) {
     },
   );
 
-  return { onSignedOut, user };
+  return { user };
 }
 
 describe('UserProfilePage', () => {
@@ -110,8 +111,9 @@ describe('UserProfilePage', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('could not be loaded');
   });
 
-  it('refetches the profile so the heading shows the name the form just saved', async () => {
-    const { user } = renderPage(createRenamingClient());
+  it('shows the saved name from the update response without reading the profile again', async () => {
+    const backend = createRenamingBackend();
+    const { user } = renderPage(backend.httpClient);
 
     expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent('Ada Lovelace');
 
@@ -120,6 +122,7 @@ describe('UserProfilePage', () => {
     await user.click(screen.getByRole('button', { name: 'Save name' }));
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Ada King' })).toBeInTheDocument();
+    expect(backend.readPaths).toStrictEqual([ADA_RESOURCE_PATH]);
   });
 
   it('offers a way out while the profile is failing to load', async () => {

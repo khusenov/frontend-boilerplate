@@ -1,16 +1,11 @@
 import { useMemo } from 'react';
 
-import type { User, UserRole } from '@/entities/user';
+import { UserStatusLabel } from '@/entities/user';
+import type { User } from '@/entities/user';
 import { useLocale, useTranslation } from '@/shared/i18n';
 
-const ROLE_LABEL_KEYS = {
-  admin: 'user.roles.admin',
-  member: 'user.roles.member',
-  viewer: 'user.roles.viewer',
-} as const satisfies Record<UserRole, string>;
-
 interface UserProfileViewProps {
-  readonly user: User;
+  readonly user: Pick<User, 'displayName' | 'email' | 'joinedAt' | 'status'>;
 }
 
 export function UserProfileView({ user }: UserProfileViewProps) {
@@ -30,8 +25,10 @@ export function UserProfileView({ user }: UserProfileViewProps) {
           <dd>{user.email}</dd>
         </div>
         <div className="flex gap-6">
-          <dt className="w-32 text-muted-foreground">{t('user.role')}</dt>
-          <dd>{t(ROLE_LABEL_KEYS[user.role])}</dd>
+          <dt className="w-32 text-muted-foreground">{t('user.status')}</dt>
+          <dd>
+            <UserStatusLabel status={user.status} />
+          </dd>
         </div>
         <div className="flex gap-6">
           <dt className="w-32 text-muted-foreground">{t('user.joinedAt')}</dt>

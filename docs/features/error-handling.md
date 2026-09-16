@@ -52,17 +52,17 @@ it to `createQueryClient`.
 client's `QueryCache` and `MutationCache`. When a query fetch has failed for good — after the retry
 policy owned by [HTTP transport](./http-transport.md) gives up — the cache calls
 `onQueryError(error, query.queryHash)`; the **query hash** is TanStack Query's stable JSON
-serialisation of the query key, `["users","detail","u_1"]` for a user profile. A failed mutation
-calls `onMutationError(error, hashKey(mutation.options.mutationKey ?? []))`. The adapters turn these
-into `{ source: 'query', error, queryHash }` and `{ source: 'mutation', error, mutationHash }`
-reports, and the console sink prints `error reported from query` (or `mutation`), the error and the
-hash. Reporting is a side channel and changes nothing on screen: the query or mutation still settles
-into its error state and its owner renders it — the profile page shows its `unavailable` state
-([User profile](./user-profile.md)) and the name form its `failed` notice
-([Update user name](./update-user-name.md)). Every failed fetch is reported, including background
-refetches, the `prefetchQuery` started by the `users.$userId.tsx` loader, and failures the UI
-expects, such as a `404` for a user that does not exist. No data failure throws into render: nothing
-in `src` uses `useSuspenseQuery` or `throwOnError`.
+serialisation of the query key, `["users","detail","<user id>"]` for a user profile. A failed
+mutation calls `onMutationError(error, hashKey(mutation.options.mutationKey ?? []))`. The adapters
+turn these into `{ source: 'query', error, queryHash }` and
+`{ source: 'mutation', error, mutationHash }` reports, and the console sink prints
+`error reported from query` (or `mutation`), the error and the hash. Reporting is a side channel and
+changes nothing on screen: the query or mutation still settles into its error state and its owner
+renders it — the profile page shows its `unavailable` state ([User profile](./user-profile.md)) and
+the name form its `failed` notice ([Update user name](./update-user-name.md)). Every failed fetch is
+reported, including background refetches, the `prefetchQuery` started by the `users.$userId.tsx`
+loader, and failures the UI expects, such as a `404` for a user that does not exist. No data failure
+throws into render: nothing in `src` uses `useSuspenseQuery` or `throwOnError`.
 
 **A crash at start-up — the root boundary.** A throw while rendering `AppProviders` or
 `AppRouterProvider` happens above the router, so the root `ErrorBoundary` catches it. That includes
@@ -340,7 +340,7 @@ place of the beacon.
        kind: 'server',
        status: 500,
        method: 'GET',
-       url: '/users/u_1',
+       url: '/users/0198f0a2-7b1c-7d3e-8f00-123456789abc',
        payload: 'upstream-detail',
        issues: [],
      },
@@ -587,7 +587,7 @@ npm run test:e2e
 Gaps: no test drives a crash inside a route, so the path through TanStack Router's `CatchBoundary`
 is unverified by the suite; mutation reporting is wired through `AppProviders` but asserted only at
 the `createQueryClient` level. No Playwright spec asserts on reporting: `e2e/user-profile.spec.ts`
-produces a real query failure (a `404` for `u_missing`) and a real mutation failure (a `500` on
+produces a real query failure (a `404` for an unknown id) and a real mutation failure (a `500` on
 save) in the production build, and both are reported to the browser console, but the specs assert
 only the on-screen states (see [End-to-end testing](./e2e-testing.md)).
 

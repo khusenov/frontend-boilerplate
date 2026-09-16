@@ -6,12 +6,12 @@
   },
   "user": {
     "email": "Email",
-    "role": "Role",
+    "status": "Status",
     "joinedAt": "Joined",
-    "roles": {
-      "admin": "Administrator",
-      "member": "Member",
-      "viewer": "Viewer"
+    "statuses": {
+      "active": "Active",
+      "inactive": "Inactive",
+      "pending": "Awaiting verification"
     }
   },
   "userProfile": {

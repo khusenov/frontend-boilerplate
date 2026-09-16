@@ -4,20 +4,25 @@ import { describe, expect, it } from 'vitest';
 import { toUserId } from '@/entities/user';
 import { toHttpError } from '@/shared/api';
 import type { HttpClient } from '@/shared/api';
-import { createHttpClientStub, renderHookWithProviders } from '@/shared/testing';
+import { createHttpClientStub, parseStubResponse, renderHookWithProviders } from '@/shared/testing';
 
 import { useUpdateUserName } from './use-update-user-name';
 
+const ADA_ID = '0198f0a2-7b1c-7d3e-8f00-123456789abc';
+
+const savedAdaKingPayload = {
+  id: ADA_ID,
+  firstName: 'Ada',
+  lastName: 'King',
+  fullName: 'Ada King',
+  email: 'ada@example.test',
+  status: 'active',
+  createdAt: '2024-01-05T12:00:00.000Z',
+  updatedAt: '2024-03-09T08:15:00.000Z',
+};
+
 const resolvingClient = createHttpClientStub({
-  patch: async (_url, config) => {
-    const result = await config.schema['~standard'].validate(null);
-
-    if (result.issues !== undefined) {
-      throw toHttpError(new Error('the response does not satisfy the request schema'));
-    }
-
-    return result.value;
-  },
+  patch: (_url, config) => parseStubResponse(config.schema, savedAdaKingPayload),
 });
 
 const failingClient = createHttpClientStub({
@@ -28,12 +33,12 @@ const SAVED_MESSAGE = 'Name updated.';
 
 function renderUpdateUserName(httpClient: HttpClient) {
   return renderHookWithProviders(
-    () => useUpdateUserName(toUserId('u_1'), { savedMessage: SAVED_MESSAGE }),
+    () => useUpdateUserName(toUserId(ADA_ID), { savedMessage: SAVED_MESSAGE }),
     { httpClient },
   );
 }
 
-const ada = { firstName: 'Ada', lastName: 'King' };
+const renameToAdaKing = { firstName: 'Ada', lastName: 'King' };
 
 describe('useUpdateUserName', () => {
   it('reports an idle status before anything is submitted', () => {
@@ -46,7 +51,7 @@ describe('useUpdateUserName', () => {
     const { result } = renderUpdateUserName(resolvingClient);
 
     await act(async () => {
-      await result.current.submit(ada);
+      await result.current.submit(renameToAdaKing);
     });
 
     await waitFor(() => {
@@ -58,7 +63,7 @@ describe('useUpdateUserName', () => {
     const { notifications, result } = renderUpdateUserName(resolvingClient);
 
     await act(async () => {
-      await result.current.submit(ada);
+      await result.current.submit(renameToAdaKing);
     });
 
     await waitFor(() => {
@@ -70,7 +75,7 @@ describe('useUpdateUserName', () => {
     const { notifications, result } = renderUpdateUserName(failingClient);
 
     await act(async () => {
-      await result.current.submit(ada);
+      await result.current.submit(renameToAdaKing);
     });
 
     await waitFor(() => {
@@ -83,7 +88,7 @@ describe('useUpdateUserName', () => {
     const { result } = renderUpdateUserName(failingClient);
 
     await act(async () => {
-      await expect(result.current.submit(ada)).resolves.toBeUndefined();
+      await expect(result.current.submit(renameToAdaKing)).resolves.toBeUndefined();
     });
 
     await waitFor(() => {
@@ -95,7 +100,7 @@ describe('useUpdateUserName', () => {
     const { result } = renderUpdateUserName(resolvingClient);
 
     await act(async () => {
-      await result.current.submit(ada);
+      await result.current.submit(renameToAdaKing);
     });
     await waitFor(() => {
       expect(result.current.status).toBe('saved');
@@ -114,7 +119,7 @@ describe('useUpdateUserName', () => {
     const { result } = renderUpdateUserName(failingClient);
 
     await act(async () => {
-      await result.current.submit(ada);
+      await result.current.submit(renameToAdaKing);
     });
     await waitFor(() => {
       expect(result.current.status).toBe('failed');
@@ -147,7 +152,7 @@ describe('useUpdateUserName', () => {
     );
 
     act(() => {
-      void result.current.submit(ada);
+      void result.current.submit(renameToAdaKing);
     });
     await waitFor(() => {
       expect(result.current.status).toBe('saving');

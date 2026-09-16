@@ -1,6 +1,6 @@
 # Internationalization
 
-> **Status:** Complete · **Layers:** app, pages, widgets, features, shared, outside layers · **Verified against:** `d442a06`
+> **Status:** Complete · **Layers:** app, pages, widgets, features, entities, shared, outside layers · **Verified against:** `d6deb01`
 
 ## Purpose
 
@@ -139,6 +139,7 @@ whole.
 | `AppHeader`                                                                                              | `widgets/app-header · ui`     | App-shell `<header>` banner: shows the application name and hosts the switcher                                                        | `src/widgets/app-header/ui/app-header.tsx`             |
 | `LocaleSwitcher`                                                                                         | `features/switch-locale · ui` | The runtime caller of `setLocale`: one `Button` per supported locale, labelled with its endonym                                       | `src/features/switch-locale/ui/locale-switcher.tsx`    |
 | `useCredentialsSchema`                                                                                   | `features/sign-in · model`    | Reference `features`-layer consumer: resolves validation messages through `t` for a schema that cannot call a hook itself             | `src/features/sign-in/model/use-credentials-schema.ts` |
+| `UserStatusLabel`                                                                                        | `entities/user · ui`          | Reference `entities`-layer consumer: maps a `UserStatus` to its `user.statuses.*` key, the lowest layer that can hold the mapping     | `src/entities/user/ui/user-status-label.tsx`           |
 | `formatDuration`                                                                                         | `shared/lib/format-duration`  | Worked-example helper: milliseconds to `mm:ss` or `hh:mm:ss`                                                                          | `src/shared/lib/format-duration/format-duration.ts`    |
 | Global test instance                                                                                     | `outside layers`              | Registers a fresh English instance with `setI18n` before each test                                                                    | `vitest.setup.ts`                                      |
 | `I18N_VENDOR_IMPORT_PATHS`, `LOWER_LAYER_IMPORT_PATHS`                                                   | `outside layers`              | Fence the i18next packages into `shared/i18n` and `createI18n` into `app/entrypoint`                                                  | `eslint.config.js`                                     |
@@ -194,10 +195,10 @@ does not compile and reaching an unclamped value takes a deliberate cast.
 [Update user name](./update-user-name.md), [User profile](./user-profile.md),
 [Authenticated route guard](./route-guard.md), [Routing](./routing.md) and [Forms](./forms.md).
 
-| Namespace          | Bundled for | Loaded lazily for | Top-level key groups and their consumers                                                                                                                                                                                                                                                                                           |
-| ------------------ | ----------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `common` (default) | `en`, `ru`  | none              | `notFound` (`pages/not-found`), `session` (`pages/resolving-session`), `user` and `userProfile` (`pages/user-profile`), `signIn` (`pages/sign-in`, `features/sign-in`), `signOut` (`features/sign-out`), `updateUserName` (`features/update-user-name`), `notifications` (`shared/notifications`), `validation` (`shared/ui/form`) |
-| `home`             | `en`        | `ru`              | `environment`, `elapsedLabel`, `addOneSecond`, `secondsAdded` (`pages/home`)                                                                                                                                                                                                                                                       |
+| Namespace          | Bundled for | Loaded lazily for | Top-level key groups and their consumers                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------ | ----------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `common` (default) | `en`, `ru`  | none              | `notFound` (`pages/not-found`), `session` (`pages/resolving-session`), `user` (`pages/user-profile`, and `entities/user` for `user.statuses`), `userProfile` (`pages/user-profile`), `signIn` (`pages/sign-in`, `features/sign-in`), `signOut` (`features/sign-out`), `updateUserName` (`features/update-user-name`), `notifications` (`shared/notifications`), `validation` (`shared/ui/form`) |
+| `home`             | `en`        | `ru`              | `environment`, `elapsedLabel`, `addOneSecond`, `secondsAdded` (`pages/home`)                                                                                                                                                                                                                                                                                                                    |
 
 **`@/features/switch-locale`** exports `LocaleSwitcher`, which takes no props: it reads the active
 locale from `useLocale()` and the choices from `SUPPORTED_LOCALES` and `LOCALES`. It renders one
@@ -337,20 +338,29 @@ const dateFormatter = useMemo(
 );
 ```
 
-Translate a domain value in the view, not in the DTO mapper, by mapping it to a typed key — the same
-file does it for `UserRole`:
+Translate a domain value in a component, not in the DTO mapper, by mapping it to a typed key. When
+the mapping depends on nothing but the entity's own type, it belongs in that entity's `ui` segment,
+so every screen reuses one wording — `src/entities/user/ui/user-status-label.tsx` does it for
+`UserStatus`, and `UserProfileView` renders `<UserStatusLabel status={user.status} />`:
 
 ```tsx
-const ROLE_LABEL_KEYS = {
-  admin: 'user.roles.admin',
-  member: 'user.roles.member',
-  viewer: 'user.roles.viewer',
-} as const satisfies Record<UserRole, string>;
+const STATUS_LABEL_KEYS = {
+  active: 'user.statuses.active',
+  inactive: 'user.statuses.inactive',
+  pending: 'user.statuses.pending',
+} as const satisfies Record<UserStatus, string>;
+
+export function UserStatusLabel({ status }: UserStatusLabelProps) {
+  const { t } = useTranslation();
+
+  return t(STATUS_LABEL_KEYS[status]);
+}
 ```
 
-`satisfies Record<UserRole, string>` makes a new `UserRole` member a compile error until it has a
-key, and `as const` keeps each value a literal key, so `t(ROLE_LABEL_KEYS[user.role])` is
-type-checked. The mapper stays free of i18n, as [User profile](./user-profile.md) describes.
+`satisfies Record<UserStatus, string>` makes a new `UserStatus` member a compile error until it has
+a key, and `as const` keeps each value a literal key, so `t(STATUS_LABEL_KEYS[status])` is
+type-checked. The component returns the translated string, which React renders as a text node. The
+mapper stays free of i18n, as [User profile](./user-profile.md) describes.
 
 ### Copy outside JSX
 

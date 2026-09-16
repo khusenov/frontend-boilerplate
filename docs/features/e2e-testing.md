@@ -1,13 +1,13 @@
 # End-to-end testing
 
-> **Status:** Complete · **Layers:** outside layers · **Verified against:** `d442a06`
+> **Status:** Complete · **Layers:** outside layers · **Verified against:** `d6deb01`
 
 ## Purpose
 
 The Vitest suite never loads the app a visitor downloads: it runs in jsdom or Node against stub
 `HttpClient`s and MSW handlers whose payloads are written beside the code under test. Nothing in it
 can therefore notice drift in the production bundle, in the route tree the Vite plugin generates or
-in the wire contract — renaming `first_name` and `last_name` in the user DTO, its mapper and the
+in the wire contract — renaming `firstName` and `fullName` in the user DTO, its mapper and the
 unit fixtures together leaves `npm run audit` green, because the code and its tests agree on a shape
 the server never agreed to. The end-to-end harness closes that gap: Playwright drives a real
 Chromium against the production build, and the API is answered inside the browser by stubs that
@@ -44,15 +44,17 @@ naming the request — `{ message: 'The end-to-end stub has no handler for POST 
 for example. No request under `/v1/` leaves the browser.
 
 **A guarded screen, end to end.** `e2e/user-profile.spec.ts` seeds a `UserWireRecord` in
-`beforeEach` and opens `/users/u_1` through its page object. The bundle boots, and the
-`_authenticated` layout route's `beforeLoad` settles the session with `POST /v1/auth/refresh`;
-`restoreSession` answers `200` with `{ accessToken: 'e2e.restored.access.token' }`, so the guard
-admits the navigation ([Authenticated route guard](./route-guard.md)). The route's `loader`
-prefetches the user query that the page's `useQuery` then joins, its `GET /v1/users/u_1` gets the
-seeded record from the user stub, and the app validates, maps and renders it
-([User profile (read path)](./user-profile.md)). Saving sends `PATCH /v1/users/u_1`: the stub
-records the body, updates its stored record and answers `204`, so the refetch that the mutation's
-invalidation triggers returns the new name ([Update user name (write path)](./update-user-name.md)).
+`beforeEach` and opens `/users/0198f0a2-7b1c-7d3e-8f00-123456789abc` through its page object. The
+bundle boots, and the `_authenticated` layout route's `beforeLoad` settles the session with
+`POST /v1/auth/refresh`; `restoreSession` answers `200` with
+`{ accessToken: 'e2e.restored.access.token' }`, so the guard admits the navigation
+([Authenticated route guard](./route-guard.md)). The route's `loader` prefetches the user query that
+the page's `useQuery` then joins, its `GET /v1/users/{id}` gets the seeded record from the user
+stub, and the app validates, maps and renders it ([User profile (read path)](./user-profile.md)).
+Saving sends `PATCH /v1/users/{id}`: the stub records the body, stores the renamed record —
+`fullName` recomposed, `updatedAt` moved on — and answers `200` with it, as backend-boilerplate
+does, so the heading shows the new name straight from the response
+([Update user name (write path)](./update-user-name.md)).
 
 **Assertions and artefacts.** Specs find elements by role, label and visible text through a _page
 object_ — a module that owns one screen's locators and navigation — and assert with Playwright's
@@ -165,16 +167,15 @@ e2e/
 
 ### `e2e/fixtures/http-contract.ts`
 
-| Constant                 | Value                               | Used by                                                                                            |
-| ------------------------ | ----------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `API_PREFIX`             | `'/v1'`                             | `webServer.env` in `playwright.config.ts`, `API_ROUTE_PATTERN`, `REFRESH_PATH` in the session stub |
-| `API_ROUTE_PATTERN`      | `**/v1/**`, built from `API_PREFIX` | Every `page.route` registration in the harness                                                     |
-| `OK_STATUS`              | `200`                               | The session and user stubs                                                                         |
-| `NO_CONTENT_STATUS`      | `204`                               | The user stub, for a stored name update                                                            |
-| `BAD_REQUEST_STATUS`     | `400`                               | The user stub, for a malformed `PATCH` body                                                        |
-| `NOT_FOUND_STATUS`       | `404`                               | The user stub, for an id nobody seeded                                                             |
-| `SERVER_ERROR_STATUS`    | `500`                               | `e2e/user-profile.spec.ts`, for the injected save failure                                          |
-| `NOT_IMPLEMENTED_STATUS` | `501`                               | The harness's catch-all                                                                            |
+| Constant                 | Value                               | Used by                                                                                                                                      |
+| ------------------------ | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `API_PREFIX`             | `'/v1'`                             | `webServer.env` in `playwright.config.ts`, `API_ROUTE_PATTERN`, `REFRESH_PATH` in the session stub, `USER_RESOURCE_PATTERN` in the user stub |
+| `API_ROUTE_PATTERN`      | `**/v1/**`, built from `API_PREFIX` | Every `page.route` registration in the harness                                                                                               |
+| `OK_STATUS`              | `200`                               | The session and user stubs                                                                                                                   |
+| `BAD_REQUEST_STATUS`     | `400`                               | The user stub, for a malformed `PATCH` body                                                                                                  |
+| `NOT_FOUND_STATUS`       | `404`                               | The user stub, for an id nobody seeded                                                                                                       |
+| `SERVER_ERROR_STATUS`    | `500`                               | `e2e/user-profile.spec.ts`, for the injected save failure                                                                                    |
+| `NOT_IMPLEMENTED_STATUS` | `501`                               | The harness's catch-all                                                                                                                      |
 
 ### `e2e/fixtures/session-stub.ts`
 
@@ -189,27 +190,31 @@ session gets one.
 fixture hands to specs, and `handle: (route: Route) => Promise<void>` is what the harness registers.
 Each call owns its own records and history, and the fixture calls it once per test.
 
-| `UserStub` member    | Signature                            | Behaviour                                                                                                                                                                |
-| -------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `seed`               | `(record: UserWireRecord) => void`   | Stores the record under `record.id`, replacing any earlier one                                                                                                           |
-| `failNextNameUpdate` | `(status: number) => void`           | The next well-formed `PATCH` for a seeded id is recorded, then answered with `status` and `{ message: 'The name update was rejected.' }` instead of stored; applies once |
-| `namePatches`        | `() => readonly UserNameWirePatch[]` | A copy of every well-formed `PATCH` body received for a seeded id, in order, including one answered with an injected failure                                             |
+| `UserStub` member    | Signature                            | Behaviour                                                                                                                                                                                                             |
+| -------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `seed`               | `(record: UserWireRecord) => void`   | Stores the record under `record.id`, replacing any earlier one                                                                                                                                                        |
+| `failNextNameUpdate` | `(status: number) => void`           | The next well-formed `PATCH` for a seeded id is recorded, then answered with `status` and the error envelope — code `E2E_INJECTED_FAILURE`, message `The name update was rejected.` — instead of stored; applies once |
+| `namePatches`        | `() => readonly UserNameWirePatch[]` | A copy of every well-formed `PATCH` body received for a seeded id, in order, including one answered with an injected failure                                                                                          |
 
-What the handler answers, with `{id}` taken from the pathname by `USER_RESOURCE_PATTERN` and
-URL-decoded:
+What the handler answers, with `{id}` taken from the pathname by `USER_RESOURCE_PATTERN` — built
+from `API_PREFIX` — and URL-decoded. Every error body is backend-boilerplate's envelope,
+`{ error: { code, message, requestId: 'e2e-user-stub' } }`:
 
-| Request                         | Condition                                                   | Response                                                            |
-| ------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------- |
-| `GET /v1/users/{id}`            | `{id}` was seeded                                           | `200` with the stored `UserWireRecord`                              |
-| `GET` or `PATCH /v1/users/{id}` | `{id}` was not seeded                                       | `404` with `{ message: 'No such user.' }`                           |
-| `PATCH /v1/users/{id}`          | The body is not `{ first_name: string, last_name: string }` | `400` with a message quoting the body received; nothing is recorded |
-| `PATCH /v1/users/{id}`          | A failure was injected                                      | Recorded, then the injected status                                  |
-| `PATCH /v1/users/{id}`          | Otherwise                                                   | Recorded; the stored `first_name` and `last_name` replaced; `204`   |
-| Any other method or path        | —                                                           | `route.fallback()`                                                  |
+| Request                         | Condition                                                 | Response                                                                                                             |
+| ------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/users/{id}`            | `{id}` was seeded                                         | `200` with the stored `UserWireRecord`                                                                               |
+| `GET` or `PATCH /v1/users/{id}` | `{id}` was not seeded                                     | `404`, code `USER_NOT_FOUND`, message `No such user.`                                                                |
+| `PATCH /v1/users/{id}`          | The body is not `{ firstName: string, lastName: string }` | `400`, code `VALIDATION`, with a message quoting the body received; nothing is recorded                              |
+| `PATCH /v1/users/{id}`          | A failure was injected                                    | Recorded, then the injected status                                                                                   |
+| `PATCH /v1/users/{id}`          | Otherwise                                                 | Recorded; the stored record renamed, `fullName` recomposed and `updatedAt` set to now; `200` with the renamed record |
+| Any other method or path        | —                                                         | `route.fallback()`                                                                                                   |
 
-The pinned wire types: `UserWireRecord` has `readonly` `id`, `first_name`, `last_name`, `email` and
-`created_at` strings and a `role` of type `UserRoleWireValue` (`'ADMIN'`, `'MEMBER'` or
-`'VIEWER'`); `UserNameWirePatch` has `readonly` `first_name` and `last_name` strings.
+The pinned wire types copy backend-boilerplate's `userResponse` and `editUserBody`: `UserWireRecord`
+has `readonly` `id`, `firstName`, `lastName`, `fullName`, `email`, `createdAt` and `updatedAt`
+strings and a `status` of the module-private type `UserStatusWireValue` (`'active'`, `'inactive'`
+or `'pending'`) — all eight fields the server sends, one more than the app reads, which is what
+proves the DTO tolerates an unread field end to end; `UserNameWirePatch` has `readonly` `firstName`
+and `lastName` strings.
 
 ### `e2e/page-objects/user-profile-page-object.ts`
 
@@ -301,26 +306,28 @@ A scenario for the profile screen belongs in `e2e/user-profile.spec.ts`. Declare
 
 ```ts
 const GRACE: UserWireRecord = {
-  id: 'u_2',
-  first_name: 'Grace',
-  last_name: 'Hopper',
+  id: '0198f0a2-7b1c-7d3e-8f00-00000000abcd',
+  firstName: 'Grace',
+  lastName: 'Hopper',
+  fullName: 'Grace Hopper',
   email: 'grace@example.test',
-  role: 'VIEWER',
-  created_at: '2024-03-09T12:00:00.000Z',
+  status: 'pending',
+  createdAt: '2024-03-09T12:00:00.000Z',
+  updatedAt: '2024-03-09T12:00:00.000Z',
 };
 ```
 
 and add the test inside the `user profile` block:
 
 ```ts
-test('renders a viewer role and its own join date', async ({ page, userStub }) => {
+test('renders a pending status and its own join date', async ({ page, userStub }) => {
   const profile = createUserProfilePageObject(page);
 
   userStub.seed(GRACE);
   await profile.open(GRACE.id);
 
   await expect(profile.displayName()).toHaveText('Grace Hopper');
-  await expect(profile.content()).toContainText('Viewer');
+  await expect(profile.content()).toContainText('Awaiting verification');
   await expect(profile.content()).toContainText('March 9, 2024');
 });
 ```
@@ -611,9 +618,8 @@ The pinned copies change first, by hand:
 
 - A string from `src/shared/i18n/locales/en/*.json` that a spec reads changes in the same commit in
   the page object's `COPY`, or inline in `e2e/app-shell.spec.ts`.
-- `API_PREFIX` moves the build pin, `API_ROUTE_PATTERN` and the refresh path together, but
-  `USER_RESOURCE_PATTERN` in `e2e/fixtures/user-stub.ts` spells `/v1` itself and must be changed
-  with it (see [Known limitations](#known-limitations)).
+- `API_PREFIX` moves the build pin, `API_ROUTE_PATTERN`, the refresh path and
+  `USER_RESOURCE_PATTERN` together; a new stub builds its paths from it too.
 
 ## Design decisions & trade-offs
 
@@ -639,15 +645,14 @@ The pinned copies change first, by hand:
   inherits, so the pin beats both a shell export and an untracked `.env`
   ([Configuration and environment](./configuration.md)). Without it, a developer's
   own `VITE_API_BASE_URL` would send the bundle's requests past `**/v1/**`, and the verdict would
-  depend on that developer's machine. One constant, `API_PREFIX`, feeds the pin, the route pattern
-  and the refresh path, so they cannot drift apart — with one exception, listed under
-  [Known limitations](#known-limitations).
+  depend on that developer's machine. One constant, `API_PREFIX`, feeds the pin, the route pattern,
+  the refresh path and the user resource pattern, so they cannot drift apart.
 - **The browser is pinned to one language and one time zone.** The i18n detector reads `?lng=`,
   then `localStorage` (`app.locale`), then the browser language; a fresh context has no stored
   locale, so `locale: 'en-US'` selects `en`, the language the specs' copy is written in, where a
   machine set to Russian would otherwise render `ru`
   ([Internationalization](./internationalization.md)). `UserProfileView` formats dates in the
-  browser's time zone, and a `created_at` of
+  browser's time zone, and a `createdAt` of
   `2024-01-05T12:00:00.000Z` reads January 5, 2024 in UTC but January 6, 2024 in
   `Pacific/Auckland`. The cost is that no spec exercises another locale or zone.
 - **The network is stubbed in the browser, not in the app.** `page.route` intercepts inside
@@ -665,15 +670,18 @@ The pinned copies change first, by hand:
 - **The catch-all answers `501` and keeps every request in the browser.** Without it, an unowned
   request would reach `vite preview`, which inherits `server.proxy` from `vite.config.ts` and
   forwards `/v1` to `http://localhost:8000` — a developer's real API, or a proxy error. `501` is a
-  status no stub answers on purpose: the stubs use `200`, `204`, `400` and `404`, and a spec
+  status no stub answers on purpose: the stubs use `200`, `400` and `404`, and a spec
   injects `500`, so a `501` can only mean a missing handler, and its body names the method and path.
   It does not make that failure fast, though; see [Known limitations](#known-limitations).
 - **The user stub is a small state machine, not a canned response.** It seeds records, applies a
-  successful `PATCH` so the refetch after invalidation returns the new name, keeps every well-formed
-  body for assertion, and fails the next update on request. A canned response would keep answering
-  the old name, so the save scenario could never see the new heading; `namePatches()` pins the exact
-  snake_case body at the wire, which is how the trimming scenario checks `first_name: 'Augusta'`;
-  and a malformed body gets a `400` that quotes it instead of a silent success.
+  successful `PATCH` and answers with the renamed record as the real server does, keeps every
+  well-formed body for assertion, and fails the next update on request. A canned response would keep
+  answering the old name, so the save scenario could never see the new heading; `namePatches()` pins
+  the exact camelCase body at the wire, which is how the trimming scenario checks
+  `firstName: 'Augusta'`; and a malformed body gets a `400` that quotes it instead of a silent
+  success. Its errors carry backend-boilerplate's `{ error: { code, message, requestId } }`
+  envelope, while the harness's own catch-all keeps a bare `{ message }`: that body is the suite's
+  "no stub handles this request" signal, not an imitation of a server response.
 - **Every wire shape is pinned in the suite, never shared.** `user-stub.ts` declares
   `UserWireRecord` and `session-stub.ts` answers with a literal `{ accessToken }`, each under a
   header that forbids importing the DTO it duplicates. A shared declaration would make a wire-field
@@ -738,16 +746,16 @@ The suite is its own test: eight scenarios in two spec files, run in Chromium ag
 build. Each row names the harness pattern the scenario shows; the behaviour it checks is documented
 by the feature that owns it.
 
-| Spec and scenario                                                                          | Harness pattern                                                                                                             | Behaviour owned by                                                                            |
-| ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `e2e/app-shell.spec.ts` — `renders the not-found page for an unknown route and links home` | Inline strings; runs behind the automatic fence while naming only `page`; `toHaveURL('/')` resolves against `baseURL`       | [Routing](./routing.md), with the copy from [Internationalization](./internationalization.md) |
-| `e2e/user-profile.spec.ts` — `renders the mapped domain model from the wire payload`       | A seeded `UserWireRecord` read through the page object; the role label and the `Intl` date under the pinned locale and zone | [User profile (read path)](./user-profile.md)                                                 |
-| `e2e/user-profile.spec.ts` — `shows the unavailable state when the profile does not exist` | An id nobody seeded gets the stub's `404`                                                                                   | [User profile (read path)](./user-profile.md)                                                 |
-| `e2e/user-profile.spec.ts` — `saves a new name and shows the refetched profile`            | The stateful stub: a stored `PATCH` feeds the refetch, and `namePatches()` asserts the exact body                           | [Update user name (write path)](./update-user-name.md)                                        |
-| `e2e/user-profile.spec.ts` — `trims the submitted name before it reaches the wire`         | An assertion on the wire rather than the DOM                                                                                | [Update user name (write path)](./update-user-name.md)                                        |
-| `e2e/user-profile.spec.ts` — `reports a rejected save without discarding what was typed`   | Failure injection with `failNextNameUpdate(SERVER_ERROR_STATUS)`                                                            | [Update user name (write path)](./update-user-name.md)                                        |
-| `e2e/user-profile.spec.ts` — `blocks a blank first name before it reaches the network`     | `namePatches()` equals `[]`: no request left the page                                                                       | [Update user name (write path)](./update-user-name.md), [Forms](./forms.md)                   |
-| `e2e/user-profile.spec.ts` — `keeps the form operable by keyboard alone`                   | `page.keyboard` with `ControlOrMeta+A`, `Tab` and `Enter`, and `toBeFocused()`                                              | [Update user name (write path)](./update-user-name.md)                                        |
+| Spec and scenario                                                                          | Harness pattern                                                                                                                           | Behaviour owned by                                                                            |
+| ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `e2e/app-shell.spec.ts` — `renders the not-found page for an unknown route and links home` | Inline strings; runs behind the automatic fence while naming only `page`; `toHaveURL('/')` resolves against `baseURL`                     | [Routing](./routing.md), with the copy from [Internationalization](./internationalization.md) |
+| `e2e/user-profile.spec.ts` — `renders the mapped domain model from the wire payload`       | A seeded eight-field `UserWireRecord` read through the page object; the status label and the `Intl` date under the pinned locale and zone | [User profile (read path)](./user-profile.md)                                                 |
+| `e2e/user-profile.spec.ts` — `shows the unavailable state when the profile does not exist` | A well-formed UUID nobody seeded gets the stub's `404` envelope                                                                           | [User profile (read path)](./user-profile.md)                                                 |
+| `e2e/user-profile.spec.ts` — `saves a new name and shows the profile the server returned`  | The stateful stub: a stored `PATCH` answers with the renamed record, and `namePatches()` asserts the exact body                           | [Update user name (write path)](./update-user-name.md)                                        |
+| `e2e/user-profile.spec.ts` — `trims the submitted name before it reaches the wire`         | An assertion on the wire rather than the DOM                                                                                              | [Update user name (write path)](./update-user-name.md)                                        |
+| `e2e/user-profile.spec.ts` — `reports a rejected save without discarding what was typed`   | Failure injection with `failNextNameUpdate(SERVER_ERROR_STATUS)`                                                                          | [Update user name (write path)](./update-user-name.md)                                        |
+| `e2e/user-profile.spec.ts` — `blocks a blank first name before it reaches the network`     | `namePatches()` equals `[]`: no request left the page                                                                                     | [Update user name (write path)](./update-user-name.md), [Forms](./forms.md)                   |
+| `e2e/user-profile.spec.ts` — `keeps the form operable by keyboard alone`                   | `page.keyboard` with `ControlOrMeta+A`, `Tab` and `Enter`, and `toBeFocused()`                                                            | [Update user name (write path)](./update-user-name.md)                                        |
 
 Every profile scenario also passes the guard's admit path through `restoreSession`
 ([Authenticated route guard](./route-guard.md)).
@@ -799,9 +807,6 @@ forms narrow it to one file or to the tests whose title matches. `npm run typech
   the wire — a renamed or retyped field. They do not catch the wire loosening away from the app: if
   the server makes a field optional, the pinned copy keeps sending the old shape and nothing fails.
   That needs a contract artefact generated from the server, such as OpenAPI or Pact.
-- **`USER_RESOURCE_PATTERN` hard-codes the prefix.** It is `/^\/v1\/users\/(?<userId>[^/]+)$/u`
-  rather than a pattern built from `API_PREFIX`, so changing `API_PREFIX` alone moves the build, the
-  route pattern and the refresh path, and every user request then falls through to the catch-all.
 - **Nothing enforces importing from the harness.** The ESLint block for `e2e/**` restricts only
   `@/**` and `**/src/**`. A spec that imports `test` from `@playwright/test` compiles, lints and
   runs with no stubs and no catch-all, and its `/v1/` requests reach `vite preview` and its proxy.

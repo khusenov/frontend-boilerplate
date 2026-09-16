@@ -1,6 +1,6 @@
 # Forms
 
-> **Status:** Complete · **Layers:** features, shared, outside layers · **Verified against:** `d442a06`
+> **Status:** Complete · **Layers:** features, shared, outside layers · **Verified against:** `d6deb01`
 
 ## Purpose
 
@@ -501,7 +501,8 @@ from a list needs its own component inside `src/shared/ui/form`, modelled on `te
   `FormValidateOrFn` constrains only the schema's input. The shipped schemas therefore trim inside
   predicates without changing the value (`isEmailAddress` in sign-in; `isPresent` and
   `isWithinLimit` in update-user-name), and normalisation happens in the outbound mapper:
-  `toSignInRequestDto` trims and lowercases the email, and `toUpdateUserNameDto` trims both names.
+  `toSignInRequestDto` trims and lowercases the email, and `toUpdateUserNameRequestDto` trims both
+  names.
   A slice that genuinely needs the parsed value runs the schema itself inside its own `onSubmit`,
   before mapping to the domain model: `const result = await schema['~standard'].validate(value);`,
   then narrow on `result.issues` before reading `result.value`. That is the shape both schema test
@@ -514,12 +515,13 @@ from a list needs its own component inside `src/shared/ui/form`, modelled on `te
   is `FormValidateFn<TFormData> | StandardSchemaV1<TFormData, unknown>`.
 - **Three schemas, not one.** The form-input schema, the wire DTO schema and the domain model have
   three reasons to change. For the name form, the form schema validates `UserNameChange` as typed
-  into two inputs, `userDtoSchema` in `entities/user/api/user-dto.ts` describes the server's
-  `snake_case` JSON (`first_name`, `last_name`), and `User` is the domain model with a branded
-  `UserId` and a `displayName`. When two of them need the same rule, share a field-level refinement;
-  never share the top-level object.
+  into two inputs, `userDtoSchema` in `entities/user/api/user-dto.ts` describes the server's JSON
+  (`firstName`, `lastName`, a server-composed `fullName`, a `status` enum), and `User` is the domain
+  model with a branded `UserId` and a `displayName`. The form's length limit follows the server's
+  own `max(100)`, so a name the form accepts is one the server accepts. When two of them need the
+  same rule, share a field-level refinement; never share the top-level object.
 - **Every shipped schema uses `zod/mini`.** The `zod/mini` runtime already ships in the
-  `schemas-*.js` chunk that `index.html` preloads, so a form schema written with it costs only its
+  `session-*.js` chunk that `index.html` preloads, so a form schema written with it costs only its
   own code; classic `zod` beside it would add a second validator runtime, and that runtime is a
   multiple, not a rounding error. Bundled in isolation with the repo's own toolchain (Vite 8 /
   Rolldown, minified, React external), an object schema of `z.object` + `z.email` +

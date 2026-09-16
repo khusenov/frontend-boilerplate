@@ -236,9 +236,10 @@ client's, configured once for the whole transport; it is documented in
 
 The control lives behind the route guard, so reaching it needs an API: `npm run dev` proxies `/v1`
 to `http://localhost:8000` (`server.proxy` in `vite.config.ts`), and with nothing listening there
-the guard redirects every visit to `/users/u_1` to `/sign-in`. Against an API that serves
-`POST /v1/auth/login`, `POST /v1/auth/refresh` and `POST /v1/auth/logout`, sign in, open
-`/users/u_1`, and the button ends the session and returns to `/sign-in`. To watch the failure path,
+the guard redirects every visit to `/users/<id>` to `/sign-in`. Against an API that serves
+`POST /v1/auth/login`, `POST /v1/auth/refresh` and `POST /v1/auth/logout` — backend-boilerplate,
+with an account created as the root README describes — sign in, open `/users/<id>`, and the button
+ends the session and returns to `/sign-in`. To watch the failure path,
 answer the logout with a 500: the visitor still leaves, because the local session ended anyway.
 
 ### Mount the control on another screen

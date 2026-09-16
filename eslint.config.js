@@ -654,5 +654,24 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/shared/api/**', 'src/shared/testing/**'],
+    rules: {
+      '@typescript-eslint/no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@/shared/api',
+              importNames: ['parseResponse'],
+              message:
+                'parseResponse serves the transport and its test doubles. Send requests through the HttpClient port, which already validates every response, and stub it in tests with parseStubResponse from @/shared/testing.',
+            },
+          ],
+        },
+      ],
+    },
+  },
   prettier,
 );

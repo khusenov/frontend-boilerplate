@@ -4,27 +4,24 @@
 
 import type { Route } from '@playwright/test';
 
-import {
-  BAD_REQUEST_STATUS,
-  NO_CONTENT_STATUS,
-  NOT_FOUND_STATUS,
-  OK_STATUS,
-} from './http-contract';
+import { API_PREFIX, BAD_REQUEST_STATUS, NOT_FOUND_STATUS, OK_STATUS } from './http-contract';
 
-export type UserRoleWireValue = 'ADMIN' | 'MEMBER' | 'VIEWER';
+type UserStatusWireValue = 'active' | 'inactive' | 'pending';
 
 export interface UserWireRecord {
   readonly id: string;
-  readonly first_name: string;
-  readonly last_name: string;
+  readonly firstName: string;
+  readonly lastName: string;
+  readonly fullName: string;
   readonly email: string;
-  readonly role: UserRoleWireValue;
-  readonly created_at: string;
+  readonly status: UserStatusWireValue;
+  readonly createdAt: string;
+  readonly updatedAt: string;
 }
 
 export interface UserNameWirePatch {
-  readonly first_name: string;
-  readonly last_name: string;
+  readonly firstName: string;
+  readonly lastName: string;
 }
 
 export interface UserStub {
@@ -38,15 +35,46 @@ export interface UserStubRegistration {
   readonly handle: (route: Route) => Promise<void>;
 }
 
-const USER_RESOURCE_PATTERN = /^\/v1\/users\/(?<userId>[^/]+)$/u;
+interface WireError {
+  readonly status: number;
+  readonly code: string;
+  readonly message: string;
+}
+
+const USER_RESOURCE_PATTERN = new RegExp(`^${API_PREFIX}/users/(?<userId>[^/]+)$`, 'u');
 
 const READ_METHOD = 'GET';
 const UPDATE_METHOD = 'PATCH';
 
-const NO_SUCH_USER_MESSAGE = 'No such user.';
-const REJECTED_MESSAGE = 'The name update was rejected.';
+const STUB_REQUEST_ID = 'e2e-user-stub';
 
-function toUserId(pathname: string): string | undefined {
+const NO_SUCH_USER: WireError = {
+  status: NOT_FOUND_STATUS,
+  code: 'USER_NOT_FOUND',
+  message: 'No such user.',
+};
+
+function toMalformedPatchError(rawBody: string | null): WireError {
+  return {
+    status: BAD_REQUEST_STATUS,
+    code: 'VALIDATION',
+    message: `Expected a body of { firstName, lastName }, received: ${rawBody ?? 'no body'}.`,
+  };
+}
+
+function toInjectedFailure(status: number): WireError {
+  return {
+    status,
+    code: 'E2E_INJECTED_FAILURE',
+    message: 'The name update was rejected.',
+  };
+}
+
+async function fulfillWithError(route: Route, { status, code, message }: WireError): Promise<void> {
+  await route.fulfill({ status, json: { error: { code, message, requestId: STUB_REQUEST_ID } } });
+}
+
+function readUserIdFromPath(pathname: string): string | undefined {
   const rawUserId = USER_RESOURCE_PATTERN.exec(pathname)?.groups?.userId;
 
   return rawUserId === undefined ? undefined : decodeURIComponent(rawUserId);
@@ -59,7 +87,7 @@ function isNamePatch(value: unknown): value is UserNameWirePatch {
 
   const candidate = value as Partial<Record<keyof UserNameWirePatch, unknown>>;
 
-  return typeof candidate.first_name === 'string' && typeof candidate.last_name === 'string';
+  return typeof candidate.firstName === 'string' && typeof candidate.lastName === 'string';
 }
 
 function readNamePatch(rawBody: string | null): UserNameWirePatch | undefined {
@@ -74,6 +102,16 @@ function readNamePatch(rawBody: string | null): UserNameWirePatch | undefined {
   } catch {
     return undefined;
   }
+}
+
+function toRenamedRecord(record: UserWireRecord, patch: UserNameWirePatch): UserWireRecord {
+  return {
+    ...record,
+    firstName: patch.firstName,
+    lastName: patch.lastName,
+    fullName: `${patch.firstName} ${patch.lastName}`,
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 export function createUserStub(): UserStubRegistration {
@@ -98,13 +136,9 @@ export function createUserStub(): UserStubRegistration {
     return status;
   }
 
-  async function explain(route: Route, status: number, message: string): Promise<void> {
-    await route.fulfill({ status, json: { message } });
-  }
-
   async function readUser(route: Route, record: UserWireRecord | undefined): Promise<void> {
     if (record === undefined) {
-      await explain(route, NOT_FOUND_STATUS, NO_SUCH_USER_MESSAGE);
+      await fulfillWithError(route, NO_SUCH_USER);
       return;
     }
 
@@ -117,7 +151,7 @@ export function createUserStub(): UserStubRegistration {
     record: UserWireRecord | undefined,
   ): Promise<void> {
     if (record === undefined) {
-      await explain(route, NOT_FOUND_STATUS, NO_SUCH_USER_MESSAGE);
+      await fulfillWithError(route, NO_SUCH_USER);
       return;
     }
 
@@ -125,11 +159,7 @@ export function createUserStub(): UserStubRegistration {
     const patch = readNamePatch(rawBody);
 
     if (patch === undefined) {
-      await explain(
-        route,
-        BAD_REQUEST_STATUS,
-        `Expected a body of { first_name, last_name }, received: ${rawBody ?? 'no body'}.`,
-      );
+      await fulfillWithError(route, toMalformedPatchError(rawBody));
       return;
     }
 
@@ -138,23 +168,21 @@ export function createUserStub(): UserStubRegistration {
     const injectedFailureStatus = takeInjectedFailureStatus();
 
     if (injectedFailureStatus !== undefined) {
-      await explain(route, injectedFailureStatus, REJECTED_MESSAGE);
+      await fulfillWithError(route, toInjectedFailure(injectedFailureStatus));
       return;
     }
 
-    records.set(userId, {
-      ...record,
-      first_name: patch.first_name,
-      last_name: patch.last_name,
-    });
+    const renamedRecord = toRenamedRecord(record, patch);
 
-    await route.fulfill({ status: NO_CONTENT_STATUS });
+    records.set(userId, renamedRecord);
+
+    await route.fulfill({ status: OK_STATUS, json: renamedRecord });
   }
 
   async function handle(route: Route): Promise<void> {
     const request = route.request();
     const { pathname } = new URL(request.url());
-    const userId = toUserId(pathname);
+    const userId = readUserIdFromPath(pathname);
 
     if (userId === undefined) {
       await route.fallback();

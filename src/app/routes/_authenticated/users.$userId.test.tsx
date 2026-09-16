@@ -6,43 +6,36 @@ import { describe, expect, it } from 'vitest';
 
 import { SessionEnderProvider, SessionStarterProvider } from '@/entities/session';
 import { HttpClientProvider, toHttpError } from '@/shared/api';
-import type { HttpClient } from '@/shared/api';
 import { NotifierProvider } from '@/shared/notifications';
 import type { Notifier } from '@/shared/notifications';
+import { createHttpClientStub, parseStubResponse } from '@/shared/testing';
 
 import { createAppRouter } from '../../router/create-app-router';
 
+const ADA_ID = '0198f0a2-7b1c-7d3e-8f00-123456789abc';
+const ADA_RESOURCE_PATH = `/users/${ADA_ID}`;
+const ADA_PROFILE_URL = `/users/${ADA_ID}`;
+
 const adaPayload = {
-  id: 'u_1',
-  first_name: 'Ada',
-  last_name: 'Lovelace',
+  id: ADA_ID,
+  firstName: 'Ada',
+  lastName: 'Lovelace',
+  fullName: 'Ada Lovelace',
   email: 'ada@example.test',
-  role: 'ADMIN',
-  created_at: '2024-01-05T12:00:00.000Z',
+  status: 'active',
+  createdAt: '2024-01-05T12:00:00.000Z',
+  updatedAt: '2024-01-05T12:00:00.000Z',
 };
 
-const notCalled = (): Promise<never> =>
-  Promise.reject(toHttpError(new Error('This route test issues no writes.')));
-
-const httpClient: HttpClient = {
+const httpClient = createHttpClientStub({
   get: async (url, config) => {
-    if (url !== '/users/u_1') {
-      throw toHttpError(new Error(`expected a request to /users/u_1, received ${url}`));
+    if (url !== ADA_RESOURCE_PATH) {
+      throw toHttpError(new Error(`expected a request to ${ADA_RESOURCE_PATH}, received ${url}`));
     }
 
-    const result = await config.schema['~standard'].validate(adaPayload);
-
-    if (result.issues !== undefined) {
-      throw toHttpError(new Error('the payload does not satisfy the request schema'));
-    }
-
-    return result.value;
+    return parseStubResponse(config.schema, adaPayload);
   },
-  post: notCalled,
-  put: notCalled,
-  patch: notCalled,
-  delete: notCalled,
-};
+});
 
 const noopNotifier: Notifier = () => undefined;
 
@@ -55,7 +48,7 @@ describe('the /users/$userId route', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const router = createAppRouter({
       context: { httpClient, queryClient, sessionResolver },
-      history: createMemoryHistory({ initialEntries: ['/users/u_1'] }),
+      history: createMemoryHistory({ initialEntries: [ADA_PROFILE_URL] }),
     });
 
     render(
@@ -82,7 +75,7 @@ describe('the /users/$userId route', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const router = createAppRouter({
       context: { httpClient, queryClient, sessionResolver },
-      history: createMemoryHistory({ initialEntries: ['/users/u_1'] }),
+      history: createMemoryHistory({ initialEntries: [ADA_PROFILE_URL] }),
     });
 
     render(

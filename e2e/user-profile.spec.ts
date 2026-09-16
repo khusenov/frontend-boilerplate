@@ -4,13 +4,17 @@ import type { UserWireRecord } from './fixtures/user-stub';
 import { createUserProfilePageObject } from './page-objects/user-profile-page-object';
 
 const ADA: UserWireRecord = {
-  id: 'u_1',
-  first_name: 'Ada',
-  last_name: 'Lovelace',
+  id: '0198f0a2-7b1c-7d3e-8f00-123456789abc',
+  firstName: 'Ada',
+  lastName: 'Lovelace',
+  fullName: 'Ada Lovelace',
   email: 'ada@example.test',
-  role: 'ADMIN',
-  created_at: '2024-01-05T12:00:00.000Z',
+  status: 'active',
+  createdAt: '2024-01-05T12:00:00.000Z',
+  updatedAt: '2024-01-05T12:00:00.000Z',
 };
+
+const UNKNOWN_USER_ID = '0198f0a2-7b1c-7d3e-8f00-000000000000';
 
 test.describe('user profile', () => {
   test.beforeEach(({ userStub }) => {
@@ -24,11 +28,11 @@ test.describe('user profile', () => {
 
     await expect(profile.displayName()).toHaveText('Ada Lovelace');
     await expect(profile.content()).toContainText('ada@example.test');
-    await expect(profile.content()).toContainText('Administrator');
+    await expect(profile.content()).toContainText('Active');
     await expect(profile.content()).toContainText('January 5, 2024');
   });
 
-  test('saves a new name and shows the refetched profile', async ({ page, userStub }) => {
+  test('saves a new name and shows the profile the server returned', async ({ page, userStub }) => {
     const profile = createUserProfilePageObject(page);
 
     await profile.open(ADA.id);
@@ -37,7 +41,7 @@ test.describe('user profile', () => {
 
     await expect(profile.savedNotice()).toBeVisible();
     await expect(profile.displayName()).toHaveText('Augusta Lovelace');
-    expect(userStub.namePatches()).toEqual([{ first_name: 'Augusta', last_name: 'Lovelace' }]);
+    expect(userStub.namePatches()).toEqual([{ firstName: 'Augusta', lastName: 'Lovelace' }]);
   });
 
   test('trims the submitted name before it reaches the wire', async ({ page, userStub }) => {
@@ -48,7 +52,7 @@ test.describe('user profile', () => {
     await profile.saveButton().click();
 
     await expect(profile.savedNotice()).toBeVisible();
-    expect(userStub.namePatches()).toEqual([{ first_name: 'Augusta', last_name: 'Lovelace' }]);
+    expect(userStub.namePatches()).toEqual([{ firstName: 'Augusta', lastName: 'Lovelace' }]);
   });
 
   test('reports a rejected save without discarding what was typed', async ({ page, userStub }) => {
@@ -79,7 +83,7 @@ test.describe('user profile', () => {
   test('shows the unavailable state when the profile does not exist', async ({ page }) => {
     const profile = createUserProfilePageObject(page);
 
-    await profile.open('u_missing');
+    await profile.open(UNKNOWN_USER_ID);
 
     await expect(profile.unavailableNotice()).toBeVisible();
   });
