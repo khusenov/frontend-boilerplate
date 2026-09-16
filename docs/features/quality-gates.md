@@ -1,6 +1,6 @@
 # Quality gates
 
-> **Status:** Complete · **Layers:** outside layers · **Verified against:** `7ce79de`
+> **Status:** Complete · **Layers:** outside layers · **Verified against:** `9a7d7af`
 
 ## Purpose
 
@@ -10,8 +10,10 @@ has to remember to run protects nothing. This feature chains every check into on
 `npm run audit`, and runs it automatically: a lefthook git hook runs it before every push, and the
 GitHub Actions workflow runs it on every push and pull request to `main`, beside the end-to-end
 suite. Around it sit the guards that keep the toolchain itself trustworthy: a lockfile sync check,
-an enforced Node version, a weekly audit of production dependencies, and Dependabot updates grouped
-so that packages which must move together are judged by CI in a single run.
+an enforced Node version, a reviewed list of dependency install scripts, a weekly audit of
+production dependencies, Dependabot updates grouped so that packages which must move together are
+judged by CI in a single run, and a Conventional Commits check on every commit message and every
+pull request title.
 
 ## How it works
 
@@ -26,22 +28,27 @@ machine. Everything here lives outside the Feature-Sliced Design **layers** (`sr
 
 The gates run at four points, each wider than the last:
 
-| When                           | What runs                                                                                         | Scope                  |
-| ------------------------------ | ------------------------------------------------------------------------------------------------- | ---------------------- |
-| `npm install` / `npm ci`       | The `engine-strict` Node check; lefthook installs its hooks                                       | The dependency tree    |
-| `git commit`                   | `pre-commit`: Prettier, ESLint and oxlint, plus glob-gated drift and lockfile checks              | Staged files only      |
-| `git push`                     | `pre-push`: `npm run audit`                                                                       | The whole working tree |
-| Push or pull request to `main` | CI: `npm run audit`, `npm run test:e2e`, `npm run audit:deps`; weekly, `npm run audit:deps` alone | A clean checkout       |
+| When                           | What runs                                                                                                                                                         | Scope                     |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| `npm install` / `npm ci`       | The `engine-strict` Node check; lefthook installs its hooks                                                                                                       | The dependency tree       |
+| `git commit`                   | `pre-commit`: Prettier, ESLint and oxlint, plus glob-gated drift and lockfile checks; `commit-msg`: commitlint                                                    | Staged files, the message |
+| `git push`                     | `pre-push`: `npm run audit`                                                                                                                                       | The whole working tree    |
+| Push or pull request to `main` | CI: `npm run audit`, `npm run test:e2e`, the production container, `npm run audit:deps`, and — for a pull request — its title; weekly, `npm run audit:deps` alone | A clean checkout          |
 
 **Install.** `.npmrc` sets `engine-strict=true`, so `npm install` and `npm ci` stop with
 `EBADENGINE` on a Node version that an `engines` field rejects, instead of printing a warning and
 carrying on. It gates installs only: `npm run <script>` is not checked, so once `node_modules`
 exists a Node downgrade runs `npm run dev`, `npm run build` and `npm run audit` unnoticed until the
 next fresh install — or until CI, which always installs from scratch. lefthook's own `postinstall`
-(`node_modules/lefthook/postinstall.js`) then runs
-`lefthook install -f`, which writes `.git/hooks/pre-commit` and `.git/hooks/pre-push`. It returns
-without installing when `CI` is set (unless `LEFTHOOK` is set too), and it catches its own failure,
-so installing the hooks can never fail an install.
+(`node_modules/lefthook/postinstall.js`) then runs `lefthook install -f`, which writes
+`.git/hooks/pre-commit`, `.git/hooks/commit-msg` and `.git/hooks/pre-push`. It returns without
+installing when `CI` is set (unless `LEFTHOOK` is set too), and it catches its own failure, so
+installing the hooks can never fail an install. That `postinstall` runs because `package.json`'s
+`allowScripts` approves it: npm 11.16 reads the field as advisory and prints every dependency whose
+install script it does not cover, and its documentation announces that a later release will refuse
+to run such scripts. The field approves `lefthook` and `unrs-resolver`, whose script checks the
+native binding `eslint-plugin-import-x`'s resolver loads, and denies `msw`, whose script only copies
+a browser worker this repository never configures, and `fsevents`, which ships its binary prebuilt.
 
 **Commit.** The `pre-commit` hook hands over to lefthook, which first sets aside the unstaged part of
 any partially staged file — so every job sees exactly the content being committed — and restores it
@@ -55,6 +62,12 @@ aborts the commit:
 4. `a11y-rules-drift` — when `.oxlintrc.json` or `scripts/a11y-rules.mjs` is staged, checks the
    rule list against oxlint's schema.
 5. `lockfile` — when `package.json` or `package-lock.json` is staged, checks that the two agree.
+
+**Commit message.** Once the message is written, the `commit-msg` hook runs
+`commitlint --edit` against `commitlint.config.ts`: the rules of `@commitlint/config-conventional`
+— a known type, a lower-case subject, a 100-character header, blank lines before the body and the
+footer — plus `scope-empty`, because the history uses Conventional Commits without a scope. A
+subject such as `feat(user): Add a thing` is rejected twice, for its scope and for its capital.
 
 **Push.** The `pre-push` hook runs `npm run audit`: ten gates chained with `&&`, so the first
 failure stops the run and aborts the push.
@@ -94,14 +107,21 @@ has to follow `test:coverage`, because it reads the `coverage/lcov.info` that ru
 - `Dependency audit` runs `npm run audit:deps` — `npm audit --omit=dev --audit-level=high` —
   without installing anything.
 
+A second workflow, `.github/workflows/pull-request-title.yml`, runs on every pull request to `main`
+that is opened, edited, reopened or pushed to. Its `Conventional title` job installs with
+`npm ci --ignore-scripts` and pipes the title through `commitlint`: pull requests are squash-merged,
+so the title becomes the commit subject on `main`, and this is the only check that sees it. The
+title reaches the shell through an environment variable, never through an expression interpolated
+into the script, so a crafted title cannot inject a command.
+
 Every Monday at 06:00 UTC (`cron: '0 6 * * 1'`) the workflow runs again on `main` with only
 `Dependency audit`: the other three jobs carry `if: github.event_name != 'schedule'`.
 
 **Dependency updates.** Dependabot (`.github/dependabot.yml`) opens npm update pull requests every
 Monday, grouped by package family, Docker base-image update pull requests every Monday, and GitHub
-Actions update pull requests monthly. They reach CI
-like any other pull request — and only CI, because Dependabot's commits never pass through a local
-hook.
+Actions update pull requests monthly, every one titled `chore: bump …` so that its title passes the
+same commit rules. They reach CI like any other pull request — and only CI, because Dependabot's
+commits never pass through a local hook.
 
 **When a gate fails.** A hook prints the failing job or step; rerun the same npm script to
 reproduce it, fix the cause, and commit or push again. CI fails exactly where the `pre-push` hook
@@ -116,41 +136,47 @@ The feature has no runtime seam — no type that consumers program against while
 implementation is constructed elsewhere and bound to it at the composition root,
 `src/app/entrypoint` (see [Composition root](./composition-root.md)) — because nothing in `src/`
 imports it and it imports nothing from `src/`. Its one contract is the `audit` script in
-`package.json`, the only place the gate list is written down. The two automated callers —
-lefthook's `pre-push` job and CI's `Quality gates` job — run it by name and never re-list its
-steps, so adding, removing or reordering a gate is a one-line edit that every enforcement point
-picks up. Each gate is a standalone tool with its own root configuration,
-and together they enforce the architecture rules on `src` from outside it: steiger and ESLint's
+`package.json`, the only place the gate list is written down; commit-message rules live apart from
+it, in `commitlint.config.ts`, which the `commit-msg` hook and the title workflow both read. The two
+automated callers — lefthook's `pre-push` job and CI's `Quality gates` job — run it by name and
+never re-list its steps, so adding, removing or reordering a gate is a one-line edit that every
+enforcement point picks up. Each gate is a standalone tool with its own root configuration, and
+together they enforce the architecture rules on `src` from outside it: steiger and ESLint's
 `no-restricted-imports` fences hold the layer and public-API rules (see
 [Architecture boundaries](./architecture-boundaries.md)), `tsc` the types, Vitest the per-file
 coverage (see [Unit and component testing](./unit-testing.md)) and Playwright the built bundle (see
 [End-to-end testing](./e2e-testing.md)). Every file below lives outside the layers.
 
-| Component                                | Layer                        | Responsibility                                                                                                       | File                                                           |
-| ---------------------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `audit`                                  | outside layers · root config | The ordered gate list, and the only one; `pre-push` and `Quality gates` run it by name                               | `package.json`                                                 |
-| `engines`, `packageManager`              | outside layers · root config | Declare Node `>=24.0.0` and npm `11.16.0`                                                                            | `package.json`                                                 |
-| `engine-strict`                          | outside layers · root config | Turns an `engines` mismatch into an install failure                                                                  | `.npmrc`                                                       |
-| `.nvmrc`                                 | outside layers · root config | Node major `24`, read by `nvm` and by `actions/setup-node`                                                           | `.nvmrc`                                                       |
-| `pre-commit`                             | outside layers · root config | The five staged-file jobs: `format`, `lint`, `a11y`, `a11y-rules-drift`, `lockfile`                                  | `lefthook.yml`                                                 |
-| `pre-push`                               | outside layers · root config | The `audit` job: `npm run audit`                                                                                     | `lefthook.yml`                                                 |
-| `install`                                | outside layers · vendor      | lefthook's `postinstall`: runs `lefthook install -f`, skipped under `CI`                                             | `node_modules/lefthook/postinstall.js`                         |
-| `quality-gates`                          | outside layers · CI          | `Quality gates`: `npm ci`, `npm run audit`, the `coverage` artifact                                                  | `.github/workflows/ci.yml`                                     |
-| `e2e`                                    | outside layers · CI          | `End-to-end tests`: Chromium, `npm run test:e2e`, the `playwright-report` artifact                                   | `.github/workflows/ci.yml`                                     |
-| `container`                              | outside layers · CI          | `Container image`: builds and starts the production image, checks it with `curl`, runs `npm run test:e2e` against it | `.github/workflows/ci.yml`                                     |
-| `dependency-audit`                       | outside layers · CI          | `Dependency audit`: `npm run audit:deps` on pushes, pull requests and the weekly schedule                            | `.github/workflows/ci.yml`                                     |
-| `updates`                                | outside layers · CI          | Grouped npm (weekly), Docker base-image (weekly) and GitHub Actions (monthly) update pull requests                   | `.github/dependabot.yml`                                       |
-| `tseslint.config`                        | outside layers · root config | The ESLint flat config: type-aware rules, React, TanStack, Vitest, import order, import fences                       | `eslint.config.js`                                             |
-| `rules`                                  | outside layers · root config | The 36 `jsx-a11y` rules at `error`, with oxlint's `correctness` category off                                         | `.oxlintrc.json`                                               |
-| `schemaRuleNames`, `generate`, `check`   | outside layers · scripts     | Derives `.oxlintrc.json` from oxlint's JSON schema; `--check` fails on drift                                         | `scripts/a11y-rules.mjs`                                       |
-| `measurableSourceFiles`, `measuredFiles` | outside layers · scripts     | Diffs the source tree against `coverage/lcov.info`                                                                   | `scripts/verify-coverage-scope.mjs`                            |
-| `defineConfig`                           | outside layers · root config | steiger with `fsd.configs.recommended` and one `fsd/insignificant-slice` override                                    | `steiger.config.ts`                                            |
-| `.prettierrc.json`                       | outside layers · root config | Formatting options and the Tailwind class-sorting plugin                                                             | `.prettierrc.json`                                             |
-| `.prettierignore`                        | outside layers · root config | Keeps tool-owned files out of Prettier; the `docs/*` allow-list re-admits the published docs                         | `.prettierignore`                                              |
-| `references`                             | outside layers · root config | Solution file that ties the three TypeScript projects together for `tsc -b`                                          | `tsconfig.json`                                                |
-| `include`                                | outside layers · root config | One TypeScript project each: the app, the Node-side config and scripts, the end-to-end suite                         | `tsconfig.app.json`, `tsconfig.node.json`, `tsconfig.e2e.json` |
-| `test.coverage`                          | outside layers · root config | v8 coverage, the `lcov` reporter and the 90% per-file thresholds `test:coverage` enforces                            | `vite.config.ts`                                               |
-| `arch:graph`                             | outside layers · root config | Regenerates `docs/architecture-graph.md` with dependency-cruiser; not a gate                                         | `package.json`                                                 |
+| Component                                | Layer                        | Responsibility                                                                                                       | File                                                               |
+| ---------------------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `audit`                                  | outside layers · root config | The ordered gate list, and the only one; `pre-push` and `Quality gates` run it by name                               | `package.json`                                                     |
+| `engines`, `packageManager`              | outside layers · root config | Declare Node `^24.15.0                                                                                               |                                                                    | >=26.0.0`and npm`11.16.0` | `package.json` |
+| `engine-strict`                          | outside layers · root config | Turns an `engines` mismatch into an install failure                                                                  | `.npmrc`                                                           |
+| `.nvmrc`                                 | outside layers · root config | Node major `24`, read by `nvm` and by `actions/setup-node`                                                           | `.nvmrc`                                                           |
+| `pre-commit`                             | outside layers · root config | The five staged-file jobs: `format`, `lint`, `a11y`, `a11y-rules-drift`, `lockfile`                                  | `lefthook.yml`                                                     |
+| `commit-msg`                             | outside layers · root config | The `commitlint` job: `commitlint --edit` on the message being committed                                             | `lefthook.yml`                                                     |
+| `config`                                 | outside layers · root config | Conventional Commits rules: `@commitlint/config-conventional` plus `scope-empty`                                     | `commitlint.config.ts`                                             |
+| `pre-push`                               | outside layers · root config | The `audit` job: `npm run audit`                                                                                     | `lefthook.yml`                                                     |
+| `install`                                | outside layers · vendor      | lefthook's `postinstall`: runs `lefthook install -f`, skipped under `CI`                                             | `node_modules/lefthook/postinstall.js`                             |
+| `allowScripts`                           | outside layers · root config | The reviewed install scripts: `lefthook` and `unrs-resolver` allowed, `msw` and `fsevents` denied                    | `package.json`                                                     |
+| `quality-gates`                          | outside layers · CI          | `Quality gates`: `npm ci`, `npm run audit`, the `coverage` artifact                                                  | `.github/workflows/ci.yml`                                         |
+| `e2e`                                    | outside layers · CI          | `End-to-end tests`: Chromium, `npm run test:e2e`, the `playwright-report` artifact                                   | `.github/workflows/ci.yml`                                         |
+| `container`                              | outside layers · CI          | `Container image`: builds and starts the production image, checks it with `curl`, runs `npm run test:e2e` against it | `.github/workflows/ci.yml`                                         |
+| `dependency-audit`                       | outside layers · CI          | `Dependency audit`: `npm run audit:deps` on pushes, pull requests and the weekly schedule                            | `.github/workflows/ci.yml`                                         |
+| `conventional-title`                     | outside layers · CI          | `Conventional title`: `commitlint` over the pull request title the squash merge will commit                          | `.github/workflows/pull-request-title.yml`                         |
+| `updates`                                | outside layers · CI          | Grouped npm (weekly), Docker base-image (weekly) and GitHub Actions (monthly) update pull requests                   | `.github/dependabot.yml`                                           |
+| `rulesets`                               | outside layers · CI          | The `main` and `version tags` rulesets as JSON, for `gh api` to apply                                                | `.github/rulesets/main.json`, `.github/rulesets/version-tags.json` |
+| `tseslint.config`                        | outside layers · root config | The ESLint flat config: type-aware rules, React, TanStack, Vitest, import order, import fences                       | `eslint.config.js`                                                 |
+| `rules`                                  | outside layers · root config | The 36 `jsx-a11y` rules at `error`, with oxlint's `correctness` category off                                         | `.oxlintrc.json`                                                   |
+| `schemaRuleNames`, `generate`, `check`   | outside layers · scripts     | Derives `.oxlintrc.json` from oxlint's JSON schema; `--check` fails on drift                                         | `scripts/a11y-rules.mjs`                                           |
+| `measurableSourceFiles`, `measuredFiles` | outside layers · scripts     | Diffs the source tree against `coverage/lcov.info`                                                                   | `scripts/verify-coverage-scope.mjs`                                |
+| `defineConfig`                           | outside layers · root config | steiger with `fsd.configs.recommended` and one `fsd/insignificant-slice` override                                    | `steiger.config.ts`                                                |
+| `.prettierrc.json`                       | outside layers · root config | Formatting options and the Tailwind class-sorting plugin                                                             | `.prettierrc.json`                                                 |
+| `.prettierignore`                        | outside layers · root config | Keeps tool-owned files out of Prettier; the `docs/*` allow-list re-admits the published docs                         | `.prettierignore`                                                  |
+| `references`                             | outside layers · root config | Solution file that ties the three TypeScript projects together for `tsc -b`                                          | `tsconfig.json`                                                    |
+| `include`                                | outside layers · root config | One TypeScript project each: the app, the Node-side config and scripts, the end-to-end suite                         | `tsconfig.app.json`, `tsconfig.node.json`, `tsconfig.e2e.json`     |
+| `test.coverage`                          | outside layers · root config | v8 coverage, the `lcov` reporter and the 90% per-file thresholds `test:coverage` enforces                            | `vite.config.ts`                                                   |
+| `arch:graph`                             | outside layers · root config | Regenerates `docs/architecture-graph.md` with dependency-cruiser; not a gate                                         | `package.json`                                                     |
 
 ## Public surface
 
@@ -218,6 +244,7 @@ it, and every `glob` uses lefthook's default `gobwas` matcher, in which `*` also
 | `pre-commit` | `a11y`             | `'src/*.{ts,tsx}'`                          | `npx --no-install oxlint --deny-warnings {staged_files}`                                      |
 | `pre-commit` | `a11y-rules-drift` | `'{.oxlintrc.json,scripts/a11y-rules.mjs}'` | `node scripts/a11y-rules.mjs --check`                                                         |
 | `pre-commit` | `lockfile`         | `'{package.json,package-lock.json}'`        | `npm run verify:lock`                                                                         |
+| `commit-msg` | `commitlint`       | None                                        | `npx --no-install commitlint --edit {1}`, where `{1}` is the file git wrote the message to    |
 | `pre-push`   | `audit`            | None                                        | `npm run audit`                                                                               |
 
 `npx --no-install` never downloads a missing tool; the job fails instead. `{staged_files}` expands to
@@ -301,8 +328,13 @@ file itself, so this duplicate does not affect type-checking.
 
 ### Dependabot groups
 
-The `npm` entry in `.github/dependabot.yml` (`directory: /`, weekly on Monday,
-`open-pull-requests-limit: 5`) declares five groups. A dependency joins the first group it matches;
+Every entry in `.github/dependabot.yml` sets `commit-message.prefix: chore`, so pull request titles
+read `chore: bump …` — lower-case, because Dependabot copies the capitalisation of the repository's
+recent commits. The `npm` entry (`directory: /`, weekly on Monday, `open-pull-requests-limit: 5`)
+ignores two kinds of update: semver-major releases of `@types/node`, which follow the Node line
+`.nvmrc` pins rather than the newest Node, and semver-major and semver-minor releases of
+`typescript`, which move only when `typescript-eslint`'s peer range — `>=4.8.4 <6.1.0` today —
+admits them. It declares five groups. A dependency joins the first group it matches;
 a named group carries every update type, majors included; a dependency no group matches is updated
 in a pull request of its own.
 
@@ -328,7 +360,7 @@ everything the pipeline reads; `VITE_API_BASE_URL` matters only when recording t
 | `CI` (environment)                                                                                                | `true` on GitHub Actions; unset locally                                                                                                           | lefthook's `postinstall` skips `lefthook install` while it is truthy, unless `LEFTHOOK` is truthy too; Playwright also reads it (see [End-to-end testing](./e2e-testing.md))                                                                |
 | `LEFTHOOK` (environment)                                                                                          | Unset                                                                                                                                             | `LEFTHOOK=0` makes both installed hooks exit 0 without running a job                                                                                                                                                                        |
 | `VITE_API_BASE_URL` (environment or `.env`)                                                                       | Unset                                                                                                                                             | Inlined into the bundle by Vite; leave it unset when recording the baseline (see [Configuration and environment](./configuration.md))                                                                                                       |
-| `engines.node` (`package.json`)                                                                                   | `>=24.0.0`                                                                                                                                        | The declared Node floor                                                                                                                                                                                                                     |
+| `engines.node` (`package.json`)                                                                                   | `^24.15.0                                                                                                                                         |                                                                                                                                                                                                                                             | >=26.0.0` | The supported Node range: the narrowest range any installed dependency declares, `jsdom` 30's, so the root states the floor that installs actually enforce |
 | `engine-strict` (`.npmrc`)                                                                                        | `true` (npm's own default is `false`)                                                                                                             | Any installed package whose `engines` rejects the running Node fails `npm install` and `npm ci` with `EBADENGINE`; it does not gate `npm run <script>`, so a Node downgrade after install is caught only on the next fresh install or in CI |
 | `.nvmrc`                                                                                                          | `24`                                                                                                                                              | The Node major for `nvm use` and for CI's `node-version-file`                                                                                                                                                                               |
 | `packageManager` (`package.json`)                                                                                 | `npm@11.16.0`                                                                                                                                     | The declared npm version                                                                                                                                                                                                                    |
@@ -427,7 +459,7 @@ so each such file must belong to one of the three TypeScript projects; a file in
 or — when another module imports them, as `vite.config.ts` imports `scripts/security-headers.ts` —
 as `.ts` with erasable syntax only, which Node 24 runs without a build step; `tsconfig.node.json`
 and ESLint's Node-globals block already cover both. A new root-level config file needs both entries
-— for a hypothetical `commitlint.config.ts`, `tsconfig.node.json`'s `include` becomes:
+— for a hypothetical `knip.config.ts`, `tsconfig.node.json`'s `include` becomes:
 
 ```json
 {
@@ -437,7 +469,8 @@ and ESLint's Node-globals block already cover both. A new root-level config file
     "eslint.config.js",
     "scripts/**/*.mjs",
     "scripts/**/*.ts",
-    "commitlint.config.ts"
+    "commitlint.config.ts",
+    "knip.config.ts"
   ]
 }
 ```
@@ -453,7 +486,7 @@ export default [
       'steiger.config.ts',
       'scripts/**/*.mjs',
       'scripts/**/*.ts',
-      'commitlint.config.ts',
+      'knip.config.ts',
     ],
     languageOptions: {
       globals: globals.node,
@@ -610,15 +643,25 @@ every worktree shares, from the throwaway tree; nothing the build needs has an i
 
 ### Make CI block merges
 
-CI reports on every pull request, but only the repository's settings can make it stop a merge:
-protect `main` with a branch protection rule or ruleset that requires the `Quality gates`,
-`End-to-end tests` and `Container image` checks. Leave `Dependency audit` optional, for the reason
-given under [Design decisions](#design-decisions--trade-offs). Nothing in the codebase can make this
-change.
+CI reports on every pull request, but only the repository's settings can make it stop a merge, and
+a repository created from this template inherits none of them. `.github/rulesets/main.json` is the
+ruleset this repository applies to `main`, kept in the tree so a new project can apply the same
+one: pull requests only, squash merges, a linear history, no force push or deletion, repository
+administrators allowed to bypass, and four required checks — `Quality gates`, `End-to-end tests`,
+`Container image` and `Conventional title`. `Dependency audit` stays optional, for the reason given
+under [Design decisions](#design-decisions--trade-offs). `.github/rulesets/version-tags.json`
+protects `v*` release tags from being moved or deleted. GitHub reads neither file; apply them from
+the repository's own checkout, where `gh` fills in `{owner}` and `{repo}`:
 
-Requiring any status check on a private repository needs GitHub Pro, so the move costs either an
-upgrade or making the repository public. This one is private on the free plan, which is why the rule
-has not been added: CI is advisory here, and `pre-push` is the real gate.
+```sh
+gh api --method POST repos/{owner}/{repo}/rulesets --input .github/rulesets/main.json
+gh api --method POST repos/{owner}/{repo}/rulesets --input .github/rulesets/version-tags.json
+```
+
+A repository that also turns on CodeQL's default setup can require its checks too; this one adds
+`Analyze (actions)` and `Analyze (javascript-typescript)` to the list. Rulesets on a private
+repository are enforced only on a paid GitHub plan, so a private project on the free plan keeps CI
+advisory and `pre-push` as its real gate.
 
 ## Design decisions & trade-offs
 
@@ -786,24 +829,22 @@ In CI, the `coverage` and `playwright-report` artifacts keep each run's evidence
 
 ## Known limitations
 
-- **Nothing in the repository makes CI blocking.** Required status checks live in the GitHub
-  repository settings, not in code; until `main` requires `Quality gates` and `End-to-end tests`, a
-  red run does not stop a merge. Requiring them needs GitHub Pro or a public repository, and this one
-  is private on the free plan, so the rule is unset by circumstance rather than oversight (see
-  [Make CI block merges](#make-ci-block-merges)). The git hooks are the only gates that refuse on
-  their own, and they can be skipped: the generated `.git/hooks/pre-commit` exits 0 at once when
-  `LEFTHOOK` is `0`, and `--no-verify` skips it entirely. Dependabot's commits never meet the hooks
-  at all.
-- **`engines.node` understates the real Node floor.** `engine-strict` enforces the `engines` field of
-  every installed package, not only the root's (`#checkEngineAndPlatform` in npm's
-  `@npmcli/arborist`), and at `65a99bc` one dev dependency is narrower than `>=24.0.0`: `jsdom`
-  30.0.1, which declares `^22.22.2 || ^24.15.0 || >=26.0.0`. `npm ci` therefore fails with
-  `EBADENGINE` on Node 24.0 to 24.14 and on every Node 25 release. `dependency-cruiser` 18.2.0
-  (`^22||^24||>=26`) and its dependency `watskeburt` 6.0.0 (`^22.13||^24||>=26`) reject Node 25 as
-  well, but accept every 24.x, so they do not move the floor. CI's `setup-node` resolves `.nvmrc`'s
-  `24` to the newest 24.x, which passes; locally, `nvm use` picks the newest 24.x you have
-  installed, which may not — and because `engine-strict` gates installs rather than `npm run`, an
-  already-populated `node_modules` hides the mismatch until the next `npm install` or `npm ci`.
+- **CI blocks a merge only where a ruleset says so.** Required status checks live in the GitHub
+  repository settings, not in code: `.github/rulesets/main.json` describes them, but a repository
+  created from the template starts unprotected until someone applies it, and administrators can
+  bypass it by design (see [Make CI block merges](#make-ci-block-merges)). The git hooks are the
+  only gates that refuse on their own, and they can be skipped: the generated
+  `.git/hooks/pre-commit` exits 0 at once when `LEFTHOOK` is `0`, and `--no-verify` skips it
+  entirely. Dependabot's commits never meet the hooks at all.
+- **The Node range is kept in step by hand.** `engine-strict` enforces the `engines` field of every
+  installed package, not only the root's (`#checkEngineAndPlatform` in npm's `@npmcli/arborist`), so
+  `engines.node` repeats the narrowest range a dependency declares — `jsdom` 30's
+  `^22.22.2 || ^24.15.0 || >=26.0.0`, minus the Node 22 line `.nvmrc` does not use.
+  `dependency-cruiser` 18.2.0 (`^22||^24||>=26`) and its dependency `watskeburt` 6.0.0
+  (`^22.13||^24||>=26`) sit inside that range. A dependency update that narrows it further fails
+  `npm ci` with the dependency's own `EBADENGINE` until the root is edited to match, and because
+  `engine-strict` gates installs rather than `npm run`, an already-populated `node_modules` hides a
+  Node downgrade until the next `npm install` or `npm ci`.
 - **The npm version is declared, not enforced.** `engines` names no `npm` range, so `engine-strict`
   never checks it, and `packageManager` (`npm@11.16.0`) has effect only where Corepack is enabled.
 - **`pre-push` audits the working tree, not the commits being pushed.** lefthook sets unstaged

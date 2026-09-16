@@ -1,6 +1,7 @@
 # Contributing
 
-Thanks for taking the time to contribute.
+Thanks for taking the time to contribute. Everyone taking part is expected to follow the
+[Code of Conduct](./CODE_OF_CONDUCT.md).
 
 ## Getting set up
 
@@ -90,7 +91,10 @@ writes it; `npm run audit` cannot.
 ## Commits
 
 The history uses [Conventional Commits](https://www.conventionalcommits.org/) without a scope: an
-imperative, lowercase subject that names the slice or segment when the change lives in one.
+imperative, lowercase subject that names the slice or segment when the change lives in one. The
+`commit-msg` hook checks every commit with commitlint (`commitlint.config.ts`), and because pull
+requests are squash-merged, CI's `Conventional title` check applies the same rules to the pull
+request title, which becomes the commit on `main`.
 
 ```
 feat: add the DTO to domain model contract in entities/user

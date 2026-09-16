@@ -1,0 +1,35 @@
+name: Pull request title
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, reopened, synchronize]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  conventional-title:
+    name: Conventional title
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci --ignore-scripts
+
+      - name: Lint the title the squash merge will commit
+        env:
+          PULL_REQUEST_TITLE: ${{ github.event.pull_request.title }}
+        run: printf '%s\n' "$PULL_REQUEST_TITLE" | npx --no-install commitlint

@@ -6,6 +6,13 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+    ignore:
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
     groups:
       tanstack:
         patterns: ['@tanstack/*']
@@ -23,6 +30,8 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    commit-message:
+      prefix: chore
     ignore:
       - dependency-name: node
         update-types: ['version-update:semver-major']
@@ -31,3 +40,5 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    commit-message:
+      prefix: chore

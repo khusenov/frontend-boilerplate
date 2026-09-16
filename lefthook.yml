@@ -24,6 +24,11 @@ pre-commit:
       glob: '{package.json,package-lock.json}'
       run: npm run verify:lock
 
+commit-msg:
+  jobs:
+    - name: commitlint
+      run: npx --no-install commitlint --edit {1}
+
 pre-push:
   jobs:
     - name: audit

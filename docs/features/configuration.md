@@ -1,6 +1,6 @@
 # Configuration and environment
 
-> **Status:** Complete · **Layers:** app, pages, widgets, entities, shared, outside layers · **Verified against:** `7ce79de`
+> **Status:** Complete · **Layers:** app, pages, widgets, entities, shared, outside layers · **Verified against:** `9a7d7af`
 
 ## Purpose
 
@@ -408,8 +408,9 @@ that text. `src/main.test.ts`, `src/app/router/app-router-provider.test.tsx` and
 `banner` the `AppHeader` renders. The two component tests that pass the name in as a literal prop
 need no change: `src/pages/home/ui/home-page.test.tsx` and
 `src/widgets/app-header/ui/app-header.test.tsx`. Three other copies of the name do not follow
-`appConfig.name` and change separately: the `<title>` in
-`index.html`, `name` in `package.json`, and `SCHEMA_VENDOR` in `src/shared/api/response-schema.ts`.
+`appConfig.name` and change separately: the `<title>` in `index.html`, `name` in `package.json`,
+and `SCHEMA_VENDOR` in `src/shared/api/response-schema.ts`. The product's description lives in two
+more places, `description` in `package.json` and `<meta name="description">` in `index.html`.
 
 ## Design decisions & trade-offs
 

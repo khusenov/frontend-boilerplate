@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/khusenov/frontend-boilerplate/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/khusenov/frontend-boilerplate/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Node](https://img.shields.io/badge/node-%3E%3D24-brightgreen.svg)](./.nvmrc)
+[![Node](https://img.shields.io/badge/node-24.15%2B-brightgreen.svg)](./.nvmrc)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](./tsconfig.app.json)
 
 A production-shaped React + TypeScript frontend starter built on **Vite**, **TanStack
@@ -40,6 +40,8 @@ Clone it, rename it, and start writing features on top of infrastructure that is
   `src/shared/ui/theme.css`, and `Button`, `Input` and `Label` vendored from shadcn/ui.
 - **[Internationalization](./docs/features/internationalization.md)** — compiler-checked keys,
   per-locale JSON namespaces fetched on demand when not bundled, English and Russian.
+- **[Notifications](./docs/features/notifications.md)** — one `Notifier` port for transient
+  feedback, drawn by sonner behind an adapter, recorded as a plain array in tests.
 - **[Error handling](./docs/features/error-handling.md)** — a recovery screen for render crashes and
   one `ErrorReporter` port for render, query and mutation failures.
 - **[Configuration](./docs/features/configuration.md)** — one module reads `import.meta.env`;
@@ -54,20 +56,62 @@ Clone it, rename it, and start writing features on top of infrastructure that is
   and a strict Content-Security-Policy derived from the build — which the end-to-end suite runs
   under too.
 - **[Quality gates](./docs/features/quality-gates.md)** — `npm run audit` chains ten checks; a git
-  hook runs it before every push and CI runs it on every pull request.
+  hook runs it before every push and CI runs it on every pull request, beside Conventional Commits
+  checks on every commit message and pull request title.
 
 A working session / sign-in / user-profile slice ships with it. That is deliberate: it is the
 reference vertical slice you copy when adding your own feature, documented as such in
 [`docs/features/user-profile.md`](./docs/features/user-profile.md) (read) and
 [`docs/features/update-user-name.md`](./docs/features/update-user-name.md) (write).
 
+## Use this template
+
+Create your repository from this one — **Use this template** on GitHub, or:
+
+```bash
+gh repo create my-app --template khusenov/frontend-boilerplate --private --clone
+```
+
+Then make it yours before the first feature:
+
+1. **Rename it** — the places listed under [Renaming the project](#renaming-the-project).
+2. **Take ownership of the project files** — the copyright line in [`LICENSE`](./LICENSE); the CI
+   badge and the repository links in this README; the two URLs in
+   [`.github/ISSUE_TEMPLATE/config.yml`](./.github/ISSUE_TEMPLATE/config.yml) and the Discussions
+   link in [`CONTRIBUTING.md`](./CONTRIBUTING.md); the reporting route in
+   [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md); and the scope in [`SECURITY.md`](./SECURITY.md),
+   which names this template's backend.
+3. **Configure the new repository** — it inherits none of this one's settings. From its checkout,
+   where `gh` fills in `{owner}` and `{repo}`, apply the committed rulesets, turn on the private
+   vulnerability reporting `SECURITY.md` sends reporters to and Dependabot's alerts and fixes, and
+   allow squash merges only:
+
+   ```bash
+   gh api --method POST repos/{owner}/{repo}/rulesets --input .github/rulesets/main.json
+   gh api --method POST repos/{owner}/{repo}/rulesets --input .github/rulesets/version-tags.json
+   gh api --method PUT repos/{owner}/{repo}/private-vulnerability-reporting
+   gh api --method PUT repos/{owner}/{repo}/vulnerability-alerts
+   gh api --method PUT repos/{owner}/{repo}/automated-security-fixes
+   gh repo edit --enable-squash-merge --enable-merge-commit=false --enable-rebase-merge=false \
+     --delete-branch-on-merge --enable-auto-merge --enable-discussions
+   ```
+
+   A private repository on GitHub's free plan cannot enforce the rulesets or use private
+   vulnerability reporting; [Quality gates](./docs/features/quality-gates.md#make-ci-block-merges)
+   explains what still protects it.
+
+4. **Point it at your API** — see [Configuration](#configuration). The shipped slices speak
+   [backend-boilerplate](https://github.com/khusenov/backend-boilerplate)'s contract.
+5. **Build your first slice from the reference one** — see [Adding a feature](#adding-a-feature).
+   Keep the session, sign-in and user-profile slices until yours exist: they are what the steps
+   copy.
+
 ## Requirements
 
 - **Node 24.15+** — [`.nvmrc`](./.nvmrc) pins the major, `24`, and `nvm use` resolves that to your
-  newest 24.x. `.npmrc` sets `engine-strict=true`, so an unsupported version fails `npm install`
-  with `EBADENGINE` instead of only warning, and npm checks every installed package's `engines`,
-  not just the root's: `jsdom` 30 declares `^22.22.2 || ^24.15.0 || >=26.0.0`, which lifts the real
-  floor above the `engines.node` field's `>=24.0.0` and rules out Node 25 entirely.
+  newest 24.x. `engines.node` is `^24.15.0 || >=26.0.0`, the range `jsdom` 30 accepts, which rules
+  out Node 25 entirely; `.npmrc` sets `engine-strict=true`, so an unsupported version fails
+  `npm install` with `EBADENGINE` instead of only warning.
 - **npm 11.16.0**, declared via `packageManager`.
 - **Chromium for Playwright**, once per machine: `npx playwright install chromium` (on Linux, add
   `--with-deps`). npm installs Playwright but not the browser it drives.
@@ -150,7 +194,8 @@ started with its own `docker compose up --wait` is reachable with no further set
 
 ## Renaming the project
 
-Four places carry the name, and only one of them propagates:
+Four places carry the name, and only one of them propagates; two more carry the product's
+description:
 
 | Where                                                                      | What to change                                                                                        |
 | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
@@ -158,6 +203,7 @@ Four places carry the name, and only one of them propagates:
 | [`index.html`](./index.html)                                               | `<title>`                                                                                             |
 | [`package.json`](./package.json)                                           | `name`                                                                                                |
 | [`src/shared/api/response-schema.ts`](./src/shared/api/response-schema.ts) | `SCHEMA_VENDOR`                                                                                       |
+| [`package.json`](./package.json) and [`index.html`](./index.html)          | `description`, and `<meta name="description">`                                                        |
 
 `appConfig.name` is the one that matters beyond cosmetics: Web Locks are scoped per origin, so two
 apps built from this template and served from one origin would otherwise queue behind each other's
@@ -338,12 +384,12 @@ the Content-Security-Policy. See [end-to-end testing](./docs/features/e2e-testin
 
 ## Quality gates
 
-| When                           | What runs                                                                                                                                                 | Scope                  |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
-| `npm install` / `npm ci`       | The `engine-strict` Node check; lefthook installs the git hooks                                                                                           | The dependency tree    |
-| `git commit`                   | Prettier, ESLint, oxlint on staged files, plus glob-gated a11y-config and lockfile checks                                                                 | Staged files only      |
-| `git push`                     | `npm run audit`                                                                                                                                           | The whole working tree |
-| Push or pull request to `main` | `npm run audit`, `npm run test:e2e`, `npm run audit:deps`, and the production container: built, checked with `curl`, and put through the end-to-end suite | A clean checkout       |
+| When                           | What runs                                                                                                                                                                                              | Scope                     |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------- |
+| `npm install` / `npm ci`       | The `engine-strict` Node check; lefthook installs the git hooks                                                                                                                                        | The dependency tree       |
+| `git commit`                   | Prettier, ESLint, oxlint on staged files, plus glob-gated a11y-config and lockfile checks; commitlint on the message                                                                                   | Staged files, the message |
+| `git push`                     | `npm run audit`                                                                                                                                                                                        | The whole working tree    |
+| Push or pull request to `main` | `npm run audit`, `npm run test:e2e`, `npm run audit:deps`, and the production container: built, checked with `curl`, and put through the end-to-end suite; for a pull request, commitlint on its title | A clean checkout          |
 
 The gate list lives in `package.json` only, so CI runs exactly the command you run locally. Hooks are
 managed by [lefthook](https://github.com/evilmartians/lefthook) and install themselves on
@@ -402,7 +448,8 @@ One document per capability lives in [`docs/features/`](./docs/features/), index
 
 Pull requests are welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md) for the setup, the five build
 gates, the conventions and the commit format. Run `npm run audit` and `npm run test:e2e` before
-opening one.
+opening one. Everyone taking part is expected to follow the
+[Code of Conduct](./CODE_OF_CONDUCT.md).
 
 For anything security related, follow [SECURITY.md](./SECURITY.md) and report privately rather than
 opening an issue.
