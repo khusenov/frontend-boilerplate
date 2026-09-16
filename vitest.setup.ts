@@ -9,6 +9,14 @@ import { createI18n, DEFAULT_LOCALE } from '@/shared/i18n';
 const isBrowserEnvironment = typeof window !== 'undefined';
 
 vi.stubGlobal('scrollTo', vi.fn());
+vi.stubGlobal('matchMedia', (query: string) => ({
+  matches: false,
+  media: query,
+  onchange: null,
+  addEventListener: vi.fn(),
+  removeEventListener: vi.fn(),
+  dispatchEvent: vi.fn(),
+}));
 
 beforeEach(() => {
   if (!isBrowserEnvironment) {
@@ -28,4 +36,6 @@ afterEach(() => {
 
   document.documentElement.removeAttribute('lang');
   document.documentElement.removeAttribute('dir');
+  document.documentElement.removeAttribute('class');
+  document.documentElement.removeAttribute('style');
 });

@@ -17,8 +17,8 @@ npm run test:e2e
 ```
 
 `npm run audit` runs lockfile verification, formatting, lint, the accessibility lint, typecheck, the
-Feature-Sliced Design rules, the production build, and unit tests with coverage — exactly what
-CI's `Quality gates` job runs. The end-to-end suite is too slow for the pre-push hook, so it stays
+Feature-Sliced Design rules, the production build, unit tests with coverage, the coverage-scope
+check and the import-fence check — exactly what CI's `Quality gates` job runs. The end-to-end suite is too slow for the pre-push hook, so it stays
 outside `audit` and CI runs it as a separate job.
 
 It checks formatting rather than rewriting it, so it fails on drift the way CI does. The pre-commit

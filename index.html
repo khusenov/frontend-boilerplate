@@ -5,6 +5,28 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>frontend-boilerplate</title>
+    <script>
+      (() => {
+        try {
+          const stored = window.localStorage.getItem('app.theme');
+          const preference = stored === 'light' || stored === 'dark' ? stored : 'system';
+          const resolved =
+            preference === 'system'
+              ? window.matchMedia('(prefers-color-scheme: dark)').matches
+                ? 'dark'
+                : 'light'
+              : preference;
+
+          document.documentElement.style.colorScheme = resolved;
+
+          if (resolved === 'dark') {
+            document.documentElement.classList.add('dark');
+          }
+        } catch {
+          // A browser that denies storage or matchMedia keeps the light default until React mounts.
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

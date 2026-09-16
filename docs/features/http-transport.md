@@ -1,6 +1,6 @@
 # HTTP transport
 
-> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `33ee487`
+> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `5c55de1`
 
 ## Purpose
 
@@ -12,7 +12,7 @@ _segment_ is a purpose-named subdivision — `ui/` for components, `model/` for 
 ports, `api/` for the server-facing code, `lib/` for helpers — and it exists at both levels of the
 tree: every slice is divided into segments (`entities/user` has `api/` and `model/`), and `shared`
 and `app`, which have no slices, expose their segments directly (`api`, `config`, `i18n`, `lib`,
-`observability`, `testing`, `ui` in `shared`). That `api` segment offers five things, three of them _ports_. A
+`observability`, `testing`, `theme`, `ui` in `shared`). That `api` segment offers five things, three of them _ports_. A
 _port_ (the repo also says _seam_) is a type a consumer programs against whose concrete
 implementation is bound elsewhere, at the _composition root_, `src/app/entrypoint`.
 

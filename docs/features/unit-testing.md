@@ -1,6 +1,6 @@
 # Unit and component testing
 
-> **Status:** Complete · **Layers:** app, pages, widgets, features, entities, shared, outside layers · **Verified against:** `33ee487`
+> **Status:** Complete · **Layers:** app, pages, widgets, features, entities, shared, outside layers · **Verified against:** `5c55de1`
 
 ## Purpose
 
@@ -47,13 +47,21 @@ A run starts from `npm test` (`vitest run`), `npm run test:watch` (`vitest`) or
 4. **`vitest.setup.ts` prepares every file, whatever its environment.** At module level it imports
    `@testing-library/jest-dom/vitest`, which adds the DOM matchers (`toBeInTheDocument`,
    `toHaveTextContent`, `toHaveAttribute`, `toBeDisabled` and the rest) to Vitest's `expect`, and it
-   replaces the global `scrollTo` with `vi.fn()`. Its hooks do the rest; the browser-only steps sit
-   behind the `isBrowserEnvironment` constant, `typeof window !== 'undefined'`:
+   replaces two globals jsdom does not provide adequately: `scrollTo` becomes a `vi.fn()`, and
+   `matchMedia` becomes a factory returning a `MediaQueryList`-shaped object that reports
+   `matches: false` and `vi.fn()` listeners. The `matchMedia` stub is deliberately as narrow as
+   `createSystemThemeSource`: it carries `addEventListener`/`removeEventListener` and not the
+   deprecated `addListener`/`removeListener` pair, so no test can pass against a contract the
+   adapter does not use. Reporting a light system preference is what keeps every pre-existing
+   assertion unchanged. Its hooks do the rest; the browser-only steps sit behind the
+   `isBrowserEnvironment` constant, `typeof window !== 'undefined'`:
    - before each test, in jsdom only: `localStorage.clear()`, then
      `setI18n(createI18n({ locale: DEFAULT_LOCALE, detection: { order: [], caches: [] } }))`, which
      registers a fresh English i18next instance as react-i18next's global instance;
    - after each test: `cleanup()`, which unmounts everything Testing Library's `render` mounted,
-     and, in jsdom only, removal of the `lang` and `dir` attributes from `<html>`.
+     and, in jsdom only, removal of the `lang`, `dir`, `class` and `style` attributes from `<html>`.
+     The first two are the locale's, the last two the theme's; all four are hygiene rather than a
+     capability, since a test that asserts on `<html>` must not inherit the previous test's state.
 5. **The tests run.** With `globals: false`, each file imports `describe`, `it`, `expect`, `vi` and
    the lifecycle hooks from `vitest`. A component test renders its unit with `render`, supplies
    collaborators through the props, providers or factory arguments the unit already accepts, drives
@@ -129,33 +137,33 @@ lets the setup file import `setI18n` from `react-i18next` and call `createI18n`,
 rejects in every layer below `app`. [Architecture boundaries](./architecture-boundaries.md) covers
 the rule set as a whole.
 
-| Component                                                      | Layer                       | Responsibility                                                                                                                                  | File                                                                                                            |
-| -------------------------------------------------------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `test` block                                                   | `outside layers`            | jsdom by default, `globals: false`, the setup file, collection from `src/`, `v8` coverage with 90% per-file thresholds                          | `vite.config.ts`                                                                                                |
-| `mode === 'test'` plugin gate                                  | `outside layers`            | Leaves `routerPlugin` out of every Vitest run                                                                                                   | `vite.config.ts`                                                                                                |
-| `routeFileIgnorePattern`                                       | `outside layers`            | `'\\.test\\.tsx?$'` keeps route tests co-located in `src/app/routes/` out of the generated route tree                                           | `vite.config.ts`                                                                                                |
-| Setup file                                                     | `outside layers`            | jest-dom matchers, the `scrollTo` stub, a per-test `localStorage` reset and English i18n instance, `cleanup()`, the `<html lang dir>` reset     | `vitest.setup.ts`                                                                                               |
-| Render harness                                                 | `shared/testing`            | `renderWithProviders` and `renderHookWithProviders`: the two shared providers, caller-supplied wrappers, a ready `userEvent` instance           | `src/shared/testing/render-with-providers.tsx`, `create-test-harness.tsx`                                       |
-| Collaborator factories                                         | `shared/testing`            | `createHttpClientStub` (every unstubbed verb rejects by name) and `createTestQueryClient` (retries off)                                         | `src/shared/testing/create-http-client-stub.ts`, `create-test-query-client.ts`                                  |
-| Import-fence gate                                              | `outside layers`            | Gate 10: proves `import-x/no-restricted-paths` keeps `@/shared/testing` out of production files and out of nothing else                         | `scripts/verify-import-fence.mjs`, `eslint.config.js`                                                           |
-| Coverage-scope gate (`measuredFiles`, `measurableSourceFiles`) | `outside layers`            | Fails when a source file is missing from `coverage/lcov.info`                                                                                   | `scripts/verify-coverage-scope.mjs`                                                                             |
-| Vitest lint block                                              | `outside layers`            | `vitest.configs.recommended` over `src/**/*.test.{ts,tsx}`                                                                                      | `eslint.config.js`                                                                                              |
-| Test-file import carve-outs                                    | `outside layers`            | The `src/shared/api/**/*.test.{ts,tsx}` block and the `ignores` on the `shared/ui/form` and `shared/ui/error-boundary` blocks                   | `eslint.config.js`                                                                                              |
-| `include` (`src`, `env.d.ts`, `vitest.setup.ts`)               | `outside layers`            | Puts tests and the setup file — and with it the jest-dom matcher types — under `npm run typecheck`                                              | `tsconfig.app.json`                                                                                             |
-| Test scripts                                                   | `outside layers`            | `test`, `test:watch`, `test:coverage`, `verify:coverage-scope`; `audit` ends with the last two                                                  | `package.json`                                                                                                  |
-| Entry-point test                                               | `outside layers`            | The `#root` fail-fast guard and a real mount of `App` under `act` and `waitFor`                                                                 | `src/main.test.ts`                                                                                              |
-| `createAuthenticatedTransport` test                            | `app/entrypoint`            | Node environment and MSW: the two-client composition end to end, with a real Web Lock                                                           | `src/app/entrypoint/create-authenticated-transport.test.ts`                                                     |
-| `LocaleSwitcher` test                                          | `features/switch-locale`    | One control per supported locale under its endonym, the pressed state following the active locale, and the `lang` tag on each button            | `src/features/switch-locale/ui/locale-switcher.test.tsx`                                                        |
-| `AppHeader` test                                               | `widgets/app-header`        | The `banner` landmark naming the app, and the switcher reachable `within` it — composition, not co-presence                                     | `src/widgets/app-header/ui/app-header.test.tsx`                                                                 |
-| `createAppRouter` test                                         | `app/router`                | The real route tree over a memory history; asserts the routing policy; the `@ts-expect-error` link gate                                         | `src/app/router/create-app-router.test.tsx`                                                                     |
-| `HomePage` test                                                | `pages/home · ui`           | A router-free, provider-free component test: the proof that a page reads no route state                                                         | `src/pages/home/ui/home-page.test.tsx`                                                                          |
-| `SignInForm` test                                              | `features/sign-in · ui`     | `renderWithProviders` with a `SessionStarterProvider` wrapper; validation, outcomes and a keyboard-only sign-in                                 | `src/features/sign-in/ui/sign-in-form.test.tsx`                                                                 |
-| `useSignOut` test                                              | `features/sign-out · model` | `renderHookWithProviders` with one wrapper: the caller is notified `onSettled`, so even a rejecting port resolves                               | `src/features/sign-out/model/use-sign-out.test.tsx`                                                             |
-| `SignOutButton` test                                           | `features/sign-out · ui`    | A `SessionEnder` stubbed through `SessionEnderProvider`: the idle label, the busy disabled button, and no second request while one is in flight | `src/features/sign-out/ui/sign-out-button.test.tsx`                                                             |
-| `createSessionEnder` and `useSessionEnder` tests               | `entities/session · model`  | The factory's `finally` counted on every path; the context/provider pair and its throw outside a provider                                       | `src/entities/session/model/session-ender.test.ts`, `src/entities/session/model/session-ender-context.test.tsx` |
-| `toUser` and `toUpdateUserNameDto` test                        | `entities/user · api`       | A pure unit test of the DTO mappers                                                                                                             | `src/entities/user/api/user-mapper.test.ts`                                                                     |
-| `createHttpClient` and `attachBearerToken` tests               | `shared/api`                | Node environment and MSW: a real axios stack, from headers to error normalization                                                               | `src/shared/api/http-client.test.ts`, `src/shared/api/attach-bearer-token.test.ts`                              |
-| `appConfig` test                                               | `shared/config`             | `vi.stubEnv`, `vi.resetModules()` and a dynamic `import()` around the one module that reads `import.meta.env`                                   | `src/shared/config/app-config.test.ts`                                                                          |
+| Component                                                      | Layer                       | Responsibility                                                                                                                                                            | File                                                                                                            |
+| -------------------------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `test` block                                                   | `outside layers`            | jsdom by default, `globals: false`, the setup file, collection from `src/`, `css.include` for `theme.css?raw`, `v8` coverage with 90% per-file thresholds                 | `vite.config.ts`                                                                                                |
+| `mode === 'test'` plugin gate                                  | `outside layers`            | Leaves `routerPlugin` out of every Vitest run                                                                                                                             | `vite.config.ts`                                                                                                |
+| `routeFileIgnorePattern`                                       | `outside layers`            | `'\\.test\\.tsx?$'` keeps route tests co-located in `src/app/routes/` out of the generated route tree                                                                     | `vite.config.ts`                                                                                                |
+| Setup file                                                     | `outside layers`            | jest-dom matchers, the `scrollTo` and `matchMedia` stubs, a per-test `localStorage` reset and English i18n instance, `cleanup()`, the `<html lang dir class style>` reset | `vitest.setup.ts`                                                                                               |
+| Render harness                                                 | `shared/testing`            | `renderWithProviders` and `renderHookWithProviders`: the two shared providers, caller-supplied wrappers, a ready `userEvent` instance                                     | `src/shared/testing/render-with-providers.tsx`, `create-test-harness.tsx`                                       |
+| Collaborator factories                                         | `shared/testing`            | `createHttpClientStub` (every unstubbed verb rejects by name) and `createTestQueryClient` (retries off)                                                                   | `src/shared/testing/create-http-client-stub.ts`, `create-test-query-client.ts`                                  |
+| Import-fence gate                                              | `outside layers`            | Gate 10: proves `import-x/no-restricted-paths` keeps `@/shared/testing` out of production files and out of nothing else                                                   | `scripts/verify-import-fence.mjs`, `eslint.config.js`                                                           |
+| Coverage-scope gate (`measuredFiles`, `measurableSourceFiles`) | `outside layers`            | Fails when a source file is missing from `coverage/lcov.info`                                                                                                             | `scripts/verify-coverage-scope.mjs`                                                                             |
+| Vitest lint block                                              | `outside layers`            | `vitest.configs.recommended` over `src/**/*.test.{ts,tsx}`                                                                                                                | `eslint.config.js`                                                                                              |
+| Test-file import carve-outs                                    | `outside layers`            | The `src/shared/api/**/*.test.{ts,tsx}` block and the `ignores` on the `shared/ui/form` and `shared/ui/error-boundary` blocks                                             | `eslint.config.js`                                                                                              |
+| `include` (`src`, `env.d.ts`, `vitest.setup.ts`)               | `outside layers`            | Puts tests and the setup file — and with it the jest-dom matcher types — under `npm run typecheck`                                                                        | `tsconfig.app.json`                                                                                             |
+| Test scripts                                                   | `outside layers`            | `test`, `test:watch`, `test:coverage`, `verify:coverage-scope`; `audit` ends with the last two                                                                            | `package.json`                                                                                                  |
+| Entry-point test                                               | `outside layers`            | The `#root` fail-fast guard and a real mount of `App` under `act` and `waitFor`                                                                                           | `src/main.test.ts`                                                                                              |
+| `createAuthenticatedTransport` test                            | `app/entrypoint`            | Node environment and MSW: the two-client composition end to end, with a real Web Lock                                                                                     | `src/app/entrypoint/create-authenticated-transport.test.ts`                                                     |
+| `LocaleSwitcher` test                                          | `features/switch-locale`    | One control per supported locale under its endonym, the pressed state following the active locale, and the `lang` tag on each button                                      | `src/features/switch-locale/ui/locale-switcher.test.tsx`                                                        |
+| `AppHeader` test                                               | `widgets/app-header`        | The `banner` landmark naming the app, and the switcher reachable `within` it — composition, not co-presence                                                               | `src/widgets/app-header/ui/app-header.test.tsx`                                                                 |
+| `createAppRouter` test                                         | `app/router`                | The real route tree over a memory history; asserts the routing policy; the `@ts-expect-error` link gate                                                                   | `src/app/router/create-app-router.test.tsx`                                                                     |
+| `HomePage` test                                                | `pages/home · ui`           | A router-free, provider-free component test: the proof that a page reads no route state                                                                                   | `src/pages/home/ui/home-page.test.tsx`                                                                          |
+| `SignInForm` test                                              | `features/sign-in · ui`     | `renderWithProviders` with a `SessionStarterProvider` wrapper; validation, outcomes and a keyboard-only sign-in                                                           | `src/features/sign-in/ui/sign-in-form.test.tsx`                                                                 |
+| `useSignOut` test                                              | `features/sign-out · model` | `renderHookWithProviders` with one wrapper: the caller is notified `onSettled`, so even a rejecting port resolves                                                         | `src/features/sign-out/model/use-sign-out.test.tsx`                                                             |
+| `SignOutButton` test                                           | `features/sign-out · ui`    | A `SessionEnder` stubbed through `SessionEnderProvider`: the idle label, the busy disabled button, and no second request while one is in flight                           | `src/features/sign-out/ui/sign-out-button.test.tsx`                                                             |
+| `createSessionEnder` and `useSessionEnder` tests               | `entities/session · model`  | The factory's `finally` counted on every path; the context/provider pair and its throw outside a provider                                                                 | `src/entities/session/model/session-ender.test.ts`, `src/entities/session/model/session-ender-context.test.tsx` |
+| `toUser` and `toUpdateUserNameDto` test                        | `entities/user · api`       | A pure unit test of the DTO mappers                                                                                                                                       | `src/entities/user/api/user-mapper.test.ts`                                                                     |
+| `createHttpClient` and `attachBearerToken` tests               | `shared/api`                | Node environment and MSW: a real axios stack, from headers to error normalization                                                                                         | `src/shared/api/http-client.test.ts`, `src/shared/api/attach-bearer-token.test.ts`                              |
+| `appConfig` test                                               | `shared/config`             | `vi.stubEnv`, `vi.resetModules()` and a dynamic `import()` around the one module that reads `import.meta.env`                                                             | `src/shared/config/app-config.test.ts`                                                                          |
 
 ## Public surface
 
@@ -177,14 +185,15 @@ that file in plain Node instead of jsdom. All three files that use it put it on 
 
 **What every test can rely on** (`vitest.setup.ts`):
 
-| Guarantee                                                                                    | Applies to                                                    |
-| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| The jest-dom matchers are on `expect`, and typed for every file in `tsconfig.app.json`       | Every file                                                    |
-| `scrollTo` is a `vi.fn()`                                                                    | Every file, until a `vi.unstubAllGlobals()` call in that file |
-| Everything `render` mounted is unmounted after each test                                     | Every file                                                    |
-| `localStorage` is empty when each test starts                                                | jsdom files                                                   |
-| react-i18next's global instance is a fresh `en` instance with detection and caching disabled | jsdom files, rebuilt before each test                         |
-| `<html>` carries no `lang` or `dir` attribute left behind by the previous test               | jsdom files                                                   |
+| Guarantee                                                                                        | Applies to                                                    |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
+| The jest-dom matchers are on `expect`, and typed for every file in `tsconfig.app.json`           | Every file                                                    |
+| `scrollTo` is a `vi.fn()`                                                                        | Every file, until a `vi.unstubAllGlobals()` call in that file |
+| `matchMedia` returns a `MediaQueryList`-shaped object reporting `matches: false`                 | Every file, until a `vi.unstubAllGlobals()` call in that file |
+| Everything `render` mounted is unmounted after each test                                         | Every file                                                    |
+| `localStorage` is empty when each test starts                                                    | jsdom files                                                   |
+| react-i18next's global instance is a fresh `en` instance with detection and caching disabled     | jsdom files, rebuilt before each test                         |
+| `<html>` carries no `lang`, `dir`, `class` or `style` attribute left behind by the previous test | jsdom files                                                   |
 
 **Lint contract for test files** (`eslint.config.js`). The `recommended` config of
 `@vitest/eslint-plugin` applies to `src/**/*.test.{ts,tsx}`:
@@ -690,7 +699,8 @@ make `AppProviders` throw.
 - Per-test state is created in `beforeEach` or reset in `afterEach`, never held at module scope,
   so one test cannot leak into the next — the reason the i18n instance is rebuilt before each test.
 - A jsdom gap belongs here only when code that any test may mount runs into it, as the router's
-  scroll restoration does with `scrollTo`. Otherwise stub it in the test that needs it with
+  scroll restoration does with `scrollTo` and `createSystemThemeSource` does with `matchMedia`,
+  which jsdom 30 does not implement at all. Otherwise stub it in the test that needs it with
   `vi.stubGlobal` and restore it with `vi.unstubAllGlobals()` in `afterEach`, as
   `src/shared/lib/single-flight/single-flight.test.ts` does with `navigator` — and see
   [Known limitations](#known-limitations) for what that call also restores.
@@ -788,7 +798,12 @@ swallowed by accident.
   every test file whatever its environment. In the node environment `window` is undefined and
   `localStorage.clear()` throws `ReferenceError: localStorage is not defined`, so without
   `isBrowserEnvironment` every test in the three MSW files would fail before its first assertion.
-  `cleanup()` and the `scrollTo` stub are harmless in Node and run unguarded.
+  `cleanup()` and the two `vi.stubGlobal` calls are harmless in Node and run unguarded.
+- **`matchMedia` is stubbed once, and it is a hard requirement, not cosmetics.** jsdom 30 leaves
+  `window.matchMedia` undefined, and `AppProviders` builds a `SystemThemeSource` from it on its
+  first render — so without the stub every test that mounts the composition root would throw rather
+  than merely log. The stub reports `matches: false`, i.e. a light system preference, which is why
+  adding it changed no existing assertion.
 - **`scrollTo` is stubbed once, for the whole suite.** `createAppRouter` sets
   `scrollRestoration: true`, and the router's scroll restoration calls a bare `scrollTo`, which
   jsdom does not implement: each call prints `Not implemented: Window's scrollTo() method` to the
@@ -863,9 +878,9 @@ swallowed by accident.
 
 Only `src/shared/testing` is covered by tests of its own — `create-http-client-stub.test.ts` and
 `render-with-providers.test.tsx`, fifteen cases between them. For the rest of the harness the suite
-is the test. At `33ee487` that suite is **70 test files and 476 tests**; `npm run test:coverage`
+is the test. At `5c55de1` that suite is **78 test files and 533 tests**; `npm run test:coverage`
 reports 100% statements, branches, functions and lines, and `npm run verify:coverage-scope` then
-prints `Coverage scope verified: 135 source files measured.` The 90% per-file thresholds are the floor the
+prints `Coverage scope verified: 146 source files measured.` The 90% per-file thresholds are the floor the
 gate enforces, not a description of where the suite stands.
 
 Each setup responsibility is load-bearing for specific files:
@@ -880,10 +895,15 @@ Each setup responsibility is load-bearing for specific files:
   the global, so the global cannot mask a provider missing from a test that mounts one.
 - `cleanup()`: without it, earlier renders stay mounted and role queries find duplicates.
 - The `localStorage` and `<html>` resets: `src/app/entrypoint/app.test.tsx` stores `app.locale` as
-  `ru` and leaves `<html lang="ru">`, which would otherwise leak into the tests after it.
+  `ru` and leaves `<html lang="ru">`, and `app-providers.test.tsx` stores `app.theme` as `dark` and
+  leaves `<html class="dark" style="color-scheme: dark">`, either of which would otherwise leak into
+  the tests after it.
 - The `isBrowserEnvironment` guard: the three node-environment files fail without it.
 - The `scrollTo` stub: without it the router and route tests stay green but print jsdom's
   not-implemented error.
+- The `matchMedia` stub: without it every file that mounts `AppProviders` or the real `App` —
+  `app-providers.test.tsx`, `app.test.tsx` and `src/main.test.ts` — throws in
+  `createSystemThemeSource()` rather than merely logging.
 
 The coverage configuration is checked on every audit by `npm run verify:coverage-scope`. The CI
 `Quality gates` job uploads `coverage/` as the `coverage` artifact, kept for 7 days, even when the
@@ -930,10 +950,12 @@ proves every source file was measured. `npm run lint` applies the Vitest rules, 
   `setupServer()` with the same `beforeAll`, `afterEach` and `afterAll` hooks. `shared/testing`
   deliberately does not cover them — they render no React and share nothing with the provider
   problem — so a new MSW-driven file repeats the block.
-- **`vi.unstubAllGlobals()` also removes the setup file's `scrollTo` stub** for the rest of that
-  file. `single-flight.test.ts` calls it after each test and mounts no router, so it is harmless
-  today, but a file that does both prints jsdom's not-implemented error on every navigation unless
-  it stubs `scrollTo` again.
+- **`vi.unstubAllGlobals()` also removes the setup file's `scrollTo` and `matchMedia` stubs** for
+  the rest of that file — module-scope stubs are not reinstalled between tests.
+  `single-flight.test.ts` and the theme adapter tests call it after each test and mount neither the
+  router nor `AppProviders`, so it is harmless today, but a file that does both prints jsdom's
+  not-implemented error on every navigation, or throws in `createSystemThemeSource()`, unless it
+  re-stubs. `theme-bootstrap.test.ts` drops both deliberately and renders no React.
 - **The harness's `QueryClient` is not production's.** `createTestQueryClient` is a bare client with
   retries off, while `createQueryClient` runs `staleTime: 30_000`, `gcTime: 300_000` and a
   `shouldRetryQuery` policy. Component tests therefore see refetch-on-mount behaviour production does

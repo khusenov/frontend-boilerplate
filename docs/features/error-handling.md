@@ -1,6 +1,6 @@
 # Error handling and reporting
 
-> **Status:** Complete · **Layers:** app, shared, outside layers · **Verified against:** `65a99bc`
+> **Status:** Complete · **Layers:** app, shared, outside layers · **Verified against:** `5c55de1`
 
 ## Purpose
 
@@ -405,7 +405,10 @@ place of the beacon.
    `the error reporter failed` without rethrowing — the fallback still renders, but no beacon call
    is ever recorded to assert on. Keep the `console.error` spy — it no longer carries an
    assertion, it only silences React's own log of the caught error — add `vi.unstubAllGlobals()`
-   to the existing `afterEach`, and replace the case with:
+   to the existing `afterEach`, and re-stub `matchMedia` there as `vitest.setup.ts` does, because
+   that call also drops the setup file's module-scope stub and the next case that mounts the real
+   `App` would then throw in `createSystemThemeSource()`
+   ([Unit and component testing](./unit-testing.md#known-limitations)). Replace the case with:
 
    ```tsx
    it('catches a provider construction failure instead of unmounting the tree', async () => {

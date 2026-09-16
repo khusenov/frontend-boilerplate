@@ -49,7 +49,7 @@ Clone it, rename it, and start writing features on top of infrastructure that is
 - **[Unit testing](./docs/features/unit-testing.md)** and
   **[end-to-end testing](./docs/features/e2e-testing.md)** — Vitest and Testing Library at a 90%
   per-file coverage floor, Playwright against the production build.
-- **[Quality gates](./docs/features/quality-gates.md)** — `npm run audit` chains nine checks; a git
+- **[Quality gates](./docs/features/quality-gates.md)** — `npm run audit` chains ten checks; a git
   hook runs it before every push and CI runs it on every pull request.
 
 A working session / sign-in / user-profile slice ships with it. That is deliberate: it is the
@@ -139,14 +139,14 @@ needs editing. See
 `src/` is divided into **layers**, and a module may import only from layers **below** it, through
 the importee's public `index.ts` and never through an inner file.
 
-| Layer (`src/…`) | Contains                                                             | May import           |
-| --------------- | -------------------------------------------------------------------- | -------------------- |
-| `app`           | Composition root, providers, router, route modules, global styles    | Everything below     |
-| `pages`         | Route-level screens, assembled and router-free                       | `widgets` and below  |
-| `widgets`       | Self-contained blocks shared by several screens — today `app-header` | `features` and below |
-| `features`      | One user action that changes state                                   | `entities`, `shared` |
-| `entities`      | Business nouns: model, DTO schema, mapper, HTTP calls                | `shared`             |
-| `shared`        | `api`, `config`, `i18n`, `lib`, `observability`, `testing`, `ui`     | Nothing above it     |
+| Layer (`src/…`) | Contains                                                                  | May import           |
+| --------------- | ------------------------------------------------------------------------- | -------------------- |
+| `app`           | Composition root, providers, router, route modules, global styles         | Everything below     |
+| `pages`         | Route-level screens, assembled and router-free                            | `widgets` and below  |
+| `widgets`       | Self-contained blocks shared by several screens — today `app-header`      | `features` and below |
+| `features`      | One user action that changes state                                        | `entities`, `shared` |
+| `entities`      | Business nouns: model, DTO schema, mapper, HTTP calls                     | `shared`             |
+| `shared`        | `api`, `config`, `i18n`, `lib`, `observability`, `testing`, `theme`, `ui` | Nothing above it     |
 
 `src/main.tsx` sits outside the layer system, so steiger cannot analyse it and a lint rule stands
 in: `@/app` is the only `@/` path it may import.
@@ -199,27 +199,28 @@ one. In order:
 
 ## Scripts
 
-| Command                           | Purpose                                                                                        |
-| --------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `npm run dev`                     | Vite dev server with HMR on port 5173                                                          |
-| `npm run build`                   | `tsc -b`, then `vite build` into `dist/`                                                       |
-| `npm run preview`                 | Serve the built `dist/` on port 4173                                                           |
-| `npm test` / `npm run test:watch` | Vitest, single run / watch mode                                                                |
-| `npm run test:coverage`           | Vitest with the 90% per-file coverage gate                                                     |
-| `npm run test:e2e`                | Playwright over the production build in Chromium                                               |
-| `npm run test:e2e:ui`             | Playwright's interactive runner                                                                |
-| `npm run test:e2e:report`         | Open the HTML report from the last end-to-end run                                              |
-| `npm run typecheck`               | `tsc -b --pretty` — types only, no emit                                                        |
-| `npm run lint` / `lint:fix`       | ESLint with `--max-warnings 0` / with `--fix`                                                  |
-| `npm run lint:a11y`               | Accessibility rule-list drift check, then oxlint's `jsx-a11y` rules over `src`                 |
-| `npm run lint:a11y:fix`           | Regenerate `.oxlintrc.json` from oxlint's schema and format it                                 |
-| `npm run format` / `format:check` | Prettier                                                                                       |
-| `npm run arch`                    | steiger's Feature-Sliced Design rules over `./src`                                             |
-| `npm run arch:graph`              | Regenerate `docs/architecture-graph.md`                                                        |
-| `npm run verify:lock`             | `npm ci --dry-run --ignore-scripts` — fails if `package-lock.json` drifted                     |
-| `npm run verify:coverage-scope`   | Fail if a source file escaped coverage measurement                                             |
-| `npm run audit:deps`              | `npm audit --omit=dev --audit-level=high`; needs the network, so CI owns it                    |
-| **`npm run audit`**               | **The full gate** — lockfile, format, lint, a11y, types, arch, build, coverage, coverage scope |
+| Command                           | Purpose                                                                                                      |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `npm run dev`                     | Vite dev server with HMR on port 5173                                                                        |
+| `npm run build`                   | `tsc -b`, then `vite build` into `dist/`                                                                     |
+| `npm run preview`                 | Serve the built `dist/` on port 4173                                                                         |
+| `npm test` / `npm run test:watch` | Vitest, single run / watch mode                                                                              |
+| `npm run test:coverage`           | Vitest with the 90% per-file coverage gate                                                                   |
+| `npm run test:e2e`                | Playwright over the production build in Chromium                                                             |
+| `npm run test:e2e:ui`             | Playwright's interactive runner                                                                              |
+| `npm run test:e2e:report`         | Open the HTML report from the last end-to-end run                                                            |
+| `npm run typecheck`               | `tsc -b --pretty` — types only, no emit                                                                      |
+| `npm run lint` / `lint:fix`       | ESLint with `--max-warnings 0` / with `--fix`                                                                |
+| `npm run lint:a11y`               | Accessibility rule-list drift check, then oxlint's `jsx-a11y` rules over `src`                               |
+| `npm run lint:a11y:fix`           | Regenerate `.oxlintrc.json` from oxlint's schema and format it                                               |
+| `npm run format` / `format:check` | Prettier                                                                                                     |
+| `npm run arch`                    | steiger's Feature-Sliced Design rules over `./src`                                                           |
+| `npm run arch:graph`              | Regenerate `docs/architecture-graph.md`                                                                      |
+| `npm run verify:lock`             | `npm ci --dry-run --ignore-scripts` — fails if `package-lock.json` drifted                                   |
+| `npm run verify:coverage-scope`   | Fail if a source file escaped coverage measurement                                                           |
+| `npm run verify:import-fence`     | Fail if the `@/shared/testing` fence stops blocking production files, or starts blocking tests               |
+| `npm run audit:deps`              | `npm audit --omit=dev --audit-level=high`; needs the network, so CI owns it                                  |
+| **`npm run audit`**               | **The full gate** — lockfile, format, lint, a11y, types, arch, build, coverage, coverage scope, import fence |
 
 Run `npm run audit` before pushing. It runs every check CI's `Quality gates` job runs; the
 end-to-end suite stays outside it, because a gate that builds the app and boots a browser does not

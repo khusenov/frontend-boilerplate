@@ -13,6 +13,7 @@ import type {
 import { useSessionEnder, useSessionResolver, useSessionStarter } from '@/entities/session';
 import type { HttpClient } from '@/shared/api';
 import { toHttpError, useHttpClient } from '@/shared/api';
+import { createBrowserThemeStorage } from '@/shared/theme';
 
 import { AppProviders } from './app-providers';
 import { createAuthenticatedTransport } from './create-authenticated-transport';
@@ -211,6 +212,32 @@ describe('AppProviders', () => {
     );
 
     expect(captured.ender).toBe(transport.sessionEnder);
+  });
+
+  it('applies a stored dark preference to the document', () => {
+    createBrowserThemeStorage().write('dark');
+
+    render(
+      <AppProviders apiBaseUrl="/api" queryErrorHandlers={createQueryErrorHandlersFake()}>
+        <p>child content</p>
+      </AppProviders>,
+    );
+
+    expect(document.documentElement.classList.contains('dark')).toBe(true);
+    expect(document.documentElement.style.colorScheme).toBe('dark');
+  });
+
+  it('leaves the document light for a stored light preference', () => {
+    createBrowserThemeStorage().write('light');
+
+    render(
+      <AppProviders apiBaseUrl="/api" queryErrorHandlers={createQueryErrorHandlersFake()}>
+        <p>child content</p>
+      </AppProviders>,
+    );
+
+    expect(document.documentElement.classList.contains('dark')).toBe(false);
+    expect(document.documentElement.style.colorScheme).toBe('light');
   });
 
   it('reports a query failure through the injected handlers', async () => {
