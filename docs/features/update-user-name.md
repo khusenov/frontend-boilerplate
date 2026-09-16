@@ -1,6 +1,6 @@
 # Update user name (write path)
 
-> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `65a99bc`
+> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `33ee487`
 
 ## Purpose
 
@@ -501,10 +501,12 @@ Unit and component tests (Vitest, jsdom), co-located with the code:
   shows the name the form just saved": a stateful stub applies the `PATCH`, and the `<h1>` changes
   from "Ada Lovelace" to "Ada King" through the invalidation.
 
-The hook and component tests render inside a real `QueryClientProvider` (mutation retries off) and an
-`HttpClientProvider` holding a stub `HttpClient` whose other four verbs reject and whose `patch`
-either rejects or validates an empty body (`null`) against the request's own `schema`, so
-`noContentSchema` runs for real.
+The hook and component tests render through `renderWithProviders` / `renderHookWithProviders` from
+`@/shared/testing`, which supply a real `QueryClientProvider` (query and mutation retries off) and an
+`HttpClientProvider` over the `HttpClient` passed as the `httpClient` option. That client comes from
+`createHttpClientStub({ patch })`: the other four verbs reject by name, and `patch` either rejects or
+validates an empty body (`null`) against the request's own `schema`, so `noContentSchema` runs for
+real.
 `vitest.setup.ts` installs an English i18n instance, which is why the tests query by English copy.
 
 End-to-end tests (Playwright against the production build, `e2e/user-profile.spec.ts`) cover the

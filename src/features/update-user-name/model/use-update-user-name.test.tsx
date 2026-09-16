@@ -1,45 +1,31 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, renderHook, waitFor } from '@testing-library/react';
-import type { ReactNode } from 'react';
+import { act, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import { toUserId } from '@/entities/user';
-import { HttpClientProvider, toHttpError } from '@/shared/api';
+import { toHttpError } from '@/shared/api';
 import type { HttpClient } from '@/shared/api';
+import { createHttpClientStub, renderHookWithProviders } from '@/shared/testing';
 
 import { useUpdateUserName } from './use-update-user-name';
 
-const notCalled = (): Promise<never> =>
-  Promise.reject(toHttpError(new Error('This hook issues only a patch.')));
+const resolvingClient = createHttpClientStub({
+  patch: async (_url, config) => {
+    const result = await config.schema['~standard'].validate(null);
 
-function createClientStub(patch: HttpClient['patch']): HttpClient {
-  return { get: notCalled, post: notCalled, put: notCalled, patch, delete: notCalled };
-}
+    if (result.issues !== undefined) {
+      throw toHttpError(new Error('the response does not satisfy the request schema'));
+    }
 
-const resolvingClient = createClientStub(async (_url, config) => {
-  const result = await config.schema['~standard'].validate(null);
-
-  if (result.issues !== undefined) {
-    throw toHttpError(new Error('the response does not satisfy the request schema'));
-  }
-
-  return result.value;
+    return result.value;
+  },
 });
 
-const failingClient = createClientStub(() => Promise.reject(toHttpError(new Error('offline'))));
+const failingClient = createHttpClientStub({
+  patch: () => Promise.reject(toHttpError(new Error('offline'))),
+});
 
 function renderUpdateUserName(httpClient: HttpClient) {
-  const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
-
-  function Wrapper({ children }: { readonly children: ReactNode }) {
-    return (
-      <QueryClientProvider client={queryClient}>
-        <HttpClientProvider client={httpClient}>{children}</HttpClientProvider>
-      </QueryClientProvider>
-    );
-  }
-
-  return renderHook(() => useUpdateUserName(toUserId('u_1')), { wrapper: Wrapper });
+  return renderHookWithProviders(() => useUpdateUserName(toUserId('u_1')), { httpClient });
 }
 
 const ada = { firstName: 'Ada', lastName: 'King' };
@@ -127,7 +113,7 @@ describe('useUpdateUserName', () => {
 
   it('leaves an in flight request alone when the outcome is dismissed', async () => {
     const { result } = renderUpdateUserName(
-      createClientStub(() => new Promise<never>(() => undefined)),
+      createHttpClientStub({ patch: () => new Promise<never>(() => undefined) }),
     );
 
     act(() => {

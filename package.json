@@ -10,6 +10,7 @@
   "scripts": {
     "verify:lock": "npm ci --dry-run --ignore-scripts",
     "verify:coverage-scope": "node scripts/verify-coverage-scope.mjs",
+    "verify:import-fence": "node scripts/verify-import-fence.mjs",
     "audit:deps": "npm audit --omit=dev --audit-level=high",
     "dev": "vite",
     "build": "tsc -b && vite build",
@@ -29,7 +30,7 @@
     "test:e2e:report": "playwright show-report",
     "arch": "steiger ./src",
     "arch:graph": "{ echo '```mermaid'; depcruise src --no-config --ts-config tsconfig.app.json --include-only '^src' --exclude '\\.test\\.tsx?$' --output-type mermaid --collapse '^src/[^/]+/[^/]+'; echo '```'; } > docs/architecture-graph.md",
-    "audit": "npm run verify:lock && npm run format:check && npm run lint && npm run lint:a11y && npm run typecheck && npm run arch && npm run build && npm run test:coverage && npm run verify:coverage-scope"
+    "audit": "npm run verify:lock && npm run format:check && npm run lint && npm run lint:a11y && npm run typecheck && npm run arch && npm run build && npm run test:coverage && npm run verify:coverage-scope && npm run verify:import-fence"
   },
   "dependencies": {
     "@tanstack/react-form": "^1.33.5",

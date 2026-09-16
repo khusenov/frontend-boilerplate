@@ -1,28 +1,24 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, renderHook, waitFor } from '@testing-library/react';
-import type { ReactNode } from 'react';
+import { act, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { SessionEnderProvider } from '@/entities/session';
 import type { SessionEnder } from '@/entities/session';
+import { renderHookWithProviders } from '@/shared/testing';
 
 import { useSignOut } from './use-sign-out';
 
 function renderSignOut(sessionEnder: SessionEnder) {
-  const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
   const onSignedOut = vi.fn();
-
-  function Wrapper({ children }: { readonly children: ReactNode }) {
-    return (
-      <QueryClientProvider client={queryClient}>
-        <SessionEnderProvider sessionEnder={sessionEnder}>{children}</SessionEnderProvider>
-      </QueryClientProvider>
-    );
-  }
 
   return {
     onSignedOut,
-    ...renderHook(() => useSignOut({ onSignedOut }), { wrapper: Wrapper }),
+    ...renderHookWithProviders(() => useSignOut({ onSignedOut }), {
+      wrappers: [
+        ({ children }) => (
+          <SessionEnderProvider sessionEnder={sessionEnder}>{children}</SessionEnderProvider>
+        ),
+      ],
+    }),
   };
 }
 
