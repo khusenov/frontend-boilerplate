@@ -26,6 +26,9 @@ Particularly in scope:
 - Tokens, credentials, or personal data reaching browser storage, a URL, the console, or the error
   reporter (`src/shared/observability/**`)
 - Vulnerable dependencies that ship in the production bundle
+- The production container — a security header weaker than documented, a policy that admits more
+  than the build needs, or an nginx rule that serves or proxies what it should not (`Dockerfile`,
+  `docker/nginx/**`, `scripts/security-headers.ts`)
 
 Out of scope:
 
@@ -59,14 +62,19 @@ Query cache.
 Holding the token in memory keeps it from outliving the tab, but it cannot stop script running in
 the page from using the session. Before deploying:
 
-- Send a strict `Content-Security-Policy` header — neither `index.html` nor the build sets one.
-  `index.html` ships one inline script, the pre-paint theme block in `<head>` that prevents a flash
-  of white; emit its `sha256-` hash into `script-src` rather than loosening the directive with
-  `'unsafe-inline'`. A bare `script-src 'self'` silently kills that script — the flash returns while
-  every gate stays green
+- Send the `Content-Security-Policy` and companion headers the production container sends. The
+  container in `Dockerfile` and `npm run preview` both send them, derived from the build by
+  `scripts/security-headers.ts`: `index.html` ships one inline script, the pre-paint theme block in
+  `<head>`, and sonner injects one stylesheet at runtime, and the policy admits both by `sha256-`
+  hash instead of `'unsafe-inline'`. On any other host, emit the same headers —
+  `node scripts/security-headers.ts nginx dist/index.html` prints them for nginx. A hand-written
+  `script-src 'self'` silently kills the theme script, and a `style-src 'self'` unstyles every
+  toast, while every functional check stays green; the end-to-end suite fails on either, because it
+  runs under the generated policy
 - Keep secrets out of `VITE_*` variables — Vite inlines them into the bundle every visitor downloads
 - Serve the app over HTTPS from the same site as the API instead of relaxing the backend's
-  `SameSite=Strict` refresh cookie
+  `SameSite=Strict` refresh cookie, and send `Strict-Transport-Security` from whatever terminates
+  TLS in front of the container — the image serves plain HTTP on port 8080 and sets no HSTS
 - Scrub what a real reporter sends before it replaces the console one in
   `src/app/entrypoint/app-error-reporter.ts`: an `HttpError` keeps the response body as `payload`,
   and its Axios `cause` redacts the `Authorization` header only when serialized as JSON

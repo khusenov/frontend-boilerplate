@@ -1,0 +1,30 @@
+# Reinstalled or rebuilt inside the image
+node_modules
+dist
+coverage
+playwright-report
+test-results
+blob-report
+playwright/.cache
+.tanstack
+
+# Secrets and local environment
+.env
+.env.*
+
+# Version control, CI and editor state
+.git
+.github
+.idea
+.vscode
+.claude
+.agents
+.DS_Store
+*.log
+
+# Not read by the build
+docs
+*.md
+Dockerfile
+.dockerignore
+docker-compose.yml

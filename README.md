@@ -49,6 +49,10 @@ Clone it, rename it, and start writing features on top of infrastructure that is
 - **[Unit testing](./docs/features/unit-testing.md)** and
   **[end-to-end testing](./docs/features/e2e-testing.md)** — Vitest and Testing Library at a 90%
   per-file coverage floor, Playwright against the production build.
+- **[Production container](./docs/features/deployment.md)** — a two-stage `Dockerfile` serving the
+  build from unprivileged nginx: deep-link fallback, immutable assets, a same-origin `/v1` proxy,
+  and a strict Content-Security-Policy derived from the build — which the end-to-end suite runs
+  under too.
 - **[Quality gates](./docs/features/quality-gates.md)** — `npm run audit` chains ten checks; a git
   hook runs it before every push and CI runs it on every pull request.
 
@@ -67,6 +71,7 @@ reference vertical slice you copy when adding your own feature, documented as su
 - **npm 11.16.0**, declared via `packageManager`.
 - **Chromium for Playwright**, once per machine: `npx playwright install chromium` (on Linux, add
   `--with-deps`). npm installs Playwright but not the browser it drives.
+- **Docker with Compose v2** — optional, only for the production container.
 
 ## Getting started
 
@@ -129,8 +134,19 @@ For an API anywhere else, either change the proxy target in `vite.config.ts` or 
 
 ```bash
 npm run build     # tsc -b, then vite build into dist/
-npm run preview   # serves dist/ on http://localhost:4173
+npm run preview   # serves dist/ on http://localhost:4173, with the production security headers
 ```
+
+**Run the production container:**
+
+```bash
+docker compose up --build --wait   # serves the app on http://localhost:8080
+docker compose down
+```
+
+The container forwards `/v1` to `http://host.docker.internal:8000`, so a backend-boilerplate stack
+started with its own `docker compose up --wait` is reachable with no further setup. See
+[Deployment](#deployment).
 
 ## Renaming the project
 
@@ -267,12 +283,47 @@ cookie to, and every renewal fails with a 401 that looks exactly like an expired
 `.env*` file is gitignored. Full details, including how a build for a deployment differs, are in
 [configuration](./docs/features/configuration.md).
 
+## Deployment
+
+`npm run build` writes static files to `dist/`; the [`Dockerfile`](./Dockerfile) turns them into a
+production image. Its first stage builds the app with Node 24, and its second serves `dist/` from
+`nginxinc/nginx-unprivileged` as uid 101 on port 8080:
+
+- every path that is not a file falls back to `index.html`, which is never cached;
+- `/assets/*` is cached for a year as `immutable`, and a missing asset is a real `404`;
+- `/v1/*` is proxied, path unchanged, to `API_UPSTREAM`, so the browser sees one origin and the
+  refresh cookie works exactly as behind the dev proxy;
+- every document carries a `Content-Security-Policy` with no `'unsafe-inline'` — the inline theme
+  script and the stylesheet sonner injects are admitted by `sha256-` hashes that
+  [`scripts/security-headers.ts`](./scripts/security-headers.ts) derives from the build — plus
+  `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, `X-Frame-Options` and the two
+  cross-origin policies;
+- `/healthz` answers `200` for the image's `HEALTHCHECK`.
+
+| Setting             | Where                 | Default                            | Meaning                                                                |
+| ------------------- | --------------------- | ---------------------------------- | ---------------------------------------------------------------------- |
+| `VITE_API_BASE_URL` | Build argument        | `/v1`                              | Compiled into the bundle; an absolute URL's origin joins `connect-src` |
+| `API_UPSTREAM`      | Container environment | `http://host.docker.internal:8000` | Origin `/v1` is forwarded to; must resolve when the container starts   |
+| `WEB_PORT`          | `docker-compose.yml`  | `8080`                             | Host port the `web` service publishes                                  |
+
+```bash
+docker build --tag frontend-boilerplate .
+docker run --rm --publish 8080:8080 --env API_UPSTREAM=http://api.internal:8000 frontend-boilerplate
+```
+
+`npm run preview` sends the same headers, so `npm run test:e2e` fails any scenario whose page
+violates the policy, and CI's `Container image` job builds the image, checks it with `curl` and runs
+the whole end-to-end suite against it. Terminate TLS — and send `Strict-Transport-Security` — in
+front of the container. [Production container](./docs/features/deployment.md) covers the
+configuration, other hosts and every trade-off.
+
 ## Testing
 
 ```bash
 npm test                  # Vitest in jsdom — hermetic, no server, no browser
 npm run test:coverage     # the same suite with the 90% per-file gate enforced
 npm run test:e2e          # Playwright: builds the app, previews it, drives real Chromium
+E2E_BASE_URL=http://localhost:8080 npm run test:e2e   # the same suite against a running container
 ```
 
 The unit suite runs in jsdom against stub ports and MSW handlers, asserts on what a user perceives —
@@ -282,17 +333,17 @@ file**, with `npm run verify:coverage-scope` proving no file escaped measurement
 
 The end-to-end suite serves its own production build on port 4173 and answers the API inside the
 browser from stubs that pin their own copy of the wire contract and may not import `src/` — which is
-what lets it catch drift the unit suite cannot see. See
-[end-to-end testing](./docs/features/e2e-testing.md).
+what lets it catch drift the unit suite cannot see. Every scenario also fails if its page violates
+the Content-Security-Policy. See [end-to-end testing](./docs/features/e2e-testing.md).
 
 ## Quality gates
 
-| When                           | What runs                                                                                 | Scope                  |
-| ------------------------------ | ----------------------------------------------------------------------------------------- | ---------------------- |
-| `npm install` / `npm ci`       | The `engine-strict` Node check; lefthook installs the git hooks                           | The dependency tree    |
-| `git commit`                   | Prettier, ESLint, oxlint on staged files, plus glob-gated a11y-config and lockfile checks | Staged files only      |
-| `git push`                     | `npm run audit`                                                                           | The whole working tree |
-| Push or pull request to `main` | `npm run audit`, `npm run test:e2e`, `npm run audit:deps`                                 | A clean checkout       |
+| When                           | What runs                                                                                                                                                 | Scope                  |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| `npm install` / `npm ci`       | The `engine-strict` Node check; lefthook installs the git hooks                                                                                           | The dependency tree    |
+| `git commit`                   | Prettier, ESLint, oxlint on staged files, plus glob-gated a11y-config and lockfile checks                                                                 | Staged files only      |
+| `git push`                     | `npm run audit`                                                                                                                                           | The whole working tree |
+| Push or pull request to `main` | `npm run audit`, `npm run test:e2e`, `npm run audit:deps`, and the production container: built, checked with `curl`, and put through the end-to-end suite | A clean checkout       |
 
 The gate list lives in `package.json` only, so CI runs exactly the command you run locally. Hooks are
 managed by [lefthook](https://github.com/evilmartians/lefthook) and install themselves on
@@ -323,6 +374,15 @@ reuses a running server.
 Node 24.15 (see [Requirements](#requirements)). `nvm install && nvm use` picks up `.nvmrc`. Note
 that the check gates installs, not `npm run`, so an already-populated `node_modules` hides a Node
 downgrade until the next fresh install.
+
+**The container exits at once with `host not found in upstream`.** nginx resolves `API_UPSTREAM`
+when it starts, and the name did not resolve. With `docker run` on Linux, add
+`--add-host=host.docker.internal:host-gateway` for the default upstream; otherwise point
+`API_UPSTREAM` at a host the container can resolve. A host that resolves but refuses connections is
+no start-up error: `/v1` answers `502`, and the app shows its "unavailable" states.
+
+**`docker compose up` fails with `port is already allocated`.** Something else holds port 8080.
+Publish another one: `WEB_PORT=8081 docker compose up --build --wait`.
 
 **Commits and pushes run no checks.** `.git/hooks` is missing them. lefthook writes them from its
 own `postinstall`, so any install that did not run it — a skipped `npm install`, or one with `CI`

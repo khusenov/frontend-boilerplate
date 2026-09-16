@@ -266,7 +266,13 @@ export default tseslint.config(
     },
   },
   {
-    files: ['eslint.config.js', 'vite.config.ts', 'steiger.config.ts', 'scripts/**/*.mjs'],
+    files: [
+      'eslint.config.js',
+      'vite.config.ts',
+      'steiger.config.ts',
+      'scripts/**/*.mjs',
+      'scripts/**/*.ts',
+    ],
     languageOptions: {
       globals: globals.node,
     },

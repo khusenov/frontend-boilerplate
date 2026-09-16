@@ -1,10 +1,16 @@
-import { test as base } from '@playwright/test';
+import { expect, test as base } from '@playwright/test';
 import type { Route } from '@playwright/test';
 
 import { API_ROUTE_PATTERN, NOT_IMPLEMENTED_STATUS } from './http-contract';
+import { collectPolicyViolations } from './policy-violations';
 import { restoreSession } from './session-stub';
 import { createUserStub } from './user-stub';
 import type { UserStub } from './user-stub';
+
+interface HarnessFixtures {
+  readonly policyViolations: readonly string[];
+  readonly userStub: UserStub;
+}
 
 async function reportUnhandledRequest(route: Route): Promise<void> {
   const request = route.request();
@@ -16,7 +22,17 @@ async function reportUnhandledRequest(route: Route): Promise<void> {
   });
 }
 
-export const test = base.extend<{ userStub: UserStub }>({
+export const test = base.extend<HarnessFixtures>({
+  policyViolations: [
+    async ({ page }, use) => {
+      const violations = await collectPolicyViolations(page);
+
+      await use(violations);
+
+      expect(violations, 'the page violated its Content-Security-Policy').toEqual([]);
+    },
+    { auto: true },
+  ],
   userStub: [
     async ({ page }, use) => {
       const { stub, handle } = createUserStub();

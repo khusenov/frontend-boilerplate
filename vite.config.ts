@@ -1,7 +1,12 @@
+import path from 'node:path';
+
 import tailwindcss from '@tailwindcss/vite';
 import { tanstackRouter } from '@tanstack/router-plugin/vite';
 import react from '@vitejs/plugin-react';
+import { loadEnv } from 'vite';
 import { defineConfig } from 'vitest/config';
+
+import { createSecurityHeaders, readPolicySources } from './scripts/security-headers.ts';
 
 const routerPlugin = tanstackRouter({
   target: 'react',
@@ -13,13 +18,25 @@ const routerPlugin = tanstackRouter({
   semicolons: true,
 });
 
-export default defineConfig(({ mode }) => ({
+function createPreviewSecurityHeaders(mode: string): Record<string, string> {
+  const { VITE_API_BASE_URL } = loadEnv(mode, import.meta.dirname, 'VITE_');
+
+  return createSecurityHeaders(
+    readPolicySources({
+      indexHtmlPath: path.join(import.meta.dirname, 'dist', 'index.html'),
+      apiBaseUrl: VITE_API_BASE_URL,
+    }),
+  );
+}
+
+export default defineConfig(({ mode, isPreview = false }) => ({
   plugins: [...(mode === 'test' ? [] : [routerPlugin]), react(), tailwindcss()],
   server: {
     proxy: {
       '/v1': 'http://localhost:8000',
     },
   },
+  preview: isPreview ? { headers: createPreviewSecurityHeaders(mode) } : {},
   resolve: {
     tsconfigPaths: true,
   },

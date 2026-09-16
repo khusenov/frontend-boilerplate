@@ -1,6 +1,6 @@
 # Configuration and environment
 
-> **Status:** Complete · **Layers:** app, pages, widgets, entities, shared, outside layers · **Verified against:** `65a99bc`
+> **Status:** Complete · **Layers:** app, pages, widgets, entities, shared, outside layers · **Verified against:** `7ce79de`
 
 ## Purpose
 
@@ -78,7 +78,11 @@ together with the route modules under `src/app/routes`.
    template pairs with — listens by default. To the browser the API is same-origin: no CORS, no
    preflight, and the refresh cookie the API sets with `path: '/v1/auth'` is stored as the dev
    server's own and sent back on the next `/v1/auth/refresh`. `npm run preview` forwards the same
-   way, because `vite.config.ts` sets no `preview.proxy` and Vite falls back to `server.proxy`.
+   way, because `vite.config.ts` sets no `preview.proxy` and Vite falls back to `server.proxy`. The
+   preview also sends the production security headers, and it reads `VITE_API_BASE_URL` a second
+   time, through Vite's `loadEnv` in Node, only to add an absolute base URL's origin to the
+   policy's `connect-src` ([Production container](./deployment.md)). In the production container,
+   nginx forwards `/v1` the same way, to the origin in its `API_UPSTREAM` environment variable.
 5. **In the end-to-end suite, the build is pinned.** Playwright's `webServer` runs
    `npm run build && npm run preview -- --port 4173 --strictPort` (`PREVIEW_PORT` is `4173`) with
    `webServer.env` set to `{ VITE_API_BASE_URL: API_PREFIX }`. `API_PREFIX` — `'/v1'`, in
@@ -124,26 +128,28 @@ configuration at the composition seam is a convention, not a fence
 `grep -rn "@/shared/config" src`. What steiger does reject is a deep import past the barrel, such as
 `@/shared/config/app-config`, from any layer above `shared` (`fsd/no-public-api-sidestep`).
 
-| Component                          | Layer                      | Responsibility                                                                                                               | File                                                   |
-| ---------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| `appConfig`                        | `shared/config`            | The resolved settings — `name`, `mode`, `apiBaseUrl` — built by the only module in `src/` that reads `import.meta.env`       | `src/shared/config/app-config.ts`                      |
-| `DEFAULT_API_BASE_URL`             | `shared/config` (internal) | `'/v1'`, used when `VITE_API_BASE_URL` is unset, empty or whitespace-only                                                    | `src/shared/config/app-config.ts`                      |
-| Barrel                             | `shared/config`            | Public API: re-exports `appConfig`                                                                                           | `src/shared/config/index.ts`                           |
-| `ImportMetaEnv`, `ViteTypeOptions` | `outside layers`           | Declare `VITE_API_BASE_URL` as an optional string; `strictImportMetaEnv` turns a read of an undeclared key into a type error | `env.d.ts`                                             |
-| Variable template                  | `outside layers`           | The committed list of variables: `VITE_API_BASE_URL=/v1`                                                                     | `.env.example`                                         |
-| `# Env` rules                      | `outside layers`           | Ignore `.env` and `.env.*`; re-include `.env.example`                                                                        | `.gitignore`                                           |
-| `server.proxy`                     | `outside layers`           | Forwards `/v1` to `http://localhost:8000` under `npm run dev` and, by fallback, `npm run preview`                            | `vite.config.ts`                                       |
-| `webServer.env`                    | `outside layers`           | Pins `VITE_API_BASE_URL` to `API_PREFIX` for the build the end-to-end suite runs against                                     | `playwright.config.ts`                                 |
-| `API_PREFIX`                       | `outside layers`           | `'/v1'`: the pinned base URL and the root of the stubs' `API_ROUTE_PATTERN`                                                  | `e2e/fixtures/http-contract.ts`                        |
-| `App`                              | `app/entrypoint`           | Reads `appConfig.apiBaseUrl` and passes it to `AppProviders`                                                                 | `src/app/entrypoint/app.tsx`                           |
-| `AppProviders`                     | `app/entrypoint`           | Takes `apiBaseUrl` as a prop and builds the transport with it once, in `useState`                                            | `src/app/entrypoint/app-providers.tsx`                 |
-| `createAuthenticatedTransport`     | `app/entrypoint`           | Gives the base URL to both HTTP clients as `baseUrl`                                                                         | `src/app/entrypoint/create-authenticated-transport.ts` |
-| `createHttpClient`                 | `shared/api`               | Turns `baseUrl` into axios's `baseURL` ([HTTP transport](./http-transport.md))                                               | `src/shared/api/http-client.ts`                        |
-| `RootLayout`                       | `app/routes`               | Reads `appConfig.name` and passes it to `AppHeader` as its `appName` prop                                                    | `src/app/routes/__root.tsx`                            |
-| `AppHeader`                        | `widgets/app-header · ui`  | Renders the app-shell banner from the `appName` prop; imports no configuration of its own                                    | `src/widgets/app-header/ui/app-header.tsx`             |
-| `HomeRoute`                        | `app/routes`               | Reads all three fields and passes them to `HomePage` as props                                                                | `src/app/routes/index.tsx`                             |
-| `HomePage`                         | `pages/home · ui`          | Receives `name`, `mode` and `apiBaseUrl` as `readonly` string props and displays them                                        | `src/pages/home/ui/home-page.tsx`                      |
-| `REFRESH_TASK_NAME`                | `entities/session · model` | `appConfig.name` plus `:session-refresh`, the refresh lock's name; the one read of `appConfig` below `app`                   | `src/entities/session/model/session-token-source.ts`   |
+| Component                                          | Layer                      | Responsibility                                                                                                                            | File                                                   |
+| -------------------------------------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `appConfig`                                        | `shared/config`            | The resolved settings — `name`, `mode`, `apiBaseUrl` — built by the only module in `src/` that reads `import.meta.env`                    | `src/shared/config/app-config.ts`                      |
+| `DEFAULT_API_BASE_URL`                             | `shared/config` (internal) | `'/v1'`, used when `VITE_API_BASE_URL` is unset, empty or whitespace-only                                                                 | `src/shared/config/app-config.ts`                      |
+| Barrel                                             | `shared/config`            | Public API: re-exports `appConfig`                                                                                                        | `src/shared/config/index.ts`                           |
+| `ImportMetaEnv`, `ViteTypeOptions`                 | `outside layers`           | Declare `VITE_API_BASE_URL` as an optional string; `strictImportMetaEnv` turns a read of an undeclared key into a type error              | `env.d.ts`                                             |
+| Variable template                                  | `outside layers`           | The committed list of variables: `VITE_API_BASE_URL=/v1`                                                                                  | `.env.example`                                         |
+| `# Env` rules                                      | `outside layers`           | Ignore `.env` and `.env.*`; re-include `.env.example`                                                                                     | `.gitignore`                                           |
+| `server.proxy`                                     | `outside layers`           | Forwards `/v1` to `http://localhost:8000` under `npm run dev` and, by fallback, `npm run preview`                                         | `vite.config.ts`                                       |
+| `createPreviewSecurityHeaders`                     | `outside layers`           | Reads `VITE_API_BASE_URL` through `loadEnv` when `vite preview` starts, so an absolute base URL's origin joins the policy's `connect-src` | `vite.config.ts`                                       |
+| `VITE_API_BASE_URL` build argument, `API_UPSTREAM` | `outside layers`           | The container's two settings: the value compiled into its bundle, and the origin nginx forwards `/v1` to at runtime                       | `Dockerfile`, `docker-compose.yml`                     |
+| `webServer.env`                                    | `outside layers`           | Pins `VITE_API_BASE_URL` to `API_PREFIX` for the build the end-to-end suite runs against                                                  | `playwright.config.ts`                                 |
+| `API_PREFIX`                                       | `outside layers`           | `'/v1'`: the pinned base URL and the root of the stubs' `API_ROUTE_PATTERN`                                                               | `e2e/fixtures/http-contract.ts`                        |
+| `App`                                              | `app/entrypoint`           | Reads `appConfig.apiBaseUrl` and passes it to `AppProviders`                                                                              | `src/app/entrypoint/app.tsx`                           |
+| `AppProviders`                                     | `app/entrypoint`           | Takes `apiBaseUrl` as a prop and builds the transport with it once, in `useState`                                                         | `src/app/entrypoint/app-providers.tsx`                 |
+| `createAuthenticatedTransport`                     | `app/entrypoint`           | Gives the base URL to both HTTP clients as `baseUrl`                                                                                      | `src/app/entrypoint/create-authenticated-transport.ts` |
+| `createHttpClient`                                 | `shared/api`               | Turns `baseUrl` into axios's `baseURL` ([HTTP transport](./http-transport.md))                                                            | `src/shared/api/http-client.ts`                        |
+| `RootLayout`                                       | `app/routes`               | Reads `appConfig.name` and passes it to `AppHeader` as its `appName` prop                                                                 | `src/app/routes/__root.tsx`                            |
+| `AppHeader`                                        | `widgets/app-header · ui`  | Renders the app-shell banner from the `appName` prop; imports no configuration of its own                                                 | `src/widgets/app-header/ui/app-header.tsx`             |
+| `HomeRoute`                                        | `app/routes`               | Reads all three fields and passes them to `HomePage` as props                                                                             | `src/app/routes/index.tsx`                             |
+| `HomePage`                                         | `pages/home · ui`          | Receives `name`, `mode` and `apiBaseUrl` as `readonly` string props and displays them                                                     | `src/pages/home/ui/home-page.tsx`                      |
+| `REFRESH_TASK_NAME`                                | `entities/session · model` | `appConfig.name` plus `:session-refresh`, the refresh lock's name; the one read of `appConfig` below `app`                                | `src/entities/session/model/session-token-source.ts`   |
 
 ## Public surface
 
@@ -172,8 +178,9 @@ read-only at compile time; the object itself is not frozen. `DEFAULT_API_BASE_UR
 | `.env.example`                                           | Yes: `!.env.example` re-includes it          | The committed list of variables the app understands. Vite never reads it; copy it to `.env`                                                     |
 | `env.d.ts`                                               | Yes                                          | Declares each variable on `ImportMetaEnv` and turns on `strictImportMetaEnv`; `tsconfig.app.json` includes it, so the types cover all of `src/` |
 | `src/shared/config/app-config.ts`                        | Yes                                          | Reads, normalizes and exports every setting                                                                                                     |
-| `vite.config.ts`                                         | Yes                                          | The `/v1` dev proxy                                                                                                                             |
+| `vite.config.ts`                                         | Yes                                          | The `/v1` dev proxy, and the security headers `vite preview` sends                                                                              |
 | `playwright.config.ts`                                   | Yes                                          | The end-to-end pin                                                                                                                              |
+| `Dockerfile`, `docker-compose.yml`                       | Yes                                          | The production container: `VITE_API_BASE_URL` as a build argument, `API_UPSTREAM` and `WEB_PORT` at runtime                                     |
 
 ### Scripts
 
@@ -181,7 +188,7 @@ read-only at compile time; the object itself is not frozen. `DEFAULT_API_BASE_UR
 | ------------------ | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `npm run dev`      | `development` | `.env`, `.env.local`, `.env.development`, `.env.development.local`; `/v1` proxied to `http://localhost:8000`. Changing one of those files restarts the dev server |
 | `npm run build`    | `production`  | `.env`, `.env.local`, `.env.production`, `.env.production.local`, compiled into `dist/`                                                                           |
-| `npm run preview`  | As built      | `dist/` exactly as the last build left it; `/v1` proxied as under `npm run dev`                                                                                   |
+| `npm run preview`  | As built      | `dist/` exactly as the last build left it, with the production security headers; `/v1` proxied as under `npm run dev`                                             |
 | `npm test`         | `test`        | `.env`, `.env.local`, `.env.test`, `.env.test.local`: Vitest copies their `VITE_*` values into the test environment                                               |
 | `npm run test:e2e` | `production`  | A fresh build with `VITE_API_BASE_URL` pinned to `/v1`, whatever the `.env` files say                                                                             |
 
@@ -198,8 +205,11 @@ so both see the defaults ([Quality gates](./quality-gates.md)).
 | `strictImportMetaEnv` (`ViteTypeOptions` in `env.d.ts`)    | On                                                                 | Removes the `Record<string, any>` fallback from `ImportMetaEnv`, so reading an undeclared key fails `tsc`                                                                                                                                                                                                                                                                                        |
 | `server.proxy['/v1']` (`vite.config.ts`)                   | `'http://localhost:8000'`                                          | Dev-server forwarding of every request path under `/v1`, unchanged, to a local API. It reads no environment variable                                                                                                                                                                                                                                                                             |
 | `preview.proxy` (`vite.config.ts`)                         | Unset, so `server.proxy` applies                                   | `npm run preview` forwards `/v1` the same way                                                                                                                                                                                                                                                                                                                                                    |
+| `preview.headers` (`vite.config.ts`)                       | Computed when `vite preview` starts                                | The production security headers; an absolute `VITE_API_BASE_URL`, read with `loadEnv`, adds its origin to `connect-src`                                                                                                                                                                                                                                                                          |
 | `webServer.env.VITE_API_BASE_URL` (`playwright.config.ts`) | `API_PREFIX` (`'/v1'`)                                             | The base URL of the build the end-to-end suite runs against                                                                                                                                                                                                                                                                                                                                      |
 | `envDir`, `envPrefix` (`vite.config.ts`)                   | Unset: the repository root, `VITE_`                                | Where Vite looks for `.env` files, and the prefix a key needs to reach `import.meta.env`                                                                                                                                                                                                                                                                                                         |
+| `VITE_API_BASE_URL` (container build argument)             | `/v1`; compose passes the shell or `.env` value                    | What `docker build` compiles into the image's bundle; one image per API topology                                                                                                                                                                                                                                                                                                                 |
+| `API_UPSTREAM` (container environment)                     | `http://host.docker.internal:8000`                                 | The origin nginx forwards `/v1` to, read when the container starts                                                                                                                                                                                                                                                                                                                               |
 
 For a given mode Vite reads `.env`, `.env.local`, `.env.<mode>` and `.env.<mode>.local`, in that
 order; a later file wins, and a variable already in the process environment — a shell export, a CI
@@ -242,9 +252,10 @@ label in front of it. So `app.example.com` and `api.example.com` are one site, `
 origin, which is what makes the second option below workable at all.
 
 - **Same origin — the default.** Serve `dist/` and forward `/v1`, path unchanged, to the API from
-  the same origin, as the dev proxy does. Build with no variable at all; the resulting `dist/` runs
-  unmodified on every host with that routing, plus the fallback to `index.html` every deep link
-  needs ([Routing](./routing.md)).
+  the same origin, as the dev proxy does and the production container does with its
+  `API_UPSTREAM` ([Production container](./deployment.md)). Build with no variable at all; the
+  resulting `dist/` runs unmodified on every host with that routing, plus the fallback to
+  `index.html` every deep link needs ([Routing](./routing.md)).
 - **Another origin on the same site** — same registrable domain, different host or port. Set the
   variable in the build environment:
 
@@ -379,9 +390,11 @@ spells `/v1`:
   `src/shared/config/app-config.test.ts`;
 - `VITE_API_BASE_URL` in `.env.example`;
 - the `server.proxy` key in `vite.config.ts`;
-- `API_PREFIX` in `e2e/fixtures/http-contract.ts`, which moves the end-to-end pin and
-  `API_ROUTE_PATTERN` together;
-- `USER_RESOURCE_PATTERN` in `e2e/fixtures/user-stub.ts`, a regular expression with its own `/v1`.
+- `API_PREFIX` in `e2e/fixtures/http-contract.ts`, which moves the end-to-end pin,
+  `API_ROUTE_PATTERN`, the session stub's refresh path and `USER_RESOURCE_PATTERN` together;
+- the `VITE_API_BASE_URL` build-argument default in `Dockerfile` and `docker-compose.yml`;
+- the `location /v1/` block in `docker/nginx/default.conf.template`;
+- the proxied path the `Container image` job asserts in `.github/workflows/ci.yml`.
 
 ### Rename the app when forking
 
@@ -518,8 +531,9 @@ every `/v1` request inside the browser, so none reaches the preview server's pro
 - **The value is not validated.** `app-config.ts` trims and falls back, nothing more: any non-blank
   string becomes axios's `baseURL`, so a typo in `VITE_API_BASE_URL` builds cleanly and surfaces
   only when requests fail at runtime.
-- **The prefix has no single source.** `/v1` is spelled out in the five places listed under
+- **The prefix has no single source.** `/v1` is spelled out in every place listed under
   [Change the API prefix](#change-the-api-prefix); only `API_PREFIX` feeds more than one consumer.
-- **No production routing ships.** The same-origin topology the default relies on exists only in
-  `vite.config.ts`, which configures `npm run dev` and `npm run preview`; the repository contains no
-  host or reverse-proxy configuration for a deployment.
+- **One production topology ships.** The same-origin topology the default relies on is configured
+  for `npm run dev` and `npm run preview` in `vite.config.ts`, and for production only in the nginx
+  container; a platform that serves static files some other way needs the equivalent routing
+  written for it ([Production container](./deployment.md#serve-the-build-without-this-image)).

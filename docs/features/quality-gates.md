@@ -1,6 +1,6 @@
 # Quality gates
 
-> **Status:** Complete · **Layers:** outside layers · **Verified against:** `d6deb01`
+> **Status:** Complete · **Layers:** outside layers · **Verified against:** `7ce79de`
 
 ## Purpose
 
@@ -78,7 +78,7 @@ generation and `autoCodeSplitting` are exercised under `audit` only here. `verif
 has to follow `test:coverage`, because it reads the `coverage/lcov.info` that run writes.
 `verify:import-fence` is appended rather than inserted, so every earlier gate keeps its number.
 
-**Push or pull request to `main`.** `.github/workflows/ci.yml` starts three jobs on
+**Push or pull request to `main`.** `.github/workflows/ci.yml` starts four jobs on
 `ubuntu-latest`, each from a fresh checkout with the Node version read from `.nvmrc`:
 
 - `Quality gates` runs `npm ci`, then `npm run audit` — the command the hook ran — and uploads
@@ -86,14 +86,20 @@ has to follow `test:coverage`, because it reads the `coverage/lcov.info` that ru
 - `End-to-end tests` runs `npm ci`, installs Chromium with
   `npx playwright install --with-deps chromium`, runs `npm run test:e2e` against the production
   build, and uploads `playwright-report/` (see [End-to-end testing](./e2e-testing.md)).
+- `Container image` builds the production image with `docker/build-push-action` and a GitHub
+  Actions layer cache, starts it, waits for its health check, asserts with `curl` that a deep link
+  returns the app with the security headers, that a hashed asset is cached immutably, that a missing
+  asset is a `404` and that `/v1` is proxied, then runs `npm run test:e2e` against the container
+  with `E2E_BASE_URL` set (see [Production container](./deployment.md)).
 - `Dependency audit` runs `npm run audit:deps` — `npm audit --omit=dev --audit-level=high` —
   without installing anything.
 
 Every Monday at 06:00 UTC (`cron: '0 6 * * 1'`) the workflow runs again on `main` with only
-`Dependency audit`: the other two jobs carry `if: github.event_name != 'schedule'`.
+`Dependency audit`: the other three jobs carry `if: github.event_name != 'schedule'`.
 
 **Dependency updates.** Dependabot (`.github/dependabot.yml`) opens npm update pull requests every
-Monday, grouped by package family, and GitHub Actions update pull requests monthly. They reach CI
+Monday, grouped by package family, Docker base-image update pull requests every Monday, and GitHub
+Actions update pull requests monthly. They reach CI
 like any other pull request — and only CI, because Dependabot's commits never pass through a local
 hook.
 
@@ -120,30 +126,31 @@ and together they enforce the architecture rules on `src` from outside it: steig
 coverage (see [Unit and component testing](./unit-testing.md)) and Playwright the built bundle (see
 [End-to-end testing](./e2e-testing.md)). Every file below lives outside the layers.
 
-| Component                                | Layer                        | Responsibility                                                                                 | File                                                           |
-| ---------------------------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `audit`                                  | outside layers · root config | The ordered gate list, and the only one; `pre-push` and `Quality gates` run it by name         | `package.json`                                                 |
-| `engines`, `packageManager`              | outside layers · root config | Declare Node `>=24.0.0` and npm `11.16.0`                                                      | `package.json`                                                 |
-| `engine-strict`                          | outside layers · root config | Turns an `engines` mismatch into an install failure                                            | `.npmrc`                                                       |
-| `.nvmrc`                                 | outside layers · root config | Node major `24`, read by `nvm` and by `actions/setup-node`                                     | `.nvmrc`                                                       |
-| `pre-commit`                             | outside layers · root config | The five staged-file jobs: `format`, `lint`, `a11y`, `a11y-rules-drift`, `lockfile`            | `lefthook.yml`                                                 |
-| `pre-push`                               | outside layers · root config | The `audit` job: `npm run audit`                                                               | `lefthook.yml`                                                 |
-| `install`                                | outside layers · vendor      | lefthook's `postinstall`: runs `lefthook install -f`, skipped under `CI`                       | `node_modules/lefthook/postinstall.js`                         |
-| `quality-gates`                          | outside layers · CI          | `Quality gates`: `npm ci`, `npm run audit`, the `coverage` artifact                            | `.github/workflows/ci.yml`                                     |
-| `e2e`                                    | outside layers · CI          | `End-to-end tests`: Chromium, `npm run test:e2e`, the `playwright-report` artifact             | `.github/workflows/ci.yml`                                     |
-| `dependency-audit`                       | outside layers · CI          | `Dependency audit`: `npm run audit:deps` on pushes, pull requests and the weekly schedule      | `.github/workflows/ci.yml`                                     |
-| `updates`                                | outside layers · CI          | Grouped npm (weekly) and GitHub Actions (monthly) update pull requests                         | `.github/dependabot.yml`                                       |
-| `tseslint.config`                        | outside layers · root config | The ESLint flat config: type-aware rules, React, TanStack, Vitest, import order, import fences | `eslint.config.js`                                             |
-| `rules`                                  | outside layers · root config | The 36 `jsx-a11y` rules at `error`, with oxlint's `correctness` category off                   | `.oxlintrc.json`                                               |
-| `schemaRuleNames`, `generate`, `check`   | outside layers · scripts     | Derives `.oxlintrc.json` from oxlint's JSON schema; `--check` fails on drift                   | `scripts/a11y-rules.mjs`                                       |
-| `measurableSourceFiles`, `measuredFiles` | outside layers · scripts     | Diffs the source tree against `coverage/lcov.info`                                             | `scripts/verify-coverage-scope.mjs`                            |
-| `defineConfig`                           | outside layers · root config | steiger with `fsd.configs.recommended` and one `fsd/insignificant-slice` override              | `steiger.config.ts`                                            |
-| `.prettierrc.json`                       | outside layers · root config | Formatting options and the Tailwind class-sorting plugin                                       | `.prettierrc.json`                                             |
-| `.prettierignore`                        | outside layers · root config | Keeps tool-owned files out of Prettier; the `docs/*` allow-list re-admits the published docs   | `.prettierignore`                                              |
-| `references`                             | outside layers · root config | Solution file that ties the three TypeScript projects together for `tsc -b`                    | `tsconfig.json`                                                |
-| `include`                                | outside layers · root config | One TypeScript project each: the app, the Node-side config and scripts, the end-to-end suite   | `tsconfig.app.json`, `tsconfig.node.json`, `tsconfig.e2e.json` |
-| `test.coverage`                          | outside layers · root config | v8 coverage, the `lcov` reporter and the 90% per-file thresholds `test:coverage` enforces      | `vite.config.ts`                                               |
-| `arch:graph`                             | outside layers · root config | Regenerates `docs/architecture-graph.md` with dependency-cruiser; not a gate                   | `package.json`                                                 |
+| Component                                | Layer                        | Responsibility                                                                                                       | File                                                           |
+| ---------------------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `audit`                                  | outside layers · root config | The ordered gate list, and the only one; `pre-push` and `Quality gates` run it by name                               | `package.json`                                                 |
+| `engines`, `packageManager`              | outside layers · root config | Declare Node `>=24.0.0` and npm `11.16.0`                                                                            | `package.json`                                                 |
+| `engine-strict`                          | outside layers · root config | Turns an `engines` mismatch into an install failure                                                                  | `.npmrc`                                                       |
+| `.nvmrc`                                 | outside layers · root config | Node major `24`, read by `nvm` and by `actions/setup-node`                                                           | `.nvmrc`                                                       |
+| `pre-commit`                             | outside layers · root config | The five staged-file jobs: `format`, `lint`, `a11y`, `a11y-rules-drift`, `lockfile`                                  | `lefthook.yml`                                                 |
+| `pre-push`                               | outside layers · root config | The `audit` job: `npm run audit`                                                                                     | `lefthook.yml`                                                 |
+| `install`                                | outside layers · vendor      | lefthook's `postinstall`: runs `lefthook install -f`, skipped under `CI`                                             | `node_modules/lefthook/postinstall.js`                         |
+| `quality-gates`                          | outside layers · CI          | `Quality gates`: `npm ci`, `npm run audit`, the `coverage` artifact                                                  | `.github/workflows/ci.yml`                                     |
+| `e2e`                                    | outside layers · CI          | `End-to-end tests`: Chromium, `npm run test:e2e`, the `playwright-report` artifact                                   | `.github/workflows/ci.yml`                                     |
+| `container`                              | outside layers · CI          | `Container image`: builds and starts the production image, checks it with `curl`, runs `npm run test:e2e` against it | `.github/workflows/ci.yml`                                     |
+| `dependency-audit`                       | outside layers · CI          | `Dependency audit`: `npm run audit:deps` on pushes, pull requests and the weekly schedule                            | `.github/workflows/ci.yml`                                     |
+| `updates`                                | outside layers · CI          | Grouped npm (weekly), Docker base-image (weekly) and GitHub Actions (monthly) update pull requests                   | `.github/dependabot.yml`                                       |
+| `tseslint.config`                        | outside layers · root config | The ESLint flat config: type-aware rules, React, TanStack, Vitest, import order, import fences                       | `eslint.config.js`                                             |
+| `rules`                                  | outside layers · root config | The 36 `jsx-a11y` rules at `error`, with oxlint's `correctness` category off                                         | `.oxlintrc.json`                                               |
+| `schemaRuleNames`, `generate`, `check`   | outside layers · scripts     | Derives `.oxlintrc.json` from oxlint's JSON schema; `--check` fails on drift                                         | `scripts/a11y-rules.mjs`                                       |
+| `measurableSourceFiles`, `measuredFiles` | outside layers · scripts     | Diffs the source tree against `coverage/lcov.info`                                                                   | `scripts/verify-coverage-scope.mjs`                            |
+| `defineConfig`                           | outside layers · root config | steiger with `fsd.configs.recommended` and one `fsd/insignificant-slice` override                                    | `steiger.config.ts`                                            |
+| `.prettierrc.json`                       | outside layers · root config | Formatting options and the Tailwind class-sorting plugin                                                             | `.prettierrc.json`                                             |
+| `.prettierignore`                        | outside layers · root config | Keeps tool-owned files out of Prettier; the `docs/*` allow-list re-admits the published docs                         | `.prettierignore`                                              |
+| `references`                             | outside layers · root config | Solution file that ties the three TypeScript projects together for `tsc -b`                                          | `tsconfig.json`                                                |
+| `include`                                | outside layers · root config | One TypeScript project each: the app, the Node-side config and scripts, the end-to-end suite                         | `tsconfig.app.json`, `tsconfig.node.json`, `tsconfig.e2e.json` |
+| `test.coverage`                          | outside layers · root config | v8 coverage, the `lcov` reporter and the 90% per-file thresholds `test:coverage` enforces                            | `vite.config.ts`                                               |
+| `arch:graph`                             | outside layers · root config | Regenerates `docs/architecture-graph.md` with dependency-cruiser; not a gate                                         | `package.json`                                                 |
 
 ## Public surface
 
@@ -223,15 +230,17 @@ and `schedule` with `cron: '0 6 * * 1'`. It sets `permissions: contents: read` f
 `concurrency` with `group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}` and
 `cancel-in-progress: ${{ github.event_name == 'pull_request' }}`. Every job runs on `ubuntu-latest`,
 checks out with `actions/checkout@v7` and `persist-credentials: false`, and sets up Node with
-`actions/setup-node@v7`, `node-version-file: .nvmrc` and `cache: npm`. No step reads a secret.
+`actions/setup-node@v7`, `node-version-file: .nvmrc` and `cache: npm` — the `container` job only
+after it has built and checked the image. No step reads a secret.
 
-| Job                | Name               | Events                       | Steps after checkout and Node setup                                                 | Timeout | Artifact                                                   |
-| ------------------ | ------------------ | ---------------------------- | ----------------------------------------------------------------------------------- | ------- | ---------------------------------------------------------- |
-| `quality-gates`    | `Quality gates`    | Push, pull request           | `npm ci`, `npm run audit`, upload                                                   | 15 min  | `coverage` from `coverage/`, kept 7 days                   |
-| `e2e`              | `End-to-end tests` | Push, pull request           | `npm ci`, `npx playwright install --with-deps chromium`, `npm run test:e2e`, upload | 20 min  | `playwright-report` from `playwright-report/`, kept 7 days |
-| `dependency-audit` | `Dependency audit` | Push, pull request, schedule | `npm run audit:deps`                                                                | 10 min  | None                                                       |
+| Job                | Name               | Events                       | Steps after checkout and Node setup                                                                                                                                                                                                                               | Timeout | Artifact                                                             |
+| ------------------ | ------------------ | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | -------------------------------------------------------------------- |
+| `quality-gates`    | `Quality gates`    | Push, pull request           | `npm ci`, `npm run audit`, upload                                                                                                                                                                                                                                 | 15 min  | `coverage` from `coverage/`, kept 7 days                             |
+| `e2e`              | `End-to-end tests` | Push, pull request           | `npm ci`, `npx playwright install --with-deps chromium`, `npm run test:e2e`, upload                                                                                                                                                                               | 20 min  | `playwright-report` from `playwright-report/`, kept 7 days           |
+| `container`        | `Container image`  | Push, pull request           | `docker/setup-buildx-action@v4`, `docker/build-push-action@v7` with a GitHub Actions cache, `docker run`, a health wait, four `curl` assertions, then Node setup, `npm ci`, Chromium and `npm run test:e2e` with `E2E_BASE_URL`, upload; `docker logs` on failure | 20 min  | `playwright-report-container` from `playwright-report/`, kept 7 days |
+| `dependency-audit` | `Dependency audit` | Push, pull request, schedule | `npm run audit:deps`                                                                                                                                                                                                                                              | 10 min  | None                                                                 |
 
-Both uploads use `actions/upload-artifact@v7` with `if: ${{ !cancelled() }}` and
+All three uploads use `actions/upload-artifact@v7` with `if: ${{ !cancelled() }}` and
 `if-no-files-found: ignore`.
 
 ### Helper scripts
@@ -256,19 +265,19 @@ failure output.
 Where each ESLint rule set in `eslint.config.js` applies. The `no-restricted-imports` fences and the
 barrel rule are explained in [Architecture boundaries](./architecture-boundaries.md).
 
-| Files                                                                         | Rule sets                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `**/*.{js,mjs,ts,tsx}`                                                        | `js.configs.recommended`; typescript-eslint `recommendedTypeChecked` and `stylisticTypeChecked`, typed through `projectService: true`; `consistent-type-imports` (`prefer: 'type-imports'`, `fixStyle: 'separate-type-imports'`), `no-import-type-side-effects`, `no-floating-promises`, `no-misused-promises`; `import-x/order` (builtin, external, internal `^@/`, parent, sibling, index; blank line between groups; alphabetized) |
-| `src/**/*.{ts,tsx}`, `vitest.setup.ts`                                        | `@eslint-react/eslint-plugin` `recommended-typescript`, `eslint-plugin-react-hooks` `recommended`, `eslint-plugin-react-refresh` `vite`; browser globals; `import-x/resolver-next`, the TypeScript-aware resolver — without it every path-based `import-x` rule silently skips `src/`                                                                                                                                                 |
-| `src/**/*.{ts,tsx}`                                                           | TanStack Query and TanStack Router `flat/recommended`; `@typescript-eslint/no-unused-vars` with `ignoreRestSiblings: true`; the `no-restricted-imports` fences                                                                                                                                                                                                                                                                        |
-| `src/**/*.test.{ts,tsx}`                                                      | `@vitest/eslint-plugin` `recommended`                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `src/**/*.{ts,tsx}` minus `*.test.{ts,tsx}` and `src/shared/testing/**`       | `import-x/no-restricted-paths`: nothing in the production graph may import `@/shared/testing`, which is devDependency-backed. Verified by gate 10                                                                                                                                                                                                                                                                                     |
-| `src/app/routes/**/*.tsx`                                                     | `react-refresh/only-export-components` off: every route module exports a `Route` constant beside its components                                                                                                                                                                                                                                                                                                                       |
-| `src/**/index.ts`                                                             | `no-restricted-syntax`: a barrel may only import and re-export                                                                                                                                                                                                                                                                                                                                                                        |
-| `eslint.config.js`, `vite.config.ts`, `steiger.config.ts`, `scripts/**/*.mjs` | Node globals                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `steiger.config.ts`                                                           | `no-unsafe-argument` and `no-unsafe-assignment` off: steiger's types resolve to `any`, because its `.d.ts` needs `@steiger/toolkit`, whose `vitest` peer stops at 3                                                                                                                                                                                                                                                                   |
-| `e2e/**/*.ts`, `playwright.config.ts`                                         | `no-restricted-imports`: nothing from `src`                                                                                                                                                                                                                                                                                                                                                                                           |
-| Every file                                                                    | `linterOptions.reportUnusedDisableDirectives: 'error'`; `eslint-config-prettier` last, switching off every rule Prettier owns; global `ignores` for `.claude`, `dist`, `coverage`, `node_modules`, `playwright-report`, `test-results`, `blob-report` and `src/app/router/route-tree.gen.ts`                                                                                                                                          |
+| Files                                                                                            | Rule sets                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `**/*.{js,mjs,ts,tsx}`                                                                           | `js.configs.recommended`; typescript-eslint `recommendedTypeChecked` and `stylisticTypeChecked`, typed through `projectService: true`; `consistent-type-imports` (`prefer: 'type-imports'`, `fixStyle: 'separate-type-imports'`), `no-import-type-side-effects`, `no-floating-promises`, `no-misused-promises`; `import-x/order` (builtin, external, internal `^@/`, parent, sibling, index; blank line between groups; alphabetized) |
+| `src/**/*.{ts,tsx}`, `vitest.setup.ts`                                                           | `@eslint-react/eslint-plugin` `recommended-typescript`, `eslint-plugin-react-hooks` `recommended`, `eslint-plugin-react-refresh` `vite`; browser globals; `import-x/resolver-next`, the TypeScript-aware resolver — without it every path-based `import-x` rule silently skips `src/`                                                                                                                                                 |
+| `src/**/*.{ts,tsx}`                                                                              | TanStack Query and TanStack Router `flat/recommended`; `@typescript-eslint/no-unused-vars` with `ignoreRestSiblings: true`; the `no-restricted-imports` fences                                                                                                                                                                                                                                                                        |
+| `src/**/*.test.{ts,tsx}`                                                                         | `@vitest/eslint-plugin` `recommended`                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `src/**/*.{ts,tsx}` minus `*.test.{ts,tsx}` and `src/shared/testing/**`                          | `import-x/no-restricted-paths`: nothing in the production graph may import `@/shared/testing`, which is devDependency-backed. Verified by gate 10                                                                                                                                                                                                                                                                                     |
+| `src/app/routes/**/*.tsx`                                                                        | `react-refresh/only-export-components` off: every route module exports a `Route` constant beside its components                                                                                                                                                                                                                                                                                                                       |
+| `src/**/index.ts`                                                                                | `no-restricted-syntax`: a barrel may only import and re-export                                                                                                                                                                                                                                                                                                                                                                        |
+| `eslint.config.js`, `vite.config.ts`, `steiger.config.ts`, `scripts/**/*.mjs`, `scripts/**/*.ts` | Node globals                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `steiger.config.ts`                                                                              | `no-unsafe-argument` and `no-unsafe-assignment` off: steiger's types resolve to `any`, because its `.d.ts` needs `@steiger/toolkit`, whose `vitest` peer stops at 3                                                                                                                                                                                                                                                                   |
+| `e2e/**/*.ts`, `playwright.config.ts`                                                            | `no-restricted-imports`: nothing from `src`                                                                                                                                                                                                                                                                                                                                                                                           |
+| Every file                                                                                       | `linterOptions.reportUnusedDisableDirectives: 'error'`; `eslint-config-prettier` last, switching off every rule Prettier owns; global `ignores` for `.claude`, `dist`, `coverage`, `node_modules`, `playwright-report`, `test-results`, `blob-report` and `src/app/router/route-tree.gen.ts`                                                                                                                                          |
 
 ### TypeScript projects
 
@@ -279,11 +288,11 @@ incremental build info in `node_modules/.tmp/`, and shares one strictness set: `
 `noFallthroughCasesInSwitch`, `noUnusedLocals`, `noUnusedParameters`, `isolatedModules`,
 `verbatimModuleSyntax`, `erasableSyntaxOnly` and `forceConsistentCasingInFileNames`.
 
-| Project              | `include`                                                                     | Differs in                                                                                                                                                                                       |
-| -------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `tsconfig.app.json`  | `src`, `env.d.ts`, `vitest.setup.ts`                                          | `moduleResolution: "bundler"`, `jsx: "react-jsx"`, `lib` with `DOM`, `types: ["vite/client"]`, `paths` `@/*` → `./src/*`                                                                         |
-| `tsconfig.node.json` | `vite.config.ts`, `steiger.config.ts`, `eslint.config.js`, `scripts/**/*.mjs` | `module` and `moduleResolution: "nodenext"`, `types: ["node"]`, `allowJs: true` with `checkJs: false`: the JavaScript files join the project for ESLint's typed rules without being type-checked |
-| `tsconfig.e2e.json`  | `playwright.config.ts`, `e2e`                                                 | `moduleResolution: "bundler"`, `types: ["node"]`, and no `paths`, so an `@/…` import fails to resolve (see [End-to-end testing](./e2e-testing.md))                                               |
+| Project              | `include`                                                                                        | Differs in                                                                                                                                                                                                                                                                                                                          |
+| -------------------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tsconfig.app.json`  | `src`, `env.d.ts`, `vitest.setup.ts`                                                             | `moduleResolution: "bundler"`, `jsx: "react-jsx"`, `lib` with `DOM`, `types: ["vite/client"]`, `paths` `@/*` → `./src/*`                                                                                                                                                                                                            |
+| `tsconfig.node.json` | `vite.config.ts`, `steiger.config.ts`, `eslint.config.js`, `scripts/**/*.mjs`, `scripts/**/*.ts` | `module` and `moduleResolution: "nodenext"`, `types: ["node"]`, `allowImportingTsExtensions`, `allowJs: true` with `checkJs: false`: the JavaScript files join the project for ESLint's typed rules without being type-checked, while the TypeScript scripts — which Node 24 runs directly — are type-checked like any other source |
+| `tsconfig.e2e.json`  | `playwright.config.ts`, `e2e`                                                                    | `moduleResolution: "bundler"`, `types: ["node"]`, and no `paths`, so an `@/…` import fails to resolve (see [End-to-end testing](./e2e-testing.md))                                                                                                                                                                                  |
 
 The root `tsconfig.json` also declares `baseUrl` and `paths` (`@/*` → `./src/*`) for tools that read
 only the root file instead of following `references`, such as the shadcn CLI configured by
@@ -305,7 +314,9 @@ in a pull request of its own.
 | `react`           | `react`, `react-dom`, `@types/react`, `@types/react-dom`                         |
 | `minor-and-patch` | Every other dependency, for `update-types: ['minor', 'patch']` only              |
 
-The `github-actions` entry (`directory: /`) runs monthly, without groups.
+The `docker` entry (`directory: /`) runs weekly on Monday for the two base images in the
+`Dockerfile`, and ignores semver-major updates of `node`, so the build stage stays on the Node line
+`.nvmrc` pins. The `github-actions` entry (`directory: /`) runs monthly, without groups.
 
 ## Configuration
 
@@ -412,10 +423,11 @@ tree, ready to commit.
 
 ESLint lints every `**/*.{js,mjs,ts,tsx}` file with typed rules resolved through `projectService`,
 so each such file must belong to one of the three TypeScript projects; a file in none fails
-`npm run lint` with a project-service parse error. New Node scripts belong in `scripts/` as `.mjs`,
-which `tsconfig.node.json` and ESLint's Node-globals block already cover. A new root-level config
-file needs both entries — for a hypothetical `commitlint.config.ts`, `tsconfig.node.json`'s
-`include` becomes:
+`npm run lint` with a project-service parse error. New Node scripts belong in `scripts/`, as `.mjs`
+or — when another module imports them, as `vite.config.ts` imports `scripts/security-headers.ts` —
+as `.ts` with erasable syntax only, which Node 24 runs without a build step; `tsconfig.node.json`
+and ESLint's Node-globals block already cover both. A new root-level config file needs both entries
+— for a hypothetical `commitlint.config.ts`, `tsconfig.node.json`'s `include` becomes:
 
 ```json
 {
@@ -424,6 +436,7 @@ file needs both entries — for a hypothetical `commitlint.config.ts`, `tsconfig
     "steiger.config.ts",
     "eslint.config.js",
     "scripts/**/*.mjs",
+    "scripts/**/*.ts",
     "commitlint.config.ts"
   ]
 }
@@ -439,6 +452,7 @@ export default [
       'vite.config.ts',
       'steiger.config.ts',
       'scripts/**/*.mjs',
+      'scripts/**/*.ts',
       'commitlint.config.ts',
     ],
     languageOptions: {
@@ -597,9 +611,10 @@ every worktree shares, from the throwaway tree; nothing the build needs has an i
 ### Make CI block merges
 
 CI reports on every pull request, but only the repository's settings can make it stop a merge:
-protect `main` with a branch protection rule or ruleset that requires the `Quality gates` and
-`End-to-end tests` checks. Leave `Dependency audit` optional, for the reason given under
-[Design decisions](#design-decisions--trade-offs). Nothing in the codebase can make this change.
+protect `main` with a branch protection rule or ruleset that requires the `Quality gates`,
+`End-to-end tests` and `Container image` checks. Leave `Dependency audit` optional, for the reason
+given under [Design decisions](#design-decisions--trade-offs). Nothing in the codebase can make this
+change.
 
 Requiring any status check on a private repository needs GitHub Pro, so the move costs either an
 upgrade or making the repository public. This one is private on the free plan, which is why the rule
