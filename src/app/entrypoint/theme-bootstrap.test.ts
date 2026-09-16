@@ -11,15 +11,18 @@ import themeCss from '@/shared/ui/theme.css?raw';
 
 import indexHtml from '../../../index.html?raw';
 
-const prePaintMatch = /<script>([\s\S]*?)<\/script>/.exec(indexHtml);
-const prePaintScript = prePaintMatch?.[1];
+const indexDocument = new DOMParser().parseFromString(indexHtml, 'text/html');
+const prePaintElement = Array.from(indexDocument.scripts).find(
+  (script) => script.attributes.length === 0,
+);
+const prePaintScript = prePaintElement?.textContent;
 
-if (prePaintMatch === null || prePaintScript === undefined) {
+if (prePaintElement === undefined || prePaintScript === undefined || prePaintScript === null) {
   throw new Error('index.html no longer contains an attribute-free <script> tag to verify.');
 }
 
+const PRE_PAINT_ELEMENT = prePaintElement;
 const PRE_PAINT_SCRIPT = prePaintScript;
-const PRE_PAINT_INDEX = prePaintMatch.index;
 
 interface WindowStub {
   readonly localStorage: { readonly getItem: (key: string) => string | null };
@@ -132,8 +135,15 @@ describe('the pre-paint script in index.html', () => {
   });
 
   it('runs inside <head>, before the module script', () => {
-    expect(PRE_PAINT_INDEX).toBeLessThan(indexHtml.indexOf('</head>'));
-    expect(PRE_PAINT_INDEX).toBeLessThan(indexHtml.indexOf('<script type="module"'));
+    const moduleScript = indexDocument.querySelector('script[type="module"]');
+    const moduleScriptPosition =
+      moduleScript === null ? 0 : PRE_PAINT_ELEMENT.compareDocumentPosition(moduleScript);
+
+    expect(PRE_PAINT_ELEMENT.parentElement).toBe(indexDocument.head);
+    expect(moduleScript).not.toBeNull();
+    expect(moduleScriptPosition & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
   });
 
   it.each(CASES)(

@@ -14,7 +14,7 @@ ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 RUN npm run build \
  && node scripts/security-headers.ts nginx dist/index.html > security-headers.conf
 
-FROM nginxinc/nginx-unprivileged:1.30-alpine AS runtime
+FROM nginxinc/nginx-unprivileged:1.31-alpine AS runtime
 
 ENV API_UPSTREAM=http://host.docker.internal:8000
 
