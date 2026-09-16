@@ -54,6 +54,10 @@
   "session": {
     "resolving": "Checking your session…"
   },
+  "notifications": {
+    "regionLabel": "Notifications",
+    "close": "Close toast"
+  },
   "validation": {
     "invalid": "This value is invalid."
   }

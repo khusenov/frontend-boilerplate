@@ -112,12 +112,14 @@ describe('UpdateUserNameForm', () => {
     expect(requests).toStrictEqual([]);
   });
 
-  it('announces the update once the request resolves', async () => {
-    const { user } = renderForm(createRecordingClient([]));
+  it('announces the update through the notifier once the request resolves', async () => {
+    const { notifications, user } = renderForm(createRecordingClient([]));
 
     await user.click(screen.getByRole('button', { name: 'Save name' }));
 
-    expect(await screen.findByText('Name updated.')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(notifications).toStrictEqual([{ message: 'Name updated.' }]);
+    });
   });
 
   it('announces a failure and keeps the typed values in place', async () => {
@@ -132,15 +134,15 @@ describe('UpdateUserNameForm', () => {
   });
 
   it('clears a settled outcome as soon as the user edits a field again', async () => {
-    const { user } = renderForm(createRecordingClient([]));
+    const { user } = renderForm(failingClient);
 
     await user.click(screen.getByRole('button', { name: 'Save name' }));
-    expect(await screen.findByText('Name updated.')).toBeInTheDocument();
+    expect(await screen.findByText('The name could not be updated.')).toBeInTheDocument();
 
     await user.type(screen.getByLabelText('First name'), 'a');
 
     await waitFor(() => {
-      expect(screen.queryByText('Name updated.')).not.toBeInTheDocument();
+      expect(screen.queryByText('The name could not be updated.')).not.toBeInTheDocument();
     });
   });
 

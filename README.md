@@ -139,14 +139,14 @@ needs editing. See
 `src/` is divided into **layers**, and a module may import only from layers **below** it, through
 the importee's public `index.ts` and never through an inner file.
 
-| Layer (`src/…`) | Contains                                                                  | May import           |
-| --------------- | ------------------------------------------------------------------------- | -------------------- |
-| `app`           | Composition root, providers, router, route modules, global styles         | Everything below     |
-| `pages`         | Route-level screens, assembled and router-free                            | `widgets` and below  |
-| `widgets`       | Self-contained blocks shared by several screens — today `app-header`      | `features` and below |
-| `features`      | One user action that changes state                                        | `entities`, `shared` |
-| `entities`      | Business nouns: model, DTO schema, mapper, HTTP calls                     | `shared`             |
-| `shared`        | `api`, `config`, `i18n`, `lib`, `observability`, `testing`, `theme`, `ui` | Nothing above it     |
+| Layer (`src/…`) | Contains                                                                                   | May import           |
+| --------------- | ------------------------------------------------------------------------------------------ | -------------------- |
+| `app`           | Composition root, providers, router, route modules, global styles                          | Everything below     |
+| `pages`         | Route-level screens, assembled and router-free                                             | `widgets` and below  |
+| `widgets`       | Self-contained blocks shared by several screens — today `app-header`                       | `features` and below |
+| `features`      | One user action that changes state                                                         | `entities`, `shared` |
+| `entities`      | Business nouns: model, DTO schema, mapper, HTTP calls                                      | `shared`             |
+| `shared`        | `api`, `config`, `i18n`, `lib`, `notifications`, `observability`, `testing`, `theme`, `ui` | Nothing above it     |
 
 `src/main.tsx` sits outside the layer system, so steiger cannot analyse it and a lint rule stands
 in: `@/app` is the only `@/` path it may import.
@@ -156,7 +156,7 @@ Two rules carry the design:
 - **Dependencies point down, through public APIs.** `npm run arch` (steiger) fails the build on a
   wrong-direction import or a sidestep past a barrel, and ESLint's `no-restricted-imports` adds the
   fences steiger cannot express — axios only through `shared/api`, i18next only through
-  `shared/i18n`, router state only in `app`.
+  `shared/i18n`, sonner only through `shared/notifications`, router state only in `app`.
 - **No component ever sees a DTO.** A response is validated against its DTO schema and mapped to a
   frontend-owned model inside `entities/*/api`, and the slice's public API exports the model, never
   the DTO. See

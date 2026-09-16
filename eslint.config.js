@@ -56,6 +56,11 @@ const LOWER_LAYER_IMPORT_PATHS = [
     message: 'Construct the theme only in the app layer. Reach it with useTheme().',
   },
   {
+    name: '@/shared/notifications',
+    allowImportNames: ['AppNotification', 'Notifier', 'NotifierProvider', 'useNotifier'],
+    message: 'Construct and mount the notifier only in the app layer. Reach it with useNotifier().',
+  },
+  {
     name: '@/entities/session',
     importNames: SESSION_CONSTRUCTOR_NAMES,
     message:
@@ -84,6 +89,10 @@ const LOWER_LAYER_IMPORT_PATTERNS = [
   {
     regex: '^@/shared/theme/',
     message: 'Import the segment public API: @/shared/theme.',
+  },
+  {
+    regex: '^@/shared/notifications/',
+    message: 'Import the segment public API: @/shared/notifications.',
   },
   {
     regex: '^@tanstack/(react-)?router-core',
@@ -135,6 +144,14 @@ const ERROR_BOUNDARY_VENDOR_IMPORT_PATHS = [
     name: 'react-error-boundary',
     message:
       'Only shared/ui/error-boundary knows about react-error-boundary. Wrap a subtree with ErrorBoundary from @/shared/ui/error-boundary.',
+  },
+];
+
+const NOTIFICATIONS_VENDOR_IMPORT_PATHS = [
+  {
+    name: 'sonner',
+    message:
+      'Only shared/notifications knows about sonner. Raise user-facing feedback with useNotifier() from @/shared/notifications.',
   },
 ];
 
@@ -268,7 +285,7 @@ export default tseslint.config(
       'no-restricted-imports': [
         'error',
         {
-          paths: [...ERROR_BOUNDARY_VENDOR_IMPORT_PATHS],
+          paths: [...ERROR_BOUNDARY_VENDOR_IMPORT_PATHS, ...NOTIFICATIONS_VENDOR_IMPORT_PATHS],
           patterns: [
             {
               regex: '^@/shared/(lib|ui)$',
@@ -295,6 +312,7 @@ export default tseslint.config(
             ...FORM_VENDOR_IMPORT_PATHS,
             ...TRANSPORT_VENDOR_IMPORT_PATHS,
             ...ERROR_BOUNDARY_VENDOR_IMPORT_PATHS,
+            ...NOTIFICATIONS_VENDOR_IMPORT_PATHS,
           ],
           patterns: [...LOWER_LAYER_IMPORT_PATTERNS, ...FORM_VENDOR_IMPORT_PATTERNS],
         },
@@ -313,6 +331,7 @@ export default tseslint.config(
             ...FORM_VENDOR_IMPORT_PATHS,
             ...TRANSPORT_VENDOR_IMPORT_PATHS,
             ...ERROR_BOUNDARY_VENDOR_IMPORT_PATHS,
+            ...NOTIFICATIONS_VENDOR_IMPORT_PATHS,
           ],
           patterns: [
             ...LOWER_LAYER_IMPORT_PATTERNS,
@@ -338,22 +357,24 @@ export default tseslint.config(
             ...FORM_VENDOR_IMPORT_PATHS,
             ...TRANSPORT_VENDOR_IMPORT_PATHS,
             ...ERROR_BOUNDARY_VENDOR_IMPORT_PATHS,
+            ...NOTIFICATIONS_VENDOR_IMPORT_PATHS,
           ],
           patterns: [...LOWER_LAYER_IMPORT_PATTERNS, ...FORM_VENDOR_IMPORT_PATTERNS],
         },
       ],
     },
   },
-  // Flat config replaces rather than merges no-restricted-imports options, so the four blocks
+  // Flat config replaces rather than merges no-restricted-imports options, so the five blocks
   // below are order-sensitive. src/shared/api/** must follow the src/{...,shared}/** block to
   // lift the axios ban for the one segment that owns axios; its *.test.* twin must follow that
   // to lift the validator ban for tests; and the form block must stay last among blocks matching
   // src/shared/ui/form/**. A src/shared/** block appended below would silently kill that form
   // exemption, and nothing tests that ordering — scripts/verify-import-fence.mjs covers only the
   // no-restricted-paths fence at the bottom of this file.
-  // The src/shared/ui/error-boundary/** block follows the same rule: it must sit after the
-  // src/{...,shared}/** block to lift the react-error-boundary ban for the one group that owns the
-  // vendor. Its glob does not overlap src/shared/ui/form/**, so it is safe beside the form block.
+  // The src/shared/ui/error-boundary/** and src/shared/notifications/** blocks follow the same
+  // rule: each must sit after the src/{...,shared}/** block to lift the vendor ban for the one
+  // segment that owns the vendor. Neither glob overlaps src/shared/ui/form/**, so both are safe
+  // beside the form block.
   {
     files: ['src/shared/api/**/*.{ts,tsx}'],
     rules: {
@@ -365,6 +386,7 @@ export default tseslint.config(
             ...I18N_VENDOR_IMPORT_PATHS,
             ...FORM_VENDOR_IMPORT_PATHS,
             ...ERROR_BOUNDARY_VENDOR_IMPORT_PATHS,
+            ...NOTIFICATIONS_VENDOR_IMPORT_PATHS,
           ],
           patterns: [
             ...LOWER_LAYER_IMPORT_PATTERNS,
@@ -386,6 +408,30 @@ export default tseslint.config(
             ...I18N_VENDOR_IMPORT_PATHS,
             ...FORM_VENDOR_IMPORT_PATHS,
             ...ERROR_BOUNDARY_VENDOR_IMPORT_PATHS,
+            ...NOTIFICATIONS_VENDOR_IMPORT_PATHS,
+          ],
+          patterns: [...LOWER_LAYER_IMPORT_PATTERNS, ...FORM_VENDOR_IMPORT_PATTERNS],
+        },
+      ],
+    },
+  },
+  {
+    files: ['src/shared/notifications/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            ...LOWER_LAYER_IMPORT_PATHS.filter((entry) => entry.name !== '@/shared/theme'),
+            ...I18N_VENDOR_IMPORT_PATHS,
+            ...FORM_VENDOR_IMPORT_PATHS,
+            ...TRANSPORT_VENDOR_IMPORT_PATHS,
+            ...ERROR_BOUNDARY_VENDOR_IMPORT_PATHS,
+            {
+              name: '@/shared/theme',
+              message:
+                'The toast follows the .dark class through CSS custom properties. Reading the theme in JavaScript here would couple two shared seams for no gain.',
+            },
           ],
           patterns: [...LOWER_LAYER_IMPORT_PATTERNS, ...FORM_VENDOR_IMPORT_PATTERNS],
         },
@@ -404,6 +450,7 @@ export default tseslint.config(
             ...I18N_VENDOR_IMPORT_PATHS,
             ...TRANSPORT_VENDOR_IMPORT_PATHS,
             ...ERROR_BOUNDARY_VENDOR_IMPORT_PATHS,
+            ...NOTIFICATIONS_VENDOR_IMPORT_PATHS,
           ],
           patterns: [...LOWER_LAYER_IMPORT_PATTERNS, ...VALIDATOR_IMPORT_PATTERNS],
         },
@@ -422,6 +469,7 @@ export default tseslint.config(
             ...I18N_VENDOR_IMPORT_PATHS,
             ...FORM_VENDOR_IMPORT_PATHS,
             ...TRANSPORT_VENDOR_IMPORT_PATHS,
+            ...NOTIFICATIONS_VENDOR_IMPORT_PATHS,
           ],
           patterns: [...LOWER_LAYER_IMPORT_PATTERNS, ...FORM_VENDOR_IMPORT_PATTERNS],
         },
@@ -434,7 +482,7 @@ export default tseslint.config(
       'no-restricted-imports': [
         'error',
         {
-          paths: [...ERROR_BOUNDARY_VENDOR_IMPORT_PATHS],
+          paths: [...ERROR_BOUNDARY_VENDOR_IMPORT_PATHS, ...NOTIFICATIONS_VENDOR_IMPORT_PATHS],
           patterns: [
             {
               group: ['@/**', '!@/app', './*/**', '../**'],
@@ -488,6 +536,12 @@ export default tseslint.config(
                 'Route and router modules receive the theme through the provider tree. Only app/entrypoint constructs one.',
             },
             {
+              name: '@/shared/notifications',
+              allowImportNames: ['AppNotification', 'Notifier', 'NotifierProvider', 'useNotifier'],
+              message:
+                'Route and router modules receive the notifier through the provider tree. Only app/entrypoint constructs and mounts one.',
+            },
+            {
               name: '@/entities/session',
               importNames: SESSION_CONSTRUCTOR_NAMES,
               message:
@@ -496,6 +550,7 @@ export default tseslint.config(
             ...I18N_VENDOR_IMPORT_PATHS,
             ...FORM_VENDOR_IMPORT_PATHS,
             ...ERROR_BOUNDARY_VENDOR_IMPORT_PATHS,
+            ...NOTIFICATIONS_VENDOR_IMPORT_PATHS,
           ],
           patterns: [
             {
@@ -517,6 +572,10 @@ export default tseslint.config(
             {
               regex: '^@/shared/theme/',
               message: 'Import the segment public API: @/shared/theme.',
+            },
+            {
+              regex: '^@/shared/notifications/',
+              message: 'Import the segment public API: @/shared/notifications.',
             },
             {
               regex: '^@/(entities|features|widgets|pages)/[^/]+/(?!@x/).+',

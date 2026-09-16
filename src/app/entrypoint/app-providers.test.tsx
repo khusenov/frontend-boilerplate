@@ -13,6 +13,8 @@ import type {
 import { useSessionEnder, useSessionResolver, useSessionStarter } from '@/entities/session';
 import type { HttpClient } from '@/shared/api';
 import { toHttpError, useHttpClient } from '@/shared/api';
+import { useNotifier } from '@/shared/notifications';
+import type { Notifier } from '@/shared/notifications';
 import { createBrowserThemeStorage } from '@/shared/theme';
 
 import { AppProviders } from './app-providers';
@@ -74,10 +76,16 @@ function createQueryErrorHandlersFake() {
   return { onQueryError: vi.fn(), onMutationError: vi.fn() };
 }
 
+const inertNotifier: Notifier = () => undefined;
+
 describe('AppProviders', () => {
   it('renders its children', () => {
     render(
-      <AppProviders apiBaseUrl="/api" queryErrorHandlers={createQueryErrorHandlersFake()}>
+      <AppProviders
+        apiBaseUrl="/api"
+        notifier={inertNotifier}
+        queryErrorHandlers={createQueryErrorHandlersFake()}
+      >
         <p>child content</p>
       </AppProviders>,
     );
@@ -99,7 +107,11 @@ describe('AppProviders', () => {
     }
 
     render(
-      <AppProviders apiBaseUrl="/api" queryErrorHandlers={createQueryErrorHandlersFake()}>
+      <AppProviders
+        apiBaseUrl="/api"
+        notifier={inertNotifier}
+        queryErrorHandlers={createQueryErrorHandlersFake()}
+      >
         <ClientProbe />
       </AppProviders>,
     );
@@ -118,7 +130,11 @@ describe('AppProviders', () => {
     }
 
     const renderTree = () => (
-      <AppProviders apiBaseUrl="/api" queryErrorHandlers={createQueryErrorHandlersFake()}>
+      <AppProviders
+        apiBaseUrl="/api"
+        notifier={inertNotifier}
+        queryErrorHandlers={createQueryErrorHandlersFake()}
+      >
         <IdentityProbe />
       </AppProviders>
     );
@@ -141,7 +157,11 @@ describe('AppProviders', () => {
     }
 
     render(
-      <AppProviders apiBaseUrl="/api" queryErrorHandlers={createQueryErrorHandlersFake()}>
+      <AppProviders
+        apiBaseUrl="/api"
+        notifier={inertNotifier}
+        queryErrorHandlers={createQueryErrorHandlersFake()}
+      >
         <CacheProbe />
       </AppProviders>,
     );
@@ -166,7 +186,11 @@ describe('AppProviders', () => {
     }
 
     render(
-      <AppProviders apiBaseUrl="/api" queryErrorHandlers={createQueryErrorHandlersFake()}>
+      <AppProviders
+        apiBaseUrl="/api"
+        notifier={inertNotifier}
+        queryErrorHandlers={createQueryErrorHandlersFake()}
+      >
         <StarterProbe />
       </AppProviders>,
     );
@@ -186,7 +210,11 @@ describe('AppProviders', () => {
     }
 
     render(
-      <AppProviders apiBaseUrl="/api" queryErrorHandlers={createQueryErrorHandlersFake()}>
+      <AppProviders
+        apiBaseUrl="/api"
+        notifier={inertNotifier}
+        queryErrorHandlers={createQueryErrorHandlersFake()}
+      >
         <ResolverProbe />
       </AppProviders>,
     );
@@ -206,7 +234,11 @@ describe('AppProviders', () => {
     }
 
     render(
-      <AppProviders apiBaseUrl="/api" queryErrorHandlers={createQueryErrorHandlersFake()}>
+      <AppProviders
+        apiBaseUrl="/api"
+        notifier={inertNotifier}
+        queryErrorHandlers={createQueryErrorHandlersFake()}
+      >
         <EnderProbe />
       </AppProviders>,
     );
@@ -218,7 +250,11 @@ describe('AppProviders', () => {
     createBrowserThemeStorage().write('dark');
 
     render(
-      <AppProviders apiBaseUrl="/api" queryErrorHandlers={createQueryErrorHandlersFake()}>
+      <AppProviders
+        apiBaseUrl="/api"
+        notifier={inertNotifier}
+        queryErrorHandlers={createQueryErrorHandlersFake()}
+      >
         <p>child content</p>
       </AppProviders>,
     );
@@ -231,13 +267,55 @@ describe('AppProviders', () => {
     createBrowserThemeStorage().write('light');
 
     render(
-      <AppProviders apiBaseUrl="/api" queryErrorHandlers={createQueryErrorHandlersFake()}>
+      <AppProviders
+        apiBaseUrl="/api"
+        notifier={inertNotifier}
+        queryErrorHandlers={createQueryErrorHandlersFake()}
+      >
         <p>child content</p>
       </AppProviders>,
     );
 
     expect(document.documentElement.classList.contains('dark')).toBe(false);
     expect(document.documentElement.style.colorScheme).toBe('light');
+  });
+
+  it('provides the injected notifier to its children', () => {
+    const notify = vi.fn();
+    const captured: { notify: Notifier | null } = { notify: null };
+
+    function NotifierProbe() {
+      captured.notify = useNotifier();
+
+      return null;
+    }
+
+    render(
+      <AppProviders
+        apiBaseUrl="/api"
+        notifier={notify}
+        queryErrorHandlers={createQueryErrorHandlersFake()}
+      >
+        <NotifierProbe />
+      </AppProviders>,
+    );
+    captured.notify?.({ message: 'Name updated.' });
+
+    expect(notify).toHaveBeenCalledWith({ message: 'Name updated.' });
+  });
+
+  it('mounts the notification region with its translated accessible name', () => {
+    render(
+      <AppProviders
+        apiBaseUrl="/api"
+        notifier={inertNotifier}
+        queryErrorHandlers={createQueryErrorHandlersFake()}
+      >
+        <p>child content</p>
+      </AppProviders>,
+    );
+
+    expect(screen.getByRole('region')).toHaveAccessibleName('Notifications alt+T');
   });
 
   it('reports a query failure through the injected handlers', async () => {
@@ -257,7 +335,11 @@ describe('AppProviders', () => {
     }
 
     render(
-      <AppProviders apiBaseUrl="/api" queryErrorHandlers={queryErrorHandlers}>
+      <AppProviders
+        apiBaseUrl="/api"
+        notifier={inertNotifier}
+        queryErrorHandlers={queryErrorHandlers}
+      >
         <FailingQueryProbe />
       </AppProviders>,
     );

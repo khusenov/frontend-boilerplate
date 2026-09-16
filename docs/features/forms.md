@@ -1,6 +1,6 @@
 # Forms
 
-> **Status:** Complete · **Layers:** features, shared, outside layers · **Verified against:** `33ee487`
+> **Status:** Complete · **Layers:** features, shared, outside layers · **Verified against:** `d442a06`
 
 ## Purpose
 
@@ -31,7 +31,7 @@ hook, then renders a presentational _view_ (`SignInFormView`, `UpdateUserNameFor
 named props: `schema` unchanged, the hook's `submit` as the view's `onSubmit`, the hook's
 `dismissOutcome` as `onEdited`, and an `outcome` node the container builds from the hook's `status`
 — `outcome={<SignInAlert status={status} />}` in sign-in,
-`outcome={<UpdateUserNameOutcome status={status} />}` in the name form. `UpdateUserNameForm` passes
+`outcome={<UpdateUserNameAlert status={status} />}` in the name form. `UpdateUserNameForm` passes
 a fifth prop, `defaultValues`, to prefill its two inputs from the loaded user. The view creates the
 form and places the `outcome` node inside it after the submit button — the _outcome slot_. That
 container/view split is this repo's convention rather than something FSD requires;
@@ -84,9 +84,10 @@ each prop, and [Sign-in](./sign-in.md) and
 **Failure paths.**
 
 - _The request fails._ Both shipped slices' `submit` awaits `mutateAsync` and swallows the
-  rejection (`.catch(() => undefined)`), because the mutation status already drives the outcome slot
-  the container passes in — `SignInAlert` in sign-in, `UpdateUserNameOutcome` in the name form.
-  `handleSubmit` resolves, the button re-enables and the typed values stay in place.
+  rejection — `.catch(() => undefined)` in sign-in, a `try`/`catch`/`return` in the name form, whose
+  `catch` must also skip the success notification — because the mutation status already drives the
+  outcome slot the container passes in: `SignInAlert` in sign-in, `UpdateUserNameAlert` in the name
+  form. `handleSubmit` resolves, the button re-enables and the typed values stay in place.
 - _A slice's `onSubmit` rejects anyway._ `FormApi` rethrows the rejection from `handleSubmit`;
   `Form` catches it and calls `onSubmitError` when one is passed, and otherwise drops it. It never
   becomes an unhandled rejection.
@@ -406,8 +407,9 @@ Four things the sketch leaves to the caller, and how the shipped slices handle t
   two callbacks, renders, and can be reasoned about on its own.
 
 - **The `onSubmit` a caller passes must not reject.** The container passes the action hook's
-  `submit`, which awaits the mutation and swallows its rejection (`.catch(() => undefined)`)
-  because the mutation status already renders the failure through `outcome`. Where no mutation
+  `submit`, which awaits the mutation and swallows its rejection — `.catch(() => undefined)` in
+  sign-in, `try`/`catch`/`return` in the name form — because the mutation status already renders the
+  failure through `outcome`. Where no mutation
   state models a failure, pass `onSubmitError` to `form.Form` instead — one or the other per form,
   never both.
 - **A value that must be transformed.** `onSubmit` receives the raw field values, never the

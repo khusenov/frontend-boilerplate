@@ -24,8 +24,13 @@ const failingClient = createHttpClientStub({
   patch: () => Promise.reject(toHttpError(new Error('offline'))),
 });
 
+const SAVED_MESSAGE = 'Name updated.';
+
 function renderUpdateUserName(httpClient: HttpClient) {
-  return renderHookWithProviders(() => useUpdateUserName(toUserId('u_1')), { httpClient });
+  return renderHookWithProviders(
+    () => useUpdateUserName(toUserId('u_1'), { savedMessage: SAVED_MESSAGE }),
+    { httpClient },
+  );
 }
 
 const ada = { firstName: 'Ada', lastName: 'King' };
@@ -47,6 +52,31 @@ describe('useUpdateUserName', () => {
     await waitFor(() => {
       expect(result.current.status).toBe('saved');
     });
+  });
+
+  it('raises exactly one notification once the request resolves', async () => {
+    const { notifications, result } = renderUpdateUserName(resolvingClient);
+
+    await act(async () => {
+      await result.current.submit(ada);
+    });
+
+    await waitFor(() => {
+      expect(notifications).toStrictEqual([{ message: SAVED_MESSAGE }]);
+    });
+  });
+
+  it('raises no notification when the request fails', async () => {
+    const { notifications, result } = renderUpdateUserName(failingClient);
+
+    await act(async () => {
+      await result.current.submit(ada);
+    });
+
+    await waitFor(() => {
+      expect(result.current.status).toBe('failed');
+    });
+    expect(notifications).toStrictEqual([]);
   });
 
   it('reports a failed status without rejecting when the request fails', async () => {

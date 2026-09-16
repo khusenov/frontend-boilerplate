@@ -1,6 +1,6 @@
 # Design system
 
-> **Status:** Complete · **Layers:** app, pages, widgets, features, shared, outside layers · **Verified against:** `5c55de1`
+> **Status:** Complete · **Layers:** app, pages, widgets, features, shared, outside layers · **Verified against:** `d442a06`
 
 ## Purpose
 
@@ -207,20 +207,21 @@ registered in `@theme inline` as `--color-<name>`, which gives every colour util
 modifier where one is needed (`ring-ring/50`). The colours are OKLCH and neutral (zero chroma)
 except `destructive`.
 
-| Token                                                      | Utilities                                                                                                | Used for today                                                                                                      |
-| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `background`, `foreground`                                 | `bg-background`, `text-foreground`                                                                       | Page surface and text (the `body` base rule); the `outline` button's surface                                        |
-| `primary`, `primary-foreground`                            | `bg-primary`, `text-primary-foreground`, `text-primary`                                                  | The `default` button; `link` variant text; text selection inside `Input`                                            |
-| `secondary`, `secondary-foreground`                        | `bg-secondary`, `text-secondary-foreground`                                                              | The `secondary` button variant                                                                                      |
-| `muted`, `muted-foreground`                                | `text-muted-foreground`, `placeholder:text-muted-foreground`                                             | Secondary copy: descriptions, input placeholders, the profile view's field names; `bg-muted` has no consumer        |
-| `accent`, `accent-foreground`                              | `hover:bg-accent`, `hover:text-accent-foreground`                                                        | Hover surface of the `outline` and `ghost` variants                                                                 |
-| `destructive`                                              | `text-destructive`, `bg-destructive`, `aria-invalid:border-destructive`                                  | Error text, invalid controls, the `destructive` variant                                                             |
-| `border`                                                   | `border-border`                                                                                          | Default border colour of every element, set in the base layer                                                       |
-| `input`                                                    | `border-input`                                                                                           | `Input`'s border; the `outline` variant's surfaces under `.dark`                                                    |
-| `ring`                                                     | `focus-visible:border-ring`, `focus-visible:ring-ring/50`, `outline-ring`                                | Focus indicators, and every element's default outline colour at half opacity                                        |
-| `card`, `card-foreground`, `popover`, `popover-foreground` | `bg-card`, `text-popover-foreground`                                                                     | No consumer yet                                                                                                     |
-| `--radius` (`0.625rem`)                                    | `rounded-sm`, `rounded-md`, `rounded-lg`, `rounded-xl`: the radius minus 4px, minus 2px, as is, plus 4px | `rounded-md`, on `Button` and `Input`                                                                               |
-| `--font-sans`                                              | Tailwind's default font family                                                                           | All text: the system stack `system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif`, so no web font is downloaded |
+| Token                               | Utilities                                                                                                | Used for today                                                                                                      |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `background`, `foreground`          | `bg-background`, `text-foreground`                                                                       | Page surface and text (the `body` base rule); the `outline` button's surface                                        |
+| `primary`, `primary-foreground`     | `bg-primary`, `text-primary-foreground`, `text-primary`                                                  | The `default` button; `link` variant text; text selection inside `Input`                                            |
+| `secondary`, `secondary-foreground` | `bg-secondary`, `text-secondary-foreground`                                                              | The `secondary` button variant                                                                                      |
+| `muted`, `muted-foreground`         | `text-muted-foreground`, `placeholder:text-muted-foreground`                                             | Secondary copy: descriptions, input placeholders, the profile view's field names; `bg-muted` has no consumer        |
+| `accent`, `accent-foreground`       | `hover:bg-accent`, `hover:text-accent-foreground`                                                        | Hover surface of the `outline` and `ghost` variants                                                                 |
+| `destructive`                       | `text-destructive`, `bg-destructive`, `aria-invalid:border-destructive`                                  | Error text, invalid controls, the `destructive` variant                                                             |
+| `border`                            | `border-border`                                                                                          | Default border colour of every element, set in the base layer                                                       |
+| `input`                             | `border-input`                                                                                           | `Input`'s border; the `outline` variant's surfaces under `.dark`                                                    |
+| `ring`                              | `focus-visible:border-ring`, `focus-visible:ring-ring/50`, `outline-ring`                                | Focus indicators, and every element's default outline colour at half opacity                                        |
+| `card`, `card-foreground`           | `bg-card`, `text-card-foreground`                                                                        | No consumer yet                                                                                                     |
+| `popover`, `popover-foreground`     | None — consumed as `var(--popover)` / `var(--popover-foreground)`, never as a utility                    | `NotificationViewport`'s toast surface, mapped onto sonner's `--normal-bg` and `--normal-text` in a `style` object  |
+| `--radius` (`0.625rem`)             | `rounded-sm`, `rounded-md`, `rounded-lg`, `rounded-xl`: the radius minus 4px, minus 2px, as is, plus 4px | `rounded-md`, on `Button` and `Input`                                                                               |
+| `--font-sans`                       | Tailwind's default font family                                                                           | All text: the system stack `system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif`, so no web font is downloaded |
 
 **Variant and hooks.** `dark:` is redefined as `@custom-variant dark (&:is(.dark *))`: it matches an
 element beneath an ancestor with the `dark` class, instead of Tailwind's default
