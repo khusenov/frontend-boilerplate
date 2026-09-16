@@ -7,6 +7,8 @@ import { describe, expect, it } from 'vitest';
 import { SessionEnderProvider, SessionStarterProvider } from '@/entities/session';
 import { HttpClientProvider, toHttpError } from '@/shared/api';
 import type { HttpClient } from '@/shared/api';
+import { NotifierProvider } from '@/shared/notifications';
+import type { Notifier } from '@/shared/notifications';
 
 import { createAppRouter } from '../../router/create-app-router';
 
@@ -42,6 +44,8 @@ const httpClient: HttpClient = {
   delete: notCalled,
 };
 
+const noopNotifier: Notifier = () => undefined;
+
 const sessionEnder = { signOut: () => Promise.resolve({ status: 'signed-out' } as const) };
 const sessionStarter = { signIn: () => Promise.resolve({ status: 'rejected' } as const) };
 const sessionResolver = { resolve: () => Promise.resolve('authenticated' as const) };
@@ -59,7 +63,9 @@ describe('the /users/$userId route', () => {
         <HttpClientProvider client={httpClient}>
           <SessionStarterProvider sessionStarter={sessionStarter}>
             <SessionEnderProvider sessionEnder={sessionEnder}>
-              <RouterProvider router={router} />
+              <NotifierProvider notifier={noopNotifier}>
+                <RouterProvider router={router} />
+              </NotifierProvider>
             </SessionEnderProvider>
           </SessionStarterProvider>
         </HttpClientProvider>
@@ -84,7 +90,9 @@ describe('the /users/$userId route', () => {
         <HttpClientProvider client={httpClient}>
           <SessionStarterProvider sessionStarter={sessionStarter}>
             <SessionEnderProvider sessionEnder={sessionEnder}>
-              <RouterProvider router={router} />
+              <NotifierProvider notifier={noopNotifier}>
+                <RouterProvider router={router} />
+              </NotifierProvider>
             </SessionEnderProvider>
           </SessionStarterProvider>
         </HttpClientProvider>

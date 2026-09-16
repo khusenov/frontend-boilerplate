@@ -9,6 +9,7 @@ const COPY = {
   failed: 'The name could not be updated.',
   unavailable: 'This profile could not be loaded.',
   firstNameRequired: 'Enter a first name.',
+  notificationsRegion: 'Notifications',
 } as const;
 
 export interface UserProfilePageObject {
@@ -36,7 +37,10 @@ export function createUserProfilePageObject(page: Page): UserProfilePageObject {
     firstNameField: () => form().getByLabel(COPY.firstNameLabel),
     lastNameField: () => form().getByLabel(COPY.lastNameLabel),
     saveButton: () => form().getByRole('button', { name: COPY.saveButton }),
-    savedNotice: () => page.getByText(COPY.saved),
+    savedNotice: () =>
+      page
+        .getByRole('region', { name: new RegExp(`^${COPY.notificationsRegion}\\b`) })
+        .getByText(COPY.saved),
     failureNotice: () => page.getByText(COPY.failed),
     unavailableNotice: () => page.getByText(COPY.unavailable),
     firstNameRequiredError: () => form().getByText(COPY.firstNameRequired),

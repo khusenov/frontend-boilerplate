@@ -1,6 +1,6 @@
 # Authenticated route guard
 
-> **Status:** Complete · **Layers:** app, pages, entities, shared, outside layers · **Verified against:** `19fe53b`
+> **Status:** Complete · **Layers:** app, pages, entities, shared, outside layers · **Verified against:** `d442a06`
 
 ## Purpose
 
@@ -267,13 +267,18 @@ plus the session providers the rendered screens read:
   that calls `useSessionStarter()`;
 - `SessionEnderProvider` when the test renders `/users/$userId`, because `UserProfilePage` renders
   `SignOutButton`, whose `useSignOut` calls `useSessionEnder()` and throws with no provider above
-  it.
+  it;
+- `NotifierProvider` when the test renders `/users/$userId`, because the same page renders
+  `UpdateUserNameForm`, whose `useUpdateUserName` calls `useNotifier()` and throws
+  `useNotifier must be called inside a NotifierProvider` with no provider above it.
 
-`renderGuardedRoute` in `src/app/routes/_authenticated.test.tsx` mounts both — it starts at
-`/users/u_1` and its denied cases land on `/sign-in` — nesting `SessionEnderProvider` inside
-`SessionStarterProvider`, each satisfied by an inert object literal:
+`renderGuardedRoute` in `src/app/routes/_authenticated.test.tsx` mounts all three — it starts at
+`/users/u_1` and its denied cases land on `/sign-in` — nesting `NotifierProvider` innermost, inside
+`SessionEnderProvider`, itself inside `SessionStarterProvider`, each satisfied by an inert object
+literal or function:
 
 ```ts
+const noopNotifier: Notifier = () => undefined;
 const sessionEnder = { signOut: () => Promise.resolve({ status: 'signed-out' } as const) };
 const sessionStarter = { signIn: () => Promise.resolve({ status: 'rejected' } as const) };
 ```

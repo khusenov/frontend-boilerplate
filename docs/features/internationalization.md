@@ -1,6 +1,6 @@
 # Internationalization
 
-> **Status:** Complete · **Layers:** app, pages, widgets, features, shared, outside layers · **Verified against:** `65a99bc`
+> **Status:** Complete · **Layers:** app, pages, widgets, features, shared, outside layers · **Verified against:** `d442a06`
 
 ## Purpose
 
@@ -194,10 +194,10 @@ does not compile and reaching an unclamped value takes a deliberate cast.
 [Update user name](./update-user-name.md), [User profile](./user-profile.md),
 [Authenticated route guard](./route-guard.md), [Routing](./routing.md) and [Forms](./forms.md).
 
-| Namespace          | Bundled for | Loaded lazily for | Top-level key groups and their consumers                                                                                                                                                                                                                                                 |
-| ------------------ | ----------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `common` (default) | `en`, `ru`  | none              | `notFound` (`pages/not-found`), `session` (`pages/resolving-session`), `user` and `userProfile` (`pages/user-profile`), `signIn` (`pages/sign-in`, `features/sign-in`), `signOut` (`features/sign-out`), `updateUserName` (`features/update-user-name`), `validation` (`shared/ui/form`) |
-| `home`             | `en`        | `ru`              | `environment`, `elapsedLabel`, `addOneSecond`, `secondsAdded` (`pages/home`)                                                                                                                                                                                                             |
+| Namespace          | Bundled for | Loaded lazily for | Top-level key groups and their consumers                                                                                                                                                                                                                                                                                           |
+| ------------------ | ----------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `common` (default) | `en`, `ru`  | none              | `notFound` (`pages/not-found`), `session` (`pages/resolving-session`), `user` and `userProfile` (`pages/user-profile`), `signIn` (`pages/sign-in`, `features/sign-in`), `signOut` (`features/sign-out`), `updateUserName` (`features/update-user-name`), `notifications` (`shared/notifications`), `validation` (`shared/ui/form`) |
+| `home`             | `en`        | `ru`              | `environment`, `elapsedLabel`, `addOneSecond`, `secondsAdded` (`pages/home`)                                                                                                                                                                                                                                                       |
 
 **`@/features/switch-locale`** exports `LocaleSwitcher`, which takes no props: it reads the active
 locale from `useLocale()` and the choices from `SUPPORTED_LOCALES` and `LOCALES`. It renders one

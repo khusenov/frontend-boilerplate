@@ -54,6 +54,10 @@
   "session": {
     "resolving": "Проверяем вашу сессию…"
   },
+  "notifications": {
+    "regionLabel": "Уведомления",
+    "close": "Закрыть уведомление"
+  },
   "validation": {
     "invalid": "Некорректное значение."
   }

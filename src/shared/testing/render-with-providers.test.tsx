@@ -5,6 +5,8 @@ import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { useHttpClient } from '@/shared/api';
+import { useNotifier } from '@/shared/notifications';
+import type { Notifier } from '@/shared/notifications';
 
 import { createHttpClientStub } from './create-http-client-stub';
 import { createTestQueryClient } from './create-test-query-client';
@@ -55,6 +57,46 @@ describe('renderWithProviders', () => {
     renderWithProviders(<Probe />, { httpClient });
 
     expect(screen.getByText('same client')).toBeInTheDocument();
+  });
+
+  it('records what the subject raises through the notifier', async () => {
+    function NotifyingProbe() {
+      const notify = useNotifier();
+
+      return (
+        <button
+          onClick={() => {
+            notify({ message: 'Name updated.' });
+          }}
+          type="button"
+        >
+          notify
+        </button>
+      );
+    }
+
+    const { notifications, user } = renderWithProviders(<NotifyingProbe />);
+
+    expect(notifications).toStrictEqual([]);
+
+    await user.click(screen.getByRole('button', { name: 'notify' }));
+
+    expect(notifications).toStrictEqual([{ message: 'Name updated.' }]);
+  });
+
+  it('delegates to the notifier the caller supplies while still recording it', () => {
+    const notifier: Notifier = vi.fn();
+
+    function Probe() {
+      useNotifier()({ message: 'Name updated.' });
+
+      return null;
+    }
+
+    const { notifications } = renderWithProviders(<Probe />, { notifier });
+
+    expect(notifier).toHaveBeenCalledWith({ message: 'Name updated.' });
+    expect(notifications).toStrictEqual([{ message: 'Name updated.' }]);
   });
 
   it('uses the query client the caller supplies', () => {

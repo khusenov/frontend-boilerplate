@@ -1,6 +1,6 @@
 # Update user name (write path)
 
-> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `33ee487`
+> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `d442a06`
 
 ## Purpose
 
@@ -24,10 +24,10 @@ query, and `UserProfilePage` renders `UserProfileContent` — the status switch 
 case, renders `UpdateUserNameForm` under `UserProfileView`, the read-only profile display (heading,
 email, role, join date). The read side is covered in [User profile](./user-profile.md). The form
 therefore never renders without a loaded `User`. `UpdateUserNameForm`, the slice's container, calls
-`useUpdateUserName(user.id)` for `{ status, submit, dismissOutcome }` and `useUserNameChangeSchema()`
-for the translated validation schema, then renders `UpdateUserNameFormView` with the user's
-`firstName` and `lastName` as default values and `<UpdateUserNameOutcome status={status} />` in its
-outcome slot.
+`useUpdateUserName(user.id, { savedMessage: t('updateUserName.saved') })` for
+`{ status, submit, dismissOutcome }` and `useUserNameChangeSchema()` for the translated validation
+schema, then renders `UpdateUserNameFormView` with the user's `firstName` and `lastName` as default
+values and `<UpdateUserNameAlert status={status} />` in its outcome slot.
 
 **Edit.** `UpdateUserNameFormView` builds the form with `useAppForm` from the form seam (the
 `shared/ui/form` group every form goes through; see [Forms](./forms.md)) and registers the schema as
@@ -63,7 +63,8 @@ cached query `['users', 'detail', userId]` stale, and TanStack Query refetches i
 page observes it. `onSuccess` returns the invalidation promise and TanStack Query awaits it before
 the mutation settles, so the button keeps "Saving…" until the refetched `User` — mapped again by
 `toUser` — is in the cache and the page heading shows the new `displayName`. Only then does `status`
-become `saved` and the polite `<output>` region announce "Name updated.".
+become `saved`, and only then does the hook hand "Name updated." to `useNotifier()`, which raises it
+as a toast in the app-wide notification region (see [Composition root](./composition-root.md)).
 
 **Failure.** Any rejection of the mutation function fails the save: an `HttpError` for a 4xx or 5xx
 response, a network failure or a timeout; kind `validation` when the response carries a non-empty
@@ -110,7 +111,7 @@ path (see [Architecture boundaries](./architecture-boundaries.md)).
 | `UserProfileContent`               | `pages/user-profile · ui`           | The status switch: in its `ready` case renders `UserProfileView`, then `UpdateUserNameForm` with the loaded `User`   | `src/pages/user-profile/ui/user-profile-page.tsx`                                  |
 | `UpdateUserNameForm`               | `features/update-user-name · ui`    | Container: wires the hook and the schema into the view; the slice's only export                                      | `src/features/update-user-name/ui/update-user-name-form.tsx`                       |
 | `UpdateUserNameFormView`           | `features/update-user-name · ui`    | Builds the form on `useAppForm`: heading, two `TextField`s, `SubmitButton`, outcome slot                             | `src/features/update-user-name/ui/update-user-name-form-view.tsx`                  |
-| `UpdateUserNameOutcome`            | `features/update-user-name · ui`    | Renders the success `<output>` and the failure `role="alert"` region for a status                                    | `src/features/update-user-name/ui/update-user-name-outcome.tsx`                    |
+| `UpdateUserNameAlert`              | `features/update-user-name · ui`    | Renders the failure `role="alert"` region for a status; success goes to the notifier instead                         | `src/features/update-user-name/ui/update-user-name-alert.tsx`                      |
 | `useUpdateUserName`                | `features/update-user-name · model` | Runs the `updateName` mutation; exposes `status`, `submit`, `dismissOutcome`                                         | `src/features/update-user-name/model/use-update-user-name.ts`                      |
 | `toUpdateUserNameStatus`           | `features/update-user-name · model` | Total map from `MutationStatus` to `UpdateUserNameStatus`                                                            | `src/features/update-user-name/model/update-user-name-status.ts`                   |
 | `createUserNameChangeSchema`       | `features/update-user-name · model` | Presence and length rules on trimmed names, typed as the `UserNameChangeSchema` port                                 | `src/features/update-user-name/model/user-name-change-schema.ts`                   |
@@ -166,26 +167,26 @@ endpoint that answers `204 No Content`.
 **Internal by design.** Nothing else is exported. Inside the slice: `useUpdateUserName` and
 `UseUpdateUserNameResult`, `UpdateUserNameStatus` and `toUpdateUserNameStatus`,
 `createUserNameChangeSchema`, `UserNameChangeMessages`, `UserNameChangeSchema`,
-`MAXIMUM_NAME_LENGTH`, `useUserNameChangeSchema`, `UpdateUserNameFormView` and
-`UpdateUserNameOutcome`. Inside `entities/user/api`: `toUpdateUserNameDto`, `UpdateUserNameDto`,
+`MAXIMUM_NAME_LENGTH`, `useUserNameChangeSchema`, `UpdateUserNameFormView`,
+`UpdateUserNameAlert` and `UseUpdateUserNameOptions`. Inside `entities/user/api`: `toUpdateUserNameDto`, `UpdateUserNameDto`,
 `UserWriteClient`, `userResourcePath` and `userQueryKeys` — an entity barrel never exports a DTO
 type, a mapper, a path builder or a query-key object.
 
 **Copy contract.** Every string comes from the `common` namespace; `ru/common.json` translates each
 key.
 
-| Key                                           | English                         | Russian                    | Rendered by                                                              |
-| --------------------------------------------- | ------------------------------- | -------------------------- | ------------------------------------------------------------------------ |
-| `updateUserName.formLabel`                    | Update name                     | Изменить имя               | The `<h2>` in `UpdateUserNameFormView`, the form's accessible name       |
-| `updateUserName.firstName`                    | First name                      | Имя                        | First `field.TextField` label                                            |
-| `updateUserName.lastName`                     | Last name                       | Фамилия                    | Second `field.TextField` label                                           |
-| `updateUserName.save`                         | Save name                       | Сохранить имя              | `form.SubmitButton` label                                                |
-| `updateUserName.saving`                       | Saving…                         | Сохранение…                | `form.SubmitButton`'s `pendingLabel`, shown while the request is pending |
-| `updateUserName.saved`                        | Name updated.                   | Имя обновлено.             | `UpdateUserNameOutcome`'s `<output>` on `saved`                          |
-| `updateUserName.failed`                       | The name could not be updated.  | Не удалось обновить имя.   | `UpdateUserNameOutcome`'s `role="alert"` paragraph on `failed`           |
-| `updateUserName.validation.firstNameRequired` | Enter a first name.             | Введите имя.               | First-name rule, through `useUserNameChangeSchema`                       |
-| `updateUserName.validation.lastNameRequired`  | Enter a last name.              | Введите фамилию.           | Last-name rule, through `useUserNameChangeSchema`                        |
-| `updateUserName.validation.nameTooLong`       | Use at most {{max}} characters. | Не более {{max}} символов. | Length rule; `useUserNameChangeSchema` passes `MAXIMUM_NAME_LENGTH`      |
+| Key                                           | English                         | Russian                    | Rendered by                                                                 |
+| --------------------------------------------- | ------------------------------- | -------------------------- | --------------------------------------------------------------------------- |
+| `updateUserName.formLabel`                    | Update name                     | Изменить имя               | The `<h2>` in `UpdateUserNameFormView`, the form's accessible name          |
+| `updateUserName.firstName`                    | First name                      | Имя                        | First `field.TextField` label                                               |
+| `updateUserName.lastName`                     | Last name                       | Фамилия                    | Second `field.TextField` label                                              |
+| `updateUserName.save`                         | Save name                       | Сохранить имя              | `form.SubmitButton` label                                                   |
+| `updateUserName.saving`                       | Saving…                         | Сохранение…                | `form.SubmitButton`'s `pendingLabel`, shown while the request is pending    |
+| `updateUserName.saved`                        | Name updated.                   | Имя обновлено.             | Resolved by `UpdateUserNameForm`, raised as a toast through `useNotifier()` |
+| `updateUserName.failed`                       | The name could not be updated.  | Не удалось обновить имя.   | `UpdateUserNameAlert`'s `role="alert"` paragraph on `failed`                |
+| `updateUserName.validation.firstNameRequired` | Enter a first name.             | Введите имя.               | First-name rule, through `useUserNameChangeSchema`                          |
+| `updateUserName.validation.lastNameRequired`  | Enter a last name.              | Введите фамилию.           | Last-name rule, through `useUserNameChangeSchema`                           |
+| `updateUserName.validation.nameTooLong`       | Use at most {{max}} characters. | Не более {{max}} символов. | Length rule; `useUserNameChangeSchema` passes `MAXIMUM_NAME_LENGTH`         |
 
 ## Configuration
 
@@ -324,7 +325,7 @@ The steps below add a hypothetical email change; nothing named `updateEmail` exi
    | `model/update-user-name-status.ts`     | `model/update-user-email-status.ts`     | Renamed type; the total `MutationStatus` map stays                                                             |
    | `model/use-update-user-name.ts`        | `model/use-update-user-email.ts`        | Uses `createUserMutations(httpClient).updateEmail(userId)`                                                     |
    | `ui/update-user-name-form-view.tsx`    | `ui/update-user-email-form-view.tsx`    | One `field.TextField` with `type="email"` and `autoComplete="email"`                                           |
-   | `ui/update-user-name-outcome.tsx`      | `ui/update-user-email-outcome.tsx`      | Renders `updateUserEmail.saved` and `updateUserEmail.failed`                                                   |
+   | `ui/update-user-name-alert.tsx`        | `ui/update-user-email-alert.tsx`        | Renders `updateUserEmail.failed`; success is raised through `useNotifier()`                                    |
    | `ui/update-user-name-form.tsx`         | `ui/update-user-email-form.tsx`         | `UpdateUserEmailForm`, taking the user's `id` and `email`                                                      |
    | `index.ts`                             | `index.ts`                              | `export { UpdateUserEmailForm } from './ui/update-user-email-form';`                                           |
 
@@ -397,9 +398,12 @@ write reaches them through the same ports.
 - **`submit` awaits the mutation, then swallows its rejection.** Awaiting `mutateAsync` keeps
   TanStack Form's `isSubmitting` true for the whole request, which is what disables the button and
   prevents a double submit; calling `mutate` and returning would end the submit at once. The
-  rejection is then caught because `status` already carries the failure and `UpdateUserNameOutcome`
+  rejection is then caught because `status` already carries the failure and `UpdateUserNameAlert`
   already renders it — rethrowing would hand the same failure to `form.Form`, whose catch passes it
-  to `onSubmitError`, a second channel for one failure. One channel per form: this slice uses
+  to `onSubmitError`, a second channel for one failure. The `try`/`catch`/`return` wraps the
+  mutation alone rather than the whole body, so a failed save returns before the success
+  notification is raised; `submit` still never rejects, because `NotifierProvider` hands out a
+  notifier that cannot throw. One channel per form: this slice uses
   mutation state and leaves `onSubmitError` unset, which is meant for submit failures that mutation
   state does not model. Observability is unaffected, because the query client's `MutationCache` has
   already reported the error.
@@ -412,20 +416,22 @@ write reaches them through the same ports.
 - **A status vocabulary of the feature's own, checked for totality.** The view never branches on
   TanStack Query's `MutationStatus`. `toUpdateUserNameStatus` maps it through
   `STATUS_BY_MUTATION_STATUS`, declared `satisfies Record<MutationStatus, UpdateUserNameStatus>`,
-  and `UpdateUserNameOutcome` maps each status to a region with an exhaustive `switch`. A new member
-  on either side is a compile error at the site that must handle it, never a silently missed branch.
-- **Container, view and outcome are separate components.** `UpdateUserNameForm` owns the
-  orchestration — the hook and the schema. `UpdateUserNameFormView` receives its schema, default
-  values, rendered outcome and side effects (`onSubmit`, `onEdited`) as props and resolves only its
-  own labels, so it renders and does nothing else. `UpdateUserNameOutcome` owns the announcement
-  markup. [`features/sign-in`](./sign-in.md) mirrors the trio.
+  and `UpdateUserNameAlert` maps each status to a message key through `MESSAGE_KEY_BY_STATUS`,
+  declared `satisfies Record<UpdateUserNameStatus, string | undefined>`. A new member on either side
+  is a compile error at the site that must handle it, never a silently missed branch.
+- **Container, view and alert are separate components.** `UpdateUserNameForm` owns the
+  orchestration — the hook, the schema and the success copy. `UpdateUserNameFormView` receives its
+  schema, default values, rendered outcome and side effects (`onSubmit`, `onEdited`) as props and
+  resolves only its own labels, so it renders and does nothing else. `UpdateUserNameAlert` owns the
+  failure markup. [`features/sign-in`](./sign-in.md) mirrors the trio, down to the name.
 - **Accessible by construction.** The form takes its accessible name from its visible `<h2>`
   (`aria-labelledby` with a `useId()` id), which is also how the tests and the end-to-end page object
   find it — by role and name, never by class or generated id. The fields declare `given-name` and
-  `family-name` autocomplete. The outcome renders two live regions (areas whose changes screen
-  readers announce): a polite `<output>` for success and an assertive `role="alert"` paragraph for
-  failure. Both stay mounted, empty when there is nothing to say, because a live region must be in
-  the DOM before its content changes for the change to be announced.
+  `family-name` autocomplete. Failure renders an assertive `role="alert"` paragraph beside the
+  control that produced it; it stays mounted, empty when there is nothing to say, because a live
+  region must be in the DOM before its content changes for the change to be announced. Success goes
+  to the shared notification seam instead — a failure is actionable and must persist, a success is a
+  transient confirmation with nothing to act on.
 - **Narrow ports and one path builder.** `createUserMutations` depends on `UserWriteClient`
   (`Pick<HttpClient, 'patch'>`), mirroring `UserReadClient` on the read side, so a test stubs one
   verb and the write cannot issue anything else. `userResourcePath` is shared with the read so the
@@ -541,7 +547,7 @@ CI runs `npm run audit` (steiger and the coverage-gated Vitest suite among its s
 
 ## Known limitations
 
-- **Every failed save shows the same message.** `UpdateUserNameOutcome` has one failure string,
+- **Every failed save shows the same message.** `UpdateUserNameAlert` has one failure string,
   `updateUserName.failed`, whatever the cause — a `400` that names a field, a `5xx`, an offline
   network or a contract violation — and no server error is mapped onto a field: nothing in `src/`
   calls TanStack Form's `setErrorMap`.

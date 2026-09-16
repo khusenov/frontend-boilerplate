@@ -7,6 +7,8 @@ import { SessionEnderProvider, SessionStarterProvider } from '@/entities/session
 import type { SessionStatus } from '@/entities/session';
 import { HttpClientProvider, toHttpError } from '@/shared/api';
 import type { HttpClient } from '@/shared/api';
+import { NotifierProvider } from '@/shared/notifications';
+import type { Notifier } from '@/shared/notifications';
 
 import { createAppRouter } from '../router/create-app-router';
 
@@ -21,6 +23,8 @@ const adaPayload = {
 
 const notCalled = (): Promise<never> =>
   Promise.reject(toHttpError(new Error('The guard tests issue no writes.')));
+
+const noopNotifier: Notifier = () => undefined;
 
 const sessionEnder = { signOut: () => Promise.resolve({ status: 'signed-out' } as const) };
 const sessionStarter = { signIn: () => Promise.resolve({ status: 'rejected' } as const) };
@@ -58,7 +62,9 @@ function renderGuardedRoute(resolve: () => Promise<SessionStatus>) {
       <HttpClientProvider client={httpClient}>
         <SessionStarterProvider sessionStarter={sessionStarter}>
           <SessionEnderProvider sessionEnder={sessionEnder}>
-            <RouterProvider router={router} />
+            <NotifierProvider notifier={noopNotifier}>
+              <RouterProvider router={router} />
+            </NotifierProvider>
           </SessionEnderProvider>
         </SessionStarterProvider>
       </HttpClientProvider>

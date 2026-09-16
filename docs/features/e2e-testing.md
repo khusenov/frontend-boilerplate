@@ -1,6 +1,6 @@
 # End-to-end testing
 
-> **Status:** Complete · **Layers:** outside layers · **Verified against:** `65a99bc`
+> **Status:** Complete · **Layers:** outside layers · **Verified against:** `d442a06`
 
 ## Purpose
 
@@ -218,18 +218,18 @@ scoped to the form whose accessible name is `Update name` (`updateUserName.formL
 live in a module-private `COPY` constant, pinned by hand to the English copy in
 `src/shared/i18n/locales/en/common.json`.
 
-| Member                     | Returns         | Finds                                          | Copy key                                      |
-| -------------------------- | --------------- | ---------------------------------------------- | --------------------------------------------- |
-| `open(userId)`             | `Promise<void>` | Navigates to `/users/${userId}`                | —                                             |
-| `content()`                | `Locator`       | The `main` landmark                            | —                                             |
-| `displayName()`            | `Locator`       | The level-1 heading                            | —                                             |
-| `firstNameField()`         | `Locator`       | The control labelled `First name`, in the form | `updateUserName.firstName`                    |
-| `lastNameField()`          | `Locator`       | The control labelled `Last name`, in the form  | `updateUserName.lastName`                     |
-| `saveButton()`             | `Locator`       | The `Save name` button, in the form            | `updateUserName.save`                         |
-| `savedNotice()`            | `Locator`       | The text `Name updated.`                       | `updateUserName.saved`                        |
-| `failureNotice()`          | `Locator`       | The text `The name could not be updated.`      | `updateUserName.failed`                       |
-| `unavailableNotice()`      | `Locator`       | The text `This profile could not be loaded.`   | `userProfile.unavailable`                     |
-| `firstNameRequiredError()` | `Locator`       | The text `Enter a first name.`, in the form    | `updateUserName.validation.firstNameRequired` |
+| Member                     | Returns         | Finds                                                       | Copy key                                            |
+| -------------------------- | --------------- | ----------------------------------------------------------- | --------------------------------------------------- |
+| `open(userId)`             | `Promise<void>` | Navigates to `/users/${userId}`                             | —                                                   |
+| `content()`                | `Locator`       | The `main` landmark                                         | —                                                   |
+| `displayName()`            | `Locator`       | The level-1 heading                                         | —                                                   |
+| `firstNameField()`         | `Locator`       | The control labelled `First name`, in the form              | `updateUserName.firstName`                          |
+| `lastNameField()`          | `Locator`       | The control labelled `Last name`, in the form               | `updateUserName.lastName`                           |
+| `saveButton()`             | `Locator`       | The `Save name` button, in the form                         | `updateUserName.save`                               |
+| `savedNotice()`            | `Locator`       | The text `Name updated.`, inside the `Notifications` region | `updateUserName.saved`, `notifications.regionLabel` |
+| `failureNotice()`          | `Locator`       | The text `The name could not be updated.`                   | `updateUserName.failed`                             |
+| `unavailableNotice()`      | `Locator`       | The text `This profile could not be loaded.`                | `userProfile.unavailable`                           |
+| `firstNameRequiredError()` | `Locator`       | The text `Enter a first name.`, in the form                 | `updateUserName.validation.firstNameRequired`       |
 
 ### The CI job
 
@@ -685,6 +685,13 @@ The pinned copies change first, by hand:
 - **Copy is pinned the same way.** The page object's `COPY` repeats strings from `common.json`
   rather than importing the locale file, which the fence forbids anyway. The suite asserts what a
   user reads, so a copy change fails it until the page object follows.
+- **`savedNotice()`'s region name is matched anchored and case-sensitively.** The success message is
+  a toast now, so the locator scopes to the notification region by its accessible name — which sonner
+  composes as `` `${containerAriaLabel} ${hotkeyLabel}` ``, hence the `\b` rather than an exact
+  match. A loose `/notifications/i` would also match the untranslated
+  `notifications.regionLabel alt+T` that a viewport mounted outside `I18nProvider` ships, and this
+  assertion is the **only** gate in the repo that can catch that mistake: the unit tests resolve
+  `useTranslation()` through `vitest.setup.ts`'s module-global instance and pass either way.
 - **Locators follow the accessibility tree, and a page object appears at the second call site.**
   Elements are found by role, label or visible text, never by `data-testid`, class or id. The ids
   are generated: `TextField` derives its control id from React's `useId()` (through
