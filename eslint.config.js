@@ -135,6 +135,7 @@ const VALIDATOR_IMPORT_PATTERNS = [
 export default tseslint.config(
   {
     ignores: [
+      '.claude',
       'dist',
       'coverage',
       'node_modules',
