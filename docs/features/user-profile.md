@@ -1,11 +1,12 @@
 # User profile (read path)
 
-> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `d442a06`
+> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `d6deb01`
 
 ## Purpose
 
-The API speaks the server's language — `snake_case` keys, a split name, uppercase role constants,
-a timestamp as a string — and the project's hard rule is that no component ever sees it: every
+The API speaks the server's language — its own field names (`fullName`, `createdAt`), an id that is
+only a string, a timestamp as a string, fields the screen never reads — and the project's hard rule
+is that no component ever sees it: every
 response is validated and translated into a frontend-owned model inside its entity's `api` segment
 (`entities/*/api`). This feature is where that rule becomes code. `entities/user` is the reference
 entity every future entity copies, and the `/users/$userId` screen is the read path that proves it
@@ -15,8 +16,8 @@ stops it escaping, and where a query key and its fetcher belong.
 
 ## How it works
 
-A visit to `/users/u_1` — typed or pasted, since nothing in the app links there yet — runs this
-sequence:
+A visit to `/users/{userId}` — typed or pasted, since nothing in the app links there yet — runs
+this sequence:
 
 1. **Guard.** The route module sits under the pathless `_authenticated` layout route, whose
    `beforeLoad` asks `context.sessionResolver.resolve()` for a verdict and redirects anything other
@@ -34,24 +35,24 @@ sequence:
    `app/routes`; the page receives a prop and a callback, the same division
    `src/app/routes/sign-in.tsx` uses for `onSignedIn`.
 4. **Query.** `useUserProfile(userId)` takes the transport from `useHttpClient()` and calls
-   `useQuery` with the same options. The key, `['users', 'detail', 'u_1']`, matches the prefetch,
+   `useQuery` with the same options. The key, `['users', 'detail', userId]`, matches the prefetch,
    so the hook joins the request already in flight instead of sending a second one.
 5. **Fetch, validate, map.** The `queryFn` builds the path with `userResourcePath` — refusing `''`,
    `.` and `..`, percent-encoding everything else — and calls
-   `httpClient.get('/users/u_1', { schema: userDtoSchema, signal })`. The transport sends
-   `GET /v1/users/u_1` with the session's bearer token and resolves only with a body that satisfies
-   `userDtoSchema` ([HTTP transport](./http-transport.md)). `toUser` translates that
+   `httpClient.get('/users/{userId}', { schema: userDtoSchema, signal })`. The transport sends
+   `GET /v1/users/{userId}` with the session's bearer token and resolves only with a body that
+   satisfies `userDtoSchema` ([HTTP transport](./http-transport.md)). `toUser` translates that
    `UserDto` into a `User`, and the cache stores the `User`: nothing above `entities/user/api` ever
    holds the wire shape.
-6. **Render.** `useUserProfile` reduces the query to a `UserProfileState` — `pending`,
-   `unavailable` or `ready`. `UserProfilePage` calls the hook and renders two things inside its
-   `<main>`: a right-aligned `<div>` holding `SignOutButton` from `@/features/sign-out`, and then
+6. **Render.** `useUserProfile` reduces the query to a `UserProfileState` — `pending`, `unavailable`
+   or `ready`. `UserProfilePage` calls the hook and renders two things inside its `<main>`: a
+   right-aligned `<div>` holding `SignOutButton` from `@/features/sign-out`, and then
    `UserProfileContent`. `UserProfileContent` switches on the status: an `<output>` reading
    `userProfile.loading`, a `role="alert"` paragraph reading `userProfile.unavailable`, or
-   `UserProfileView` (the display name as the `<h1>`, the email, a translated role label and the
-   join date in a `<time>` element) followed by `UpdateUserNameForm` from the
-   [write path](./update-user-name.md). The button sits outside the status switch on purpose, so it
-   is on screen in all three states — see [Design decisions](#design-decisions--trade-offs).
+   `UserProfileView` (the display name as the `<h1>`, the email, the status rendered by the entity's
+   `UserStatusLabel` and the join date in a `<time>` element) followed by `UpdateUserNameForm` from
+   the [write path](./update-user-name.md). The button sits outside the status switch on purpose, so
+   it is on screen in all three states — see [Design decisions](#design-decisions--trade-offs).
 7. **Leaving.** Clicking the button runs `useSignOut`, which calls `useSessionEnder().signOut()`
    through a TanStack `useMutation` and notifies the page `onSettled`. `onSignedOut` reaches the
    route, which navigates to `/sign-in`; `clearCacheOnSessionEnd` empties the query cache as the
@@ -60,8 +61,10 @@ sequence:
 
 The failure paths that matter:
 
-- **The read fails.** Every rejection of the `queryFn` is an `HttpError`: a `404` (kind `client`),
-  a body that fails `userDtoSchema` (`validation`), a dropped connection, a timeout or a `5xx` once
+- **The read fails.** Every rejection of the `queryFn` is an `HttpError`: a `403` or `404` (kind
+  `client`) — backend-boilerplate answers `403` for any id but the caller's own unless the caller
+  holds `users.read`, so only such a caller sees `404` for an id that does not exist — a body that
+  fails `userDtoSchema` (`validation`), a dropped connection, a timeout or a `5xx` once
   the retry policy gives up (`network`, `timeout`, `server`), or a dot-segment id refused before any
   request is made (`unknown`). The query settles in error, the page shows the `unavailable` alert,
   and the query cache's `onError` hands the failure to the error reporter that
@@ -70,24 +73,24 @@ The failure paths that matter:
   runs and no user request is sent.
 
 Two later events touch the cached `User`. A successful rename through `UpdateUserNameForm`
-invalidates `['users', 'detail', userId]` from `createUserMutations`, and the detail query refetches
-in place: `isPending` stays `false` during a refetch, so the view keeps the previous `User` on
-screen until the new one replaces it. When the session leaves `authenticated`,
+replaces it: `createUserMutations` maps the saved user the `PATCH` returned and writes it over
+`['users', 'detail', userId]` through `replaceCachedUser`, so the view re-renders with the new name
+and no second read is sent. When the session leaves `authenticated`,
 `clearCacheOnSessionEnd` clears the whole query cache, cached users included
 ([Session management](./session-management.md)).
 
 ## Architecture
 
 In Feature-Sliced Design a _layer_ is a top-level folder under `src/` (`app`, `pages`, `features`,
-`entities`, `shared`), a _slice_ is one screen or business noun inside a layer (`pages/user-profile`,
-`entities/user`), a _segment_ is a purpose-named folder inside a slice (`model/`, `api/`, `ui/`),
-and a slice's _public API_ is its `index.ts` barrel, the only file other slices may import. A
-_port_ — the repo also says _seam_ — is an interface its consumers program against while the
-concrete behind it is chosen elsewhere. The read path defines no port of its own; it programs
-against two owned elsewhere: the `HttpClient` transport port, narrowed to `UserReadClient`
-(`Pick<HttpClient, 'get'>`), and TanStack Query's `QueryClient`. Their concretes are built once at
-the _composition root_ — `src/app/entrypoint/**`, the only code that constructs concretes — in
-`app-providers.tsx`, as `createAuthenticatedTransport(apiBaseUrl).httpClient` and
+`entities`, `shared`), a _slice_ is one screen or business noun inside a layer
+(`pages/user-profile`, `entities/user`), a _segment_ is a purpose-named folder inside a slice
+(`model/`, `api/`, `ui/`), and a slice's _public API_ is its `index.ts` barrel, the only file other
+slices may import. A _port_ — the repo also says _seam_ — is an interface its consumers program
+against while the concrete behind it is chosen elsewhere. The read path defines no port of its own;
+it programs against two owned elsewhere: the `HttpClient` transport port, narrowed to
+`UserReadClient` (`Pick<HttpClient, 'get'>`), and TanStack Query's `QueryClient`. Their concretes
+are built once at the _composition root_ — `src/app/entrypoint/**`, the only code that constructs
+concretes — in `app-providers.tsx`, as `createAuthenticatedTransport(apiBaseUrl).httpClient` and
 `createQueryClient(queryErrorHandlers)`, and published through `HttpClientProvider` and
 `QueryClientProvider`. Components reach the transport with `useHttpClient()`; the loader runs
 outside React, so `AppRouterProvider` copies both into `AppRouterContext`
@@ -99,8 +102,8 @@ the session's ports). The feature therefore binds nothing at the composition roo
 is its route module. Imports point strictly down the layers — the route module imports
 `@/entities/user` and `@/pages/user-profile`; the page imports `@/features/sign-out`,
 `@/features/update-user-name`, `@/entities/user`, `@/shared/api` and `@/shared/i18n`; the entity
-imports `@/shared/api`, `@tanstack/react-query` and `zod/mini`; and `model/user.ts` imports nothing
-at all.
+imports `@/shared/api`, `@/shared/i18n` (for `UserStatusLabel` alone), `@tanstack/react-query` and
+`zod/mini`; and `model/user.ts` imports nothing at all.
 
 | Component                                                     | Layer                            | Responsibility                                                                                                                                             | File                                                                               |
 | ------------------------------------------------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
@@ -110,16 +113,18 @@ at all.
 | `UserProfileContent`                                          | `pages/user-profile · ui`        | The status switch: in its `ready` case renders `UserProfileView`, then `UpdateUserNameForm`                                                                | `src/pages/user-profile/ui/user-profile-page.tsx`                                  |
 | `SignOutButton`                                               | `features/sign-out · ui`         | The page's way out: ends the session through `useSessionEnder()` and calls `onSignedOut` when the attempt settles; documented in [Sign-out](./sign-out.md) | `src/features/sign-out/ui/sign-out-button.tsx`                                     |
 | `useUserProfile`, `UserProfileState`                          | `pages/user-profile · model`     | Reduces the detail query to `pending`, `unavailable` or `ready`                                                                                            | `src/pages/user-profile/model/use-user-profile.ts`                                 |
-| `UserProfileView`                                             | `pages/user-profile · ui`        | Renders a loaded `User`: heading, email, role label, join date                                                                                             | `src/pages/user-profile/ui/user-profile-view.tsx`                                  |
+| `UserProfileView`                                             | `pages/user-profile · ui`        | Renders a loaded `User`: heading, email, status label, join date                                                                                           | `src/pages/user-profile/ui/user-profile-view.tsx`                                  |
 | `UpdateUserNameForm`                                          | `features/update-user-name · ui` | Write-path form the page renders in its `ready` state; documented in [Update user name](./update-user-name.md)                                             | `src/features/update-user-name/ui/update-user-name-form.tsx`                       |
-| `User`, `UserId`, `UserRole`, `UserNameChange`, `toUserId`    | `entities/user · model`          | The frontend-owned domain model; imports nothing                                                                                                           | `src/entities/user/model/user.ts`                                                  |
-| `userDtoSchema`, `UserDto`, `UpdateUserNameDto`               | `entities/user · api`            | The server's wire shape as a `zod/mini` schema, and the types inferred from it                                                                             | `src/entities/user/api/user-dto.ts`                                                |
-| `toUser`, `toUpdateUserNameDto`                               | `entities/user · api`            | Pure translation between the wire and domain shapes                                                                                                        | `src/entities/user/api/user-mapper.ts`                                             |
+| `User`, `UserId`, `UserStatus`, `UserNameChange`, `toUserId`  | `entities/user · model`          | The frontend-owned domain model; imports nothing                                                                                                           | `src/entities/user/model/user.ts`                                                  |
+| `userDtoSchema`, `UserDto`, `UpdateUserNameRequestDto`        | `entities/user · api`            | The server's wire shape as a consumer-driven `zod/mini` schema, the type inferred from it, and the request body the write sends                            | `src/entities/user/api/user-dto.ts`                                                |
+| `toUser`, `toUpdateUserNameRequestDto`                        | `entities/user · api`            | Pure translation between the wire and domain shapes                                                                                                        | `src/entities/user/api/user-mapper.ts`                                             |
 | `createUserQueries`, `userQueryKeys`, `UserReadClient`        | `entities/user · api`            | The query-key tree and the `detail` query options: fetch, validate, map                                                                                    | `src/entities/user/api/user-queries.ts`                                            |
 | `userResourcePath`                                            | `entities/user · api`            | Builds `/users/{id}` and refuses `''`, `.` and `..`                                                                                                        | `src/entities/user/api/user-resource-path.ts`                                      |
-| `createUserMutations`                                         | `entities/user · api`            | Write-path mutation options and their invalidation; documented in [Update user name](./update-user-name.md)                                                | `src/entities/user/api/user-mutations.ts`                                          |
+| `createUserMutations`                                         | `entities/user · api`            | Write-path mutation options and their cache write; documented in [Update user name](./update-user-name.md)                                                 | `src/entities/user/api/user-mutations.ts`                                          |
+| `replaceCachedUser`, `UserCacheTarget`                        | `entities/user · api`            | Writes a saved `User` over the cached one, and only over an existing one; documented in [Update user name](./update-user-name.md)                          | `src/entities/user/api/user-cache.ts`                                              |
+| `UserStatusLabel`                                             | `entities/user · ui`             | Renders a `UserStatus` as translated copy, so every screen that shows a status uses one wording                                                            | `src/entities/user/ui/user-status-label.tsx`                                       |
 | `useLocale`                                                   | `shared/i18n`                    | Supplies the resolved, supported `Locale` the view formats dates with                                                                                      | `src/shared/i18n/use-locale.ts`                                                    |
-| `user.*`, `userProfile.*`, `signOut.*` keys                   | `shared/i18n`                    | Field labels, role labels, state copy and the button's two labels, in `en` and `ru`                                                                        | `src/shared/i18n/locales/en/common.json`, `src/shared/i18n/locales/ru/common.json` |
+| `user.*`, `userProfile.*`, `signOut.*` keys                   | `shared/i18n`                    | Field labels, status labels, state copy and the button's two labels, in `en` and `ru`                                                                      | `src/shared/i18n/locales/en/common.json`, `src/shared/i18n/locales/ru/common.json` |
 | `UserWireRecord`, `createUserStub`                            | `outside layers`                 | A pinned copy of the wire shape and a stateful `GET`/`PATCH /v1/users/{id}` stub                                                                           | `e2e/fixtures/user-stub.ts`                                                        |
 | `createUserProfilePageObject`                                 | `outside layers`                 | The screen's locators and copy for the browser suite                                                                                                       | `e2e/page-objects/user-profile-page-object.ts`                                     |
 
@@ -127,23 +132,24 @@ at all.
 
 Each entity holds three shapes in three files, and only one of them may leave the slice:
 
-| Shape        | File                     | Speaks for                                       | In `entities/user`                                                                                                                                             |
-| ------------ | ------------------------ | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Wire (DTO)   | `api/<entity>-dto.ts`    | The server                                       | `userDtoSchema`, a `zod/mini` schema, and `UserDto` inferred from it; `UpdateUserNameDto` is derived with `Pick`, so the `snake_case` vocabulary has one owner |
-| Domain model | `model/<entity>.ts`      | The frontend                                     | `User`: camelCase, a lowercase `UserRole` union, a real `Date`, a branded `UserId`; the file imports nothing, not even a schema library                        |
-| Translation  | `api/<entity>-mapper.ts` | Both — the only module that knows the two shapes | `toUser` inbound and `toUpdateUserNameDto` outbound; pure — no I/O, no clock, no i18n                                                                          |
+| Shape        | File                     | Speaks for                                       | In `entities/user`                                                                                                                                                                                                                      |
+| ------------ | ------------------------ | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Wire (DTO)   | `api/<entity>-dto.ts`    | The server                                       | `userDtoSchema`, a `zod/mini` schema declaring the seven fields the frontend reads, and `UserDto` inferred from it; `UpdateUserNameRequestDto` is declared on its own, because the server validates requests with a schema of their own |
+| Domain model | `model/<entity>.ts`      | The frontend                                     | `User`: a `UserStatus` union, a real `Date`, a branded `UserId`, and `displayName` in place of the wire's `fullName`; the file imports nothing, not even a schema library                                                               |
+| Translation  | `api/<entity>-mapper.ts` | Both — the only module that knows the two shapes | `toUser` inbound and `toUpdateUserNameRequestDto` outbound; pure — no I/O, no clock, no i18n                                                                                                                                            |
 
 Three rules make the contract hold:
 
 - **Validate at the transport, map in the factory.** `HttpClient` requires a `schema` on all five
   verbs, so a response reaches the entity already checked against its DTO schema. The query and
-  mutation factories then apply the mappers — `toUser` to what comes in, `toUpdateUserNameDto` to
-  what goes out — so whatever leaves `api/`, into the cache, a hook or a component, is the domain
-  model.
-- **Only the mapper authors a model.** `User.displayName` is a cached projection of `firstName` and
-  `lastName` whose sole author is `toUser`; no module outside the mapper constructs or alters a
-  `User`. Test fixtures are the exception, and must keep the three fields consistent by hand — no
-  type can enforce it.
+  mutation factories then apply the mappers — `toUser` to what comes in,
+  `toUpdateUserNameRequestDto` to what goes out — so whatever leaves `api/`, into the cache, a hook
+  or a component, is the domain model.
+- **Only the mapper authors a model.** `toUser` is the only module that constructs a `User`, and it
+  builds one only from a validated server record — `displayName` included, which it copies from the
+  server-composed `fullName`. The write path puts the `User` that `toUser` mapped from the `PATCH`
+  response into the cache, never one it assembled itself. Test fixtures are the exception, and must
+  keep `displayName` consistent with the name parts by hand — no type can enforce it.
 - **The barrel is the leak gate.** Nothing that names the wire shape is exported from
   `src/entities/user/index.ts`, so no module outside the slice can name it; inside the slice, only
   `api/` modules import `user-dto.ts`.
@@ -152,20 +158,22 @@ What an entity's `index.ts` may export:
 
 | May export                                          | In `@/entities/user`                                                                                                                                  |
 | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Domain model types                                  | `User`, `UserId`, `UserRole`, `UserNameChange`                                                                                                        |
+| Domain model types                                  | `User`, `UserId`, `UserNameChange` — `UserStatus` stays inside, because consumers name it as `User['status']`                                         |
 | Constructors of model values                        | `toUserId`                                                                                                                                            |
 | Collaborator factories                              | `createUserQueries`, `createUserMutations`                                                                                                            |
+| Components that present a model value               | `UserStatusLabel`                                                                                                                                     |
 | Ports, with the provider and hook that publish them | None here; `entities/session` exports `SessionResolverProvider` and `useSessionResolver`, for example ([Authenticated route guard](./route-guard.md)) |
 
 What it must not export:
 
-| Must not export             | Kept inside `entities/user`                     | Why                                                                                                                       |
-| --------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| DTO types and their schemas | `UserDto`, `UpdateUserNameDto`, `userDtoSchema` | They are the wire shape the rule confines to `api/`                                                                       |
-| Mappers                     | `toUser`, `toUpdateUserNameDto`                 | Only the factories apply them, so every value leaving `api/` is already mapped                                            |
-| Path builders               | `userResourcePath`                              | The URL is transport detail, and one builder keeps the dot-segment guard on reads and writes alike                        |
-| Query-key objects           | `userQueryKeys`                                 | Which queries a user write invalidates is entity knowledge; it lives in `createUserMutations`' `onSuccess`                |
-| Required-interface types    | `UserReadClient`, `UserWriteClient`             | They describe what the slice needs, not what it provides; each is exported from its own module for the slice's tests only |
+| Must not export             | Kept inside `entities/user`                            | Why                                                                                                                       |
+| --------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| DTO types and their schemas | `UserDto`, `UpdateUserNameRequestDto`, `userDtoSchema` | They are the wire shape the rule confines to `api/`                                                                       |
+| Mappers                     | `toUser`, `toUpdateUserNameRequestDto`                 | Only the factories apply them, so every value leaving `api/` is already mapped                                            |
+| Path builders               | `userResourcePath`                                     | The URL is transport detail, and one builder keeps the dot-segment guard on reads and writes alike                        |
+| Query-key objects           | `userQueryKeys`                                        | Which cache entry a user write replaces is entity knowledge; it lives in `createUserMutations`' `mutationFn`              |
+| Cache helpers               | `replaceCachedUser`, `UserCacheTarget`                 | The write-through rules — replace, never create; cancel reads first — stay with the factory that applies them             |
+| Required-interface types    | `UserReadClient`, `UserWriteClient`                    | They describe what the slice needs, not what it provides; each is exported from its own module for the slice's tests only |
 
 The door is enforced mechanically; what passes through it is not. The ESLint slice public-API
 pattern `^@/(entities|features|widgets|pages)/[^/]+/(?!@x/).+` (over the lower layers and
@@ -231,15 +239,15 @@ rather than being chosen inside the page.
 
 ### `@/entities/user`
 
-| Export                | Kind     | Signature                                                                                                  | Purpose                                                                                                                                                                                                            |
-| --------------------- | -------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `createUserQueries`   | Function | `createUserQueries(httpClient: UserReadClient)`, where `UserReadClient` is `Pick<HttpClient, 'get'>`       | Returns `{ detail }`. `detail(userId: UserId)` returns the `queryOptions()` for one user — key `['users', 'detail', userId]`, a `queryFn` that resolves a `User` — for `useQuery`, `prefetchQuery` or `fetchQuery` |
-| `createUserMutations` | Function | `createUserMutations(httpClient: UserWriteClient)`, where `UserWriteClient` is `Pick<HttpClient, 'patch'>` | Returns `{ updateName }`. `updateName(userId: UserId)` returns the write path's `mutationOptions()`; see [Update user name](./update-user-name.md)                                                                 |
-| `toUserId`            | Function | `toUserId(value: string): UserId`                                                                          | Brands a raw string as a `UserId`; an unchecked cast that parses nothing                                                                                                                                           |
-| `User`                | Type     | See the model below                                                                                        | The domain model                                                                                                                                                                                                   |
-| `UserId`              | Type     | `string & { readonly [userIdBrand]: 'UserId' }`                                                            | A branded identifier                                                                                                                                                                                               |
-| `UserRole`            | Type     | `'admin' \| 'member' \| 'viewer'`                                                                          | The domain role union                                                                                                                                                                                              |
-| `UserNameChange`      | Type     | `{ readonly firstName: string; readonly lastName: string }`                                                | The input of `updateName`                                                                                                                                                                                          |
+| Export                | Kind      | Signature                                                                                                  | Purpose                                                                                                                                                                                                                     |
+| --------------------- | --------- | ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createUserQueries`   | Function  | `createUserQueries(httpClient: UserReadClient)`, where `UserReadClient` is `Pick<HttpClient, 'get'>`       | Returns `{ detail }`. `detail(userId: UserId)` returns the `queryOptions()` for one user — key `['users', 'detail', userId]`, a `queryFn` that resolves a `User` — for `useQuery`, `prefetchQuery` or `fetchQuery`          |
+| `createUserMutations` | Function  | `createUserMutations(httpClient: UserWriteClient)`, where `UserWriteClient` is `Pick<HttpClient, 'patch'>` | Returns `{ updateName }`. `updateName(userId: UserId)` returns the write path's `mutationOptions()`; see [Update user name](./update-user-name.md)                                                                          |
+| `toUserId`            | Function  | `toUserId(value: string): UserId`                                                                          | Brands a raw string as a `UserId`; an unchecked cast that parses nothing                                                                                                                                                    |
+| `User`                | Type      | See the model below                                                                                        | The domain model                                                                                                                                                                                                            |
+| `UserId`              | Type      | `string & { readonly [userIdBrand]: 'UserId' }`                                                            | A branded identifier                                                                                                                                                                                                        |
+| `UserNameChange`      | Type      | `{ readonly firstName: string; readonly lastName: string }`                                                | The input of `updateName`                                                                                                                                                                                                   |
+| `UserStatusLabel`     | Component | `UserStatusLabel({ status }: { readonly status: UserStatus })`                                             | Renders the translated label of a status — `Active`, `Inactive` or `Awaiting verification` in English — as a text node. `UserStatus` is not exported; a consumer passes `user.status` or names the type as `User['status']` |
 
 The whole domain model, `src/entities/user/model/user.ts`:
 
@@ -248,7 +256,7 @@ declare const userIdBrand: unique symbol;
 
 export type UserId = string & { readonly [userIdBrand]: 'UserId' };
 
-export type UserRole = 'admin' | 'member' | 'viewer';
+export type UserStatus = 'active' | 'inactive' | 'pending';
 
 export interface User {
   readonly id: UserId;
@@ -256,7 +264,7 @@ export interface User {
   readonly lastName: string;
   readonly displayName: string;
   readonly email: string;
-  readonly role: UserRole;
+  readonly status: UserStatus;
   readonly joinedAt: Date;
 }
 
@@ -276,37 +284,45 @@ export function toUserId(value: string): UserId {
 | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ | ----------------------- |
 | `GET`  | `/users/{userId}` under `VITE_API_BASE_URL` — `/v1/users/{userId}` by default; the id is percent-encoded, and `''`, `.` and `..` are refused before any request | `200` with a body that satisfies `userDtoSchema` | `toUser`, into a `User` |
 
-| Wire field (`UserDto`) | Rule in `userDtoSchema`                  | Domain field (`User`) | Translation in `toUser`                                     |
-| ---------------------- | ---------------------------------------- | --------------------- | ----------------------------------------------------------- |
-| `id`                   | `zm.string()`                            | `id: UserId`          | `toUserId(dto.id)`                                          |
-| `first_name`           | `zm.string()`                            | `firstName`           | Trimmed                                                     |
-| `last_name`            | `zm.string()`                            | `lastName`            | Trimmed                                                     |
-| —                      | —                                        | `displayName`         | `` `${firstName} ${lastName}`.trim() ``                     |
-| `email`                | `zm.email()`                             | `email`               | Unchanged                                                   |
-| `role`                 | `zm.enum(['ADMIN', 'MEMBER', 'VIEWER'])` | `role: UserRole`      | `ADMIN` → `admin`, `MEMBER` → `member`, `VIEWER` → `viewer` |
-| `created_at`           | `zm.iso.datetime({ offset: true })`      | `joinedAt: Date`      | `new Date(dto.created_at)`                                  |
+| Wire field (`UserDto`) | Rule in `userDtoSchema`                      | Domain field (`User`) | Translation in `toUser`                                                                              |
+| ---------------------- | -------------------------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------- |
+| `id`                   | `zm.uuid()`                                  | `id: UserId`          | `toUserId(dto.id)`                                                                                   |
+| `firstName`            | `zm.string()`                                | `firstName`           | Unchanged; the server trims names before it stores them                                              |
+| `lastName`             | `zm.string()`                                | `lastName`            | Unchanged                                                                                            |
+| `fullName`             | `zm.string()`                                | `displayName`         | Unchanged; the server composes it as `` `${firstName} ${lastName}` ``                                |
+| `email`                | `zm.email()`                                 | `email`               | Unchanged                                                                                            |
+| `status`               | `zm.enum(['active', 'inactive', 'pending'])` | `status: UserStatus`  | Unchanged; `status: dto.status` compiles only while every value the schema accepts is a `UserStatus` |
+| `createdAt`            | `zm.iso.datetime({ offset: true })`          | `joinedAt: Date`      | `new Date(dto.createdAt)`                                                                            |
+| `updatedAt`            | Not declared, so stripped                    | —                     | —                                                                                                    |
 
-The schema drops fields it does not name and rejects a missing or retyped one, so the server may add
-fields freely while a rename or retype fails validation. `zm.iso.datetime({ offset: true })`
-rejects a timestamp without a zone designator, so `new Date(dto.created_at)` always parses an
-absolute instant.
+The shape is a consumer-driven subset of backend-boilerplate's `userResponse`: the schema declares
+the seven fields the frontend reads, drops every field it does not name — today `updatedAt` — and
+rejects a missing or retyped one, so the server may add fields freely while a rename or retype fails
+validation. A `status` the schema does not list fails closed: the page shows its `unavailable` state
+until the value is added here, which is why a frontend release that knows a new status has to ship
+before the backend starts sending it. `zm.iso.datetime({ offset: true })` rejects a timestamp
+without a zone designator, so `new Date(dto.createdAt)` always parses an absolute instant. The
+server answers `403 FORBIDDEN` for any id other than the caller's own unless the caller holds the
+`users.read` permission — compared case-sensitively, so an upper-cased copy of the caller's own id
+is someone else's — and only a `users.read` holder sees `404 USER_NOT_FOUND`; every error body is
+the envelope `{ "error": { "code", "message", "requestId" } }`, which the transport does not parse.
 
 ### Translation keys
 
 All keys live in the `common` namespace, which `src/shared/i18n/i18next.d.ts` types against the
 English file, so a misspelt key fails `npm run typecheck`
-([Internationalization](./internationalization.md)). `user.*` names the entity's fields and roles;
-`userProfile.*` is this screen's state copy; `signOut.*` belongs to `features/sign-out`, which the
-screen composes.
+([Internationalization](./internationalization.md)). `user.*` names the entity's fields and
+statuses; `userProfile.*` is this screen's state copy; `signOut.*` belongs to `features/sign-out`,
+which the screen composes.
 
 | Key                       | `en`                              | `ru`                          | Used by                                           |
 | ------------------------- | --------------------------------- | ----------------------------- | ------------------------------------------------- |
 | `user.email`              | Email                             | Электронная почта             | `UserProfileView`                                 |
-| `user.role`               | Role                              | Роль                          | `UserProfileView`                                 |
+| `user.status`             | Status                            | Статус                        | `UserProfileView`                                 |
 | `user.joinedAt`           | Joined                            | Присоединился                 | `UserProfileView`                                 |
-| `user.roles.admin`        | Administrator                     | Администратор                 | `UserProfileView`, through `ROLE_LABEL_KEYS`      |
-| `user.roles.member`       | Member                            | Участник                      | `UserProfileView`, through `ROLE_LABEL_KEYS`      |
-| `user.roles.viewer`       | Viewer                            | Наблюдатель                   | `UserProfileView`, through `ROLE_LABEL_KEYS`      |
+| `user.statuses.active`    | Active                            | Активен                       | `UserStatusLabel`, through `STATUS_LABEL_KEYS`    |
+| `user.statuses.inactive`  | Inactive                          | Неактивен                     | `UserStatusLabel`, through `STATUS_LABEL_KEYS`    |
+| `user.statuses.pending`   | Awaiting verification             | Ожидает подтверждения         | `UserStatusLabel`, through `STATUS_LABEL_KEYS`    |
 | `userProfile.loading`     | Loading profile…                  | Загрузка профиля…             | `UserProfileContent`, `pending` state             |
 | `userProfile.unavailable` | This profile could not be loaded. | Не удалось загрузить профиль. | `UserProfileContent`, `unavailable` state         |
 | `signOut.action`          | Sign out                          | Выйти                         | `SignOutButtonView` (internal), idle label        |
@@ -316,7 +332,8 @@ screen composes.
 
 The feature reads no `VITE_*` variable and takes no options of its own: `createUserQueries`
 receives only an `HttpClient`, and the slice's constants — `USERS_QUERY_SCOPE`,
-`USERS_RESOURCE_SCOPE` and `UNUSABLE_IDENTIFIER_SEGMENTS` — are fixed in source. Its behaviour is
+`USERS_RESOURCE_SCOPE`, `UNUSABLE_IDENTIFIER_SEGMENTS` and `STATUS_LABEL_KEYS` — are fixed in
+source. Its behaviour is
 shaped by settings owned elsewhere:
 
 | Variable / option                                                      | Default                                                                      | Meaning                                                                                                                                                                                           |
@@ -325,7 +342,7 @@ shaped by settings owned elsewhere:
 | `server.proxy['/v1']` in `vite.config.ts`                              | `http://localhost:8000`                                                      | Under `npm run dev`, forwards `/v1` requests to a local API                                                                                                                                       |
 | `staleTime`, set by `createQueryClient`                                | `30_000` ms                                                                  | A cached `User` younger than this is served without a request, both to the loader's `prefetchQuery` and to `useQuery`                                                                             |
 | `gcTime`, set by `createQueryClient`                                   | `300_000` ms                                                                 | How long an unobserved `User` stays cached after its page unmounts                                                                                                                                |
-| `retry`, set by `createQueryClient`                                    | Up to 2 retries, for `network`, `server` and `timeout` failures and HTTP 429 | A `404` or a `validation` failure shows the alert at once; a `5xx` shows it after the retries                                                                                                     |
+| `retry`, set by `createQueryClient`                                    | Up to 2 retries, for `network`, `server` and `timeout` failures and HTTP 429 | A `403`, a `404` or a `validation` failure shows the alert at once; a `5xx` shows it after the retries                                                                                            |
 | `timeoutMilliseconds`, read by `createHttpClient`                      | `15_000` ms                                                                  | The limit on each attempt of the `GET`; `createAuthenticatedTransport` passes no override                                                                                                         |
 | `defaultPreload` / `defaultPreloadStaleTime`, set by `createAppRouter` | `'intent'` / `0`                                                             | Hovering a `Link` into the route runs the guard and the loader; the router caches no loader result, so the query's `staleTime` alone decides whether a request goes out ([Routing](./routing.md)) |
 | `webServer.env.VITE_API_BASE_URL` in `playwright.config.ts`            | `API_PREFIX`, which is `/v1`                                                 | Pins the end-to-end build to the prefix the stubs intercept                                                                                                                                       |
@@ -343,18 +360,22 @@ npm run dev
 
 Open `/users/<id>` on the dev server. With no API running, the app redirects to `/sign-in`: the
 guard resolves the session through `POST /v1/auth/refresh`, and a refused connection is not an
-authenticated session. To see the profile, serve `POST /v1/auth/refresh`, `POST /v1/auth/login`
-and `GET /v1/users/{id}` — at `http://localhost:8000`, which the dev server proxies `/v1` to, or
-wherever `VITE_API_BASE_URL` points — in the shapes of `src/entities/session/api/session-dto.ts`
-and `src/entities/user/api/user-dto.ts`. Sign in at `/sign-in` ([Sign-in](./sign-in.md)), which
-lands on `/`, then open `/users/<id>`.
+authenticated session. To see the profile, run
+[backend-boilerplate](https://github.com/khusenov/backend-boilerplate), which serves
+`POST /v1/auth/refresh`, `POST /v1/auth/login` and `GET /v1/users/{id}` in the shapes of
+`src/entities/session/api/session-dto.ts` and `src/entities/user/api/user-dto.ts` at
+`http://localhost:8000`, where the dev server proxies `/v1`. A fresh backend has no users, so
+register one and verify its email first, as the root README's
+[Getting started](../../README.md#getting-started) shows. Sign in at `/sign-in`
+([Sign-in](./sign-in.md)), which lands on `/`, then open `/users/<id>` with the `id` registration
+returned.
 
 ### Read a user from another slice
 
 Any slice below `app` reads a user through the factory and the transport hook — never through the
 DTO or a hand-built path. Every consumer of `detail(userId)` shares one cache entry with the profile
-page: one fetch, one invalidation. To project a single field, pass `select` rather than mapping in
-the component:
+page: one fetch, and one entry that a rename replaces for every reader at once. To project a single
+field, pass `select` rather than mapping in the component:
 
 ```ts
 import { useQuery } from '@tanstack/react-query';
@@ -414,11 +435,15 @@ starts before the click.
 3. Translate it in `toUser` (`src/entities/user/api/user-mapper.ts`) and cover the translation in
    `user-mapper.test.ts`. Its `keeps no wire field names on the domain model` case lists the model's
    keys and fails until you add the new one.
-4. Update the unit fixtures. The four `adaPayload` literals — in `user-queries.test.ts`,
-   `user-profile-page.test.tsx`, `users.$userId.test.tsx` and `_authenticated.test.tsx` — are plain
-   objects checked only by the schema at run time, so a new required field missing from them fails
-   those tests rather than the type check; `adaDto` in `user-mapper.test.ts` and the `ada` fixture
-   in `user-profile-view.test.tsx` are typed, and fail `npm run typecheck`.
+4. Update the unit fixtures. The wire payload literals in eight test files —
+   `user-queries.test.ts`, `user-cache.test.ts`, `user-mutations.test.ts`,
+   `use-update-user-name.test.tsx`, `update-user-name-form.test.tsx`, `user-profile-page.test.tsx`,
+   `users.$userId.test.tsx` and `_authenticated.test.tsx` — are plain objects checked only by the
+   schema at run time, through `parseStubResponse`, so a new required field missing from them fails
+   those tests rather than the type check. `adaDto` in `user-mapper.test.ts` and the `User` fixtures
+   in `user-cache.test.ts` and `user-mutations.test.ts` are typed, and fail `npm run typecheck`; the
+   `ada` fixture in `user-profile-view.test.tsx` is typed from the view's own `Pick`, so it changes
+   only when the view starts reading the field.
 5. If the screen shows the field, render it in `UserProfileView` with a label key added to both
    `src/shared/i18n/locales/en/common.json` and `src/shared/i18n/locales/ru/common.json`.
 6. Update `UserWireRecord` in `e2e/fixtures/user-stub.ts` and the `ADA` record in
@@ -430,7 +455,9 @@ The steps below add a hypothetical `project` entity served by `GET /v1/projects/
 `/projects/$projectId` screen; substitute your own resource. Name the slice in the singular:
 steiger's `fsd/inconsistent-naming` rejects a mix of plural and singular entity names, and `user`
 and `session` are singular. Every snippet below type-checks, lints and passes `npm run arch` as
-written.
+written. This hypothetical API names its fields and values differently from backend-boilerplate on
+purpose, so the mapper has real translation to do; when a wire value already is the domain value,
+pass it straight through, as `toUser` does with `status`.
 
 **1. The domain model** — `src/entities/project/model/project.ts`, importing nothing:
 
@@ -514,7 +541,8 @@ export function projectResourcePath(projectId: ProjectId): string {
 ```
 
 **5. The query factory** — `src/entities/project/api/project-queries.ts`. `projectQueryKeys` stays
-out of the barrel; a future `createProjectMutations` imports it to invalidate:
+out of the barrel; a future `createProjectMutations` imports it to write a saved project through, as
+`replaceCachedUser` does for users:
 
 ```ts
 import { queryOptions } from '@tanstack/react-query';
@@ -772,11 +800,21 @@ registration in `e2e/fixtures/harness.ts` ([End-to-end testing](./e2e-testing.md
   server's naming, so a wire rename would ripple through the UI instead of stopping at one mapper.
   The last `toUser` test asserts the domain object carries none of the wire field names, so a lazy
   `dto as unknown as User` fails the suite, not merely the reviewer.
-- **`displayName` is a projection that only `toUser` writes.** The model keeps `firstName` and
-  `lastName`, which the write path needs to prefill its form, and derives `displayName` once in the
-  mapper, so no component splits a display name back into parts. Each part and the joined string
-  are trimmed, so a padded or empty wire field never yields a double or trailing space. The cost is
-  that a hand-built `User` fixture must keep the three fields consistent.
+- **`displayName` comes from the server.** backend-boilerplate composes `fullName` from the name
+  parts it has already trimmed, so `toUser` copies it into `displayName` rather than joining
+  `firstName` and `lastName` a second time on the client, where the two joins could disagree. The
+  model keeps `firstName` and `lastName`, which the write path needs to prefill its form, so no
+  component splits a display name back into parts. The cost is that a hand-built `User` fixture must
+  keep the three fields consistent.
+- **The DTO is consumer-driven, and fails closed on an unknown status.** `userDtoSchema` names the
+  seven fields the frontend reads rather than all eight the server sends, so a field the server adds
+  or the frontend never reads is stripped instead of breaking the page. An enum is the exception: a
+  `status` value the schema does not list fails validation, and there is no lookup table to keep in
+  step, because `status: dto.status` stops compiling the moment the schema accepts a value
+  `UserStatus` lacks, and `STATUS_LABEL_KEYS` then demands its label. Failing closed fixes a
+  deployment order — expand the frontend, then let the backend send the value. A status that is only
+  displayed could be read tolerantly instead, mapping an unknown value to a neutral label; that is a
+  deliberate change for the day frontend-first releases can no longer be guaranteed.
 - **`toUserId` brands; it does not parse.** It is an unchecked cast whose value is naming the two
   boundaries where an untyped string becomes an identifier: `app/routes`, where the URL param is
   read, and `toUser`, where the wire `id` is translated. Those are call sites, not ports — nothing
@@ -800,9 +838,10 @@ registration in `e2e/fixtures/harness.ts` ([End-to-end testing](./e2e-testing.md
   type-linked, so `useQuery`, `prefetchQuery` and `fetchQuery` all infer `User` without restating
   it. Both key builders derive from one `ALL_USERS_KEY`, so invalidating `['users']` cannot
   silently stop matching a descendant; the test pins that as a prefix relationship rather than a
-  literal. Invalidation after a write lives in `createUserMutations`' `onSuccess`, because which
-  queries a user write invalidates is entity knowledge — which is also why `userQueryKeys` left the
-  barrel: no consumer needs it, and none can spread-and-override the invalidation away.
+  literal. The cache write after a rename lives in `createUserMutations`' `mutationFn`, through
+  `replaceCachedUser`, because which entry a user write replaces is entity knowledge — which is also
+  why `userQueryKeys` left the barrel: no consumer needs it, and no consumer option can remove the
+  write.
 - **The loader prefetches without awaiting.** Awaiting would block the navigation on the request:
   the page's own pending state would never render, and a down backend would hold the navigation for
   the whole retry-and-timeout budget before the alert appeared. Firing and forgetting paints the loading
@@ -833,9 +872,12 @@ registration in `e2e/fixtures/harness.ts` ([End-to-end testing](./e2e-testing.md
   is wrapped in a `div` so the pair can be a flex row while the `dl` keeps `display: block`,
   because changing a description list's box type is known to drop its semantics in some screen
   readers.
-- **Roles and dates are rendered, never shown raw.** `ROLE_LABEL_KEYS` maps each `UserRole` to a
-  typed i18n key and `satisfies Record<UserRole, string>`, so a new role without a label fails to
-  compile; the view test asserts `ADMIN` never reaches the screen. The join date goes through
+- **Statuses and dates are rendered, never shown raw.** `UserStatusLabel` maps each `UserStatus` to
+  a typed i18n key through `STATUS_LABEL_KEYS`, which `satisfies Record<UserStatus, string>`, so a
+  new status without a label fails to compile; its test asserts the wire constant never reaches the
+  screen. The mapping lives in the entity's `ui` segment because it depends only on `UserStatus` and
+  `@/shared/i18n`, which makes `entities/user` the lowest layer that can hold it and gives every
+  screen that shows a status the same wording. The join date goes through
   `Intl.DateTimeFormat` with `dateStyle: 'long'` and no date library: `Intl` reads the platform's
   CLDR data, so the same `Date` renders as `January 5, 2024` under `en` and `5 января 2024 г.`
   under `ru` at zero bundle cost, in the viewer's own time zone, while the model keeps a native
@@ -866,54 +908,62 @@ registration in `e2e/fixtures/harness.ts` ([End-to-end testing](./e2e-testing.md
   split: `userDtoSchema`, `toUser` and `userResourcePath` are in the entry chunk and
   `UserProfileView` is in `users._userId-*.js` — as is `SignOutButton`, whose `signOut.inProgress`
   label ships in the route's component chunk, so composing the feature cost the eager half nothing.
-  `zod/mini` composes functionally
+  Pinning `id` to `zm.uuid()` later added about 0.2 kB gzip to the eager `session-*.js` chunk that
+  hosts `zod/mini` (11.21 → 11.43 kB). `zod/mini` composes functionally
   (`zm.nullable(zm.string())`, never `zm.string().nullable()`), and every schema that ships from
   `src/`, form schemas included, uses it ([Forms](./forms.md)). The schema's validation messages are
   developer diagnostics, never display copy: they travel as `HttpError.issues` to the error
   reporter, while the page shows `userProfile.unavailable`.
 - **The browser suite pins its own copy of the wire shape.** `e2e/fixtures/user-stub.ts` declares
-  `UserWireRecord` instead of importing `UserDto`, so renaming `first_name` or `last_name` in the
-  DTO, the mapper and the unit fixtures together still leaves `npm run audit` green — the general
-  policy and its mechanical fence belong to [End-to-end testing](./e2e-testing.md).
+  `UserWireRecord` instead of importing `UserDto`. Renaming `fullName` in the DTO, the mapper and
+  the unit fixtures together leaves `npm run audit` green, and only the pinned copy — which still
+  sends `fullName` — fails the end-to-end suite; the general policy and its mechanical fence belong
+  to [End-to-end testing](./e2e-testing.md). The copy is itself hand-written: this entity once
+  pinned a `snake_case` shape no real server sent, and every gate stayed green, until it was
+  re-pinned against backend-boilerplate's `userResponse` by reading that repository.
 
 ## Testing
 
-| File                                                   | Kind                                                                                                                                                                                   | What it covers                                                                                                                                                                                                                                                                                                                                |
-| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/entities/user/api/user-mapper.test.ts`            | Unit                                                                                                                                                                                   | `toUser` joins and trims the display name (an empty surname, padded parts), keeps `firstName` and `lastName`, translates every wire role, parses `created_at` into a `Date`, carries the id across, and leaves no wire field name on the model. Its `toUpdateUserNameDto` cases belong to the [write path](./update-user-name.md).            |
-| `src/entities/user/api/user-queries.test.ts`           | Unit, with a real `QueryClient` and a one-method `UserReadClient`                                                                                                                      | Every key sits under `['users']` and `detail` nests under it as a prefix; `detail` requests `/users/u_1` and resolves the mapped `User`; `../admin` goes out as `/users/..%2Fadmin`; `..` is refused with a `dot segment` message and kind `unknown`; a role of `OWNER`, an email of `not-an-email` and a `created_at` of `yesterday` reject. |
-| `src/pages/user-profile/ui/user-profile-view.test.tsx` | Component, no providers                                                                                                                                                                | The display name is the `<h1>`; field labels are translated; `Administrator` renders and `ADMIN` does not; the join date is a `<time>` whose `datetime` is `2024-01-05T12:00:00.000Z`.                                                                                                                                                        |
-| `src/pages/user-profile/ui/user-profile-page.test.tsx` | Component, `renderWithProviders` (`QueryClientProvider`, `HttpClientProvider` and `NotifierProvider`) plus a `SessionEnderProvider` wrapper, all with stub collaborators, no router    | A `status` region while pending; the heading once the query resolves; an `alert` when it fails; after the form saves a new last name, the refetched heading reads `Ada King`, which proves the write path's invalidation reaches this query; and the `Sign out` button is enabled beside the alert while the profile is failing to load.      |
-| `src/app/routes/_authenticated/users.$userId.test.tsx` | Integration through `createAppRouter` and the generated route tree, memory history at `/users/u_1`, wrapped in `SessionStarterProvider`, `SessionEnderProvider` and `NotifierProvider` | With a resolver that answers `authenticated`, the route requests `/users/u_1` and renders `Ada Lovelace`; clicking `Sign out` then lands on `/sign-in`, which is what proves the route's `onSignedOut` callback reaches the router.                                                                                                           |
-| `e2e/user-profile.spec.ts`                             | End to end, Chromium against the production build                                                                                                                                      | The scenarios below.                                                                                                                                                                                                                                                                                                                          |
+| File                                                   | Kind                                                                                                                                                                                      | What it covers                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/entities/user/api/user-mapper.test.ts`            | Unit                                                                                                                                                                                      | `toUser` shows the server's `fullName` as the display name, keeps `firstName` and `lastName`, carries every wire status into the domain, parses `createdAt` into a `Date`, carries the id across, and leaves no wire field name on the model. Its `toUpdateUserNameRequestDto` cases belong to the [write path](./update-user-name.md).                                                                                                                                                                |
+| `src/entities/user/api/user-queries.test.ts`           | Unit, with a real `QueryClient` and a one-method `UserReadClient` that answers through `parseStubResponse`                                                                                | Every key sits under `['users']` and `detail` nests under it as a prefix; `detail` requests `/users/{uuid}` and resolves exactly the mapped `User`, so neither `fullName` nor `updatedAt` reaches the model; `../admin` goes out as `/users/..%2Fadmin`; `..` is refused with a `dot segment` message and kind `unknown`; an id of `not-a-uuid`, a status of `suspended`, an email of `not-an-email` and a `createdAt` of `yesterday` each reject with kind `validation` and the failing field's path. |
+| `src/entities/user/ui/user-status-label.test.tsx`      | Component, no providers                                                                                                                                                                   | Each status renders its translated label — `Active`, `Inactive`, `Awaiting verification` — and never the wire constant.                                                                                                                                                                                                                                                                                                                                                                                |
+| `src/pages/user-profile/ui/user-profile-view.test.tsx` | Component, no providers; the fixture is typed from the view's own `Pick` props                                                                                                            | The display name is the `<h1>`; the `Email`, `Status` and `Joined` labels are translated; the email and `Active` render; the join date is a `<time>` whose `datetime` is `2024-01-05T12:00:00.000Z`.                                                                                                                                                                                                                                                                                                   |
+| `src/pages/user-profile/ui/user-profile-page.test.tsx` | Component, `renderWithProviders` (`QueryClientProvider`, `HttpClientProvider` and `NotifierProvider`) plus a `SessionEnderProvider` wrapper, all with stub collaborators, no router       | A `status` region while pending; the heading once the query resolves; an `alert` when it fails; after the form saves a new last name, the heading reads `Ada King` from the `PATCH` response while the stub has recorded exactly one `GET`, which proves the write path's cache write reaches this query without a second read; and the `Sign out` button is enabled beside the alert while the profile is failing to load.                                                                            |
+| `src/app/routes/_authenticated/users.$userId.test.tsx` | Integration through `createAppRouter` and the generated route tree, memory history at `/users/{uuid}`, wrapped in `SessionStarterProvider`, `SessionEnderProvider` and `NotifierProvider` | With a resolver that answers `authenticated`, the route requests `/users/{uuid}` and renders `Ada Lovelace`; clicking `Sign out` then lands on `/sign-in`, which is what proves the route's `onSignedOut` callback reaches the router.                                                                                                                                                                                                                                                                 |
+| `e2e/user-profile.spec.ts`                             | End to end, Chromium against the production build                                                                                                                                         | The scenarios below.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
 The end-to-end scenarios that exercise the read path:
 
-- `renders the mapped domain model from the wire payload` — the heading reads `Ada Lovelace`, and
-  the `<main>` landmark contains `ada@example.test`, `Administrator` (from `ADMIN`) and
-  `January 5, 2024` (from `created_at`).
-- `shows the unavailable state when the profile does not exist` — `u_missing` receives the stub's
-  `404`, and the page shows `This profile could not be loaded.`
+- `renders the mapped domain model from the wire payload` — the stub serves all eight fields, the
+  heading reads `Ada Lovelace`, and the `<main>` landmark contains `ada@example.test`, `Active`
+  (from `active`) and `January 5, 2024` (from `createdAt`).
+- `shows the unavailable state when the profile does not exist` — the unknown id
+  `0198f0a2-7b1c-7d3e-8f00-000000000000` receives the stub's `404`, and the page shows
+  `This profile could not be loaded.`
 
-The spec's other five scenarios exercise the write path
-([Update user name](./update-user-name.md)); two of them also pin this query's own behaviour:
-`saves a new name and shows the refetched profile` — after the `PATCH`, the invalidated detail query
-re-reads the stub's updated record and the heading reads `Augusta Lovelace` — and
-`reports a rejected save without discarding what was typed` — an injected `500` fails the save,
-nothing is invalidated, and the heading still reads `Ada Lovelace`. Trimming, blank-name validation
+The spec's other five scenarios exercise the write path ([Update user name](./update-user-name.md));
+two of them also pin this query's own behaviour:
+`saves a new name and shows the profile the server returned` — the `PATCH` answers with the renamed
+record, and the heading reads `Augusta Lovelace` from it — and
+`reports a rejected save without discarding what was typed` — an injected `500` fails the save, the
+cache is not written, and the heading still reads `Ada Lovelace`. Trimming, blank-name validation
 and keyboard operability round out the write path. The `userStub` fixture from
 `e2e/fixtures/harness.ts` is automatic: it installs `createUserStub()` behind `page.route` for
 `**/v1/**`, the spec seeds `ADA` in `beforeEach`, and the stub answers `GET /v1/users/{id}` with the
-seeded `UserWireRecord` or `404` with `{ message: 'No such user.' }`. The harness also answers the
-guard's `POST /v1/auth/refresh` with a token, so every scenario starts authenticated. The spec finds
-elements through the page object, by role, label and visible text: `displayName()` is the level-1
-heading and `content()` the `<main>` landmark. The harness itself is described in
+seeded `UserWireRecord` or `404` with backend-boilerplate's error envelope,
+`{ error: { code: 'USER_NOT_FOUND', message: 'No such user.', requestId } }`. The harness also
+answers the guard's `POST /v1/auth/refresh` with a token, so every scenario starts authenticated.
+The spec finds elements through the page object, by role, label and visible text: `displayName()` is
+the level-1 heading and `content()` the `<main>` landmark. The harness itself is described in
 [End-to-end testing](./e2e-testing.md).
 
-Related suites owned elsewhere: `src/entities/user/api/user-mutations.test.ts`
-([Update user name](./update-user-name.md)) and `src/app/routes/_authenticated.test.tsx`, which uses
-`/users/u_1` as its guarded route and asserts, among other cases, that a visitor it turns away
-triggers no user request ([Authenticated route guard](./route-guard.md)).
+Related suites owned elsewhere: `src/entities/user/api/user-mutations.test.ts` and
+`src/entities/user/api/user-cache.test.ts` ([Update user name](./update-user-name.md)), and
+`src/app/routes/_authenticated.test.tsx`, which uses `/users/{uuid}` as its guarded route and
+asserts, among other cases, that a visitor it turns away triggers no user request
+([Authenticated route guard](./route-guard.md)).
 
 ```bash
 npm test
@@ -932,23 +982,29 @@ runs the whole Vitest suite, and `npm run test:coverage` adds the 90% per-file t
 ## Known limitations
 
 - **Every failure renders the same message.** `useUserProfile` collapses any query error into
-  `unavailable`, so a missing user (`404`), a response that fails `userDtoSchema`, a network failure
-  and a refused dot-segment id all show `This profile could not be loaded.`, with no retry action.
+  `unavailable`, so someone else's profile (`403`), a missing user (`404`), a response that fails
+  `userDtoSchema`, a network failure and a refused dot-segment id all show
+  `This profile could not be loaded.`, with no retry action.
   The route declares no `errorComponent` or `notFoundComponent`, and nothing on this screen
   branches on `HttpError.kind`.
 - **A failed background refetch hides a loaded profile.** `useUserProfile` tests `isError` before
   it returns `data`, and TanStack Query v5 keeps `data` alongside `error` when a refetch fails. A
-  failing refetch — on window focus or reconnect once the 30-second `staleTime` has passed, or the
-  one that follows a successful rename — therefore replaces a rendered profile, and the form inside
-  it, with the alert, although a valid `User` is still cached. No test covers it.
+  failing refetch — on window focus or reconnect once the 30-second `staleTime` has passed —
+  therefore replaces a rendered profile, and the form inside it, with the alert, although a valid
+  `User` is still cached. No test covers it.
 - **No test pins the loader's prefetch.** With the `loader` removed from `users.$userId.tsx`, every
   Vitest file under `src/app` and `src/pages/user-profile` still passes, because `useQuery` fetches
   on mount anyway; only the timing of the first request changes, and nothing asserts it.
 - **The route is reachable only by URL.** The only `Link` the app renders is the not-found page's
   link home, and a successful sign-in navigates to `/` (`src/app/routes/sign-in.tsx`), so a visitor
-  the guard bounced from `/users/u_1` does not return there, and the intent preloading the loader
+  the guard bounced from `/users/<id>` does not return there, and the intent preloading the loader
   supports is unused today — the same gap [Sign-in](./sign-in.md#known-limitations) and
   [Authenticated route guard](./route-guard.md#known-limitations) each describe from their own side.
+  Nor can a visitor learn their own id in the app: `POST /v1/auth/login` returns the signed-in user,
+  which `entities/session` discards, and nothing calls `GET /v1/auth/me`.
+- **The route id is cast, not parsed.** `toUserId` brands whatever the URL holds, so a malformed id
+  costs a round trip that ends in the backend's `400 VALIDATION`, and an upper-cased copy of the
+  caller's own id answers `403`, because the backend compares it case-sensitively.
 - **The barrel rule is enforced in review only.** Adding
   `export type { UserDto } from './api/user-dto';` to `src/entities/user/index.ts` passes
   `npm run lint` and `npm run arch`; the gates stop imports that bypass a barrel, not exports that

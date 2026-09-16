@@ -7,7 +7,7 @@ import { createUserNameChangeSchema, MAXIMUM_NAME_LENGTH } from './user-name-cha
 const messages = {
   firstNameRequired: 'Enter a first name.',
   lastNameRequired: 'Enter a last name.',
-  nameTooLong: 'Use at most 80 characters.',
+  nameTooLong: 'Use at most 100 characters.',
 };
 
 const schema = createUserNameChangeSchema(messages);

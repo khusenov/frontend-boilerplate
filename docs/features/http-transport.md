@@ -1,6 +1,6 @@
 # HTTP transport
 
-> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `d442a06`
+> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `d6deb01`
 
 ## Purpose
 
@@ -124,47 +124,49 @@ Imports point strictly downward: `shared/api` imports `axios`, `react`, `@tansta
 the types-only `@standard-schema/spec` — nothing from any other segment or layer — and every
 consumer reaches it through its _public API_, the `index.ts` barrel imported as `@/shared/api`.
 
-| Component                                                                                | Layer                               | Responsibility                                                                                                                                                                                                                                                                           | File                                                                               |
-| ---------------------------------------------------------------------------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `HttpClient`                                                                             | `shared/api`                        | The transport port: five verbs, each taking a `url` and a config with a required `schema`                                                                                                                                                                                                | `src/shared/api/http-client.ts`                                                    |
-| `createHttpClient`                                                                       | `shared/api`                        | Builds an axios instance behind the port (base URL, timeout, `Accept`, `allowAbsoluteUrls: false`, header redaction), installs the bearer interceptors when given a source, then `normalizeErrors`                                                                                       | `src/shared/api/http-client.ts`                                                    |
-| `ResponseSchema`, `parseResponse`, `noContentSchema`                                     | `shared/api`                        | The Standard Schema port, the validation step every response passes, and the empty-body schema                                                                                                                                                                                           | `src/shared/api/response-schema.ts`                                                |
-| `toValidationError`, `toSchemaFailureError`                                              | `shared/api`                        | Turn schema issues into a `validation` error and a throwing schema into an `unknown` one, both carrying the exchange's method, URL and status                                                                                                                                            | `src/shared/api/validation-error-mapper.ts`                                        |
-| `HttpError`, `isHttpError`, `toHttpError`                                                | `shared/api`                        | The failure type and its kind vocabulary, with no third-party import                                                                                                                                                                                                                     | `src/shared/api/http-error.ts`                                                     |
-| `toHttpErrorFromAxios`                                                                   | `shared/api`                        | Classifies an `AxiosError` into a kind; hands anything else to `toHttpError`                                                                                                                                                                                                             | `src/shared/api/axios-error-mapper.ts`                                             |
-| `BearerTokenSource`                                                                      | `shared/api`                        | The credential port: `getToken()` and `renewToken(staleToken)`                                                                                                                                                                                                                           | `src/shared/api/bearer-token-source.ts`                                            |
-| `attachBearerToken`                                                                      | `shared/api`                        | A request interceptor that sends the token and a response interceptor that renews once on a 401 and replays                                                                                                                                                                              | `src/shared/api/attach-bearer-token.ts`                                            |
-| `useHttpClient`                                                                          | `shared/api`                        | Reads the client from `HttpClientContext`; throws outside a provider                                                                                                                                                                                                                     | `src/shared/api/http-client-context.ts`                                            |
-| `HttpClientProvider`                                                                     | `shared/api`                        | Publishes one client to the React tree                                                                                                                                                                                                                                                   | `src/shared/api/http-client-provider.tsx`                                          |
-| `createQueryClient`                                                                      | `shared/api`                        | A TanStack `QueryClient` with stale and GC times, the kind-aware retry policy and the failure callbacks                                                                                                                                                                                  | `src/shared/api/query-client.ts`                                                   |
-| `index.ts`                                                                               | `shared/api`                        | The segment's public API; re-exports only                                                                                                                                                                                                                                                | `src/shared/api/index.ts`                                                          |
-| `createAuthenticatedTransport`                                                           | `app/entrypoint`                    | Builds the unauthenticated and the authenticated client, binds `createSessionTokenSource` to the latter, and assembles the five-member `AuthenticatedTransport` — `httpClient`, `sessionEnder`, `sessionObserver`, `sessionResolver`, `sessionStarter` — over one `createSessionStore()` | `src/app/entrypoint/create-authenticated-transport.ts`                             |
-| `AppProviders`                                                                           | `app/entrypoint`                    | Holds the transport and the query client in `useState` and publishes them through `HttpClientProvider` and `QueryClientProvider`                                                                                                                                                         | `src/app/entrypoint/app-providers.tsx`                                             |
-| `createQueryErrorHandlers`                                                               | `app/entrypoint`                    | Adapts `onQueryError` and `onMutationError` onto the `ErrorReporter`                                                                                                                                                                                                                     | `src/app/entrypoint/create-query-error-handlers.ts`                                |
-| `AppRouterContext`, `AppRouterProvider`                                                  | `app/router`                        | Carry `httpClient` and `queryClient` to route `loader`s and `beforeLoad` guards                                                                                                                                                                                                          | `src/app/router/app-router-context.ts`, `src/app/router/app-router-provider.tsx`   |
-| `createSessionTokenSource`                                                               | `entities/session · model`          | The concrete `BearerTokenSource`: the renewal policy over the session store ([Session management](./session-management.md))                                                                                                                                                              | `src/entities/session/model/session-token-source.ts`                               |
-| `createSessionApi`                                                                       | `entities/session · api`            | `POST /auth/refresh`, `POST /auth/login` and `POST /auth/logout` on the unauthenticated client; turns `HttpError` statuses into outcomes                                                                                                                                                 | `src/entities/session/api/session-api.ts`                                          |
-| `createUserQueries`, `createUserMutations`                                               | `entities/user · api`               | Reference callers: `get` with `userDtoSchema` and `signal`, `patch` with `noContentSchema`                                                                                                                                                                                               | `src/entities/user/api/user-queries.ts`, `src/entities/user/api/user-mutations.ts` |
-| `useUserProfile`                                                                         | `pages/user-profile · model`        | Takes the client from `useHttpClient()` for the profile query                                                                                                                                                                                                                            | `src/pages/user-profile/model/use-user-profile.ts`                                 |
-| `useUpdateUserName`                                                                      | `features/update-user-name · model` | Takes the client from `useHttpClient()` for the name mutation                                                                                                                                                                                                                            | `src/features/update-user-name/model/use-update-user-name.ts`                      |
-| `TRANSPORT_VENDOR_IMPORT_PATHS`, `VALIDATOR_IMPORT_PATTERNS`, `LOWER_LAYER_IMPORT_PATHS` | outside layers                      | Lint fences: `axios` only in `shared/api`, no concrete validator inside it, no `createHttpClient` or `createQueryClient` below `app`                                                                                                                                                     | `eslint.config.js`                                                                 |
+| Component                                                                                                           | Layer                               | Responsibility                                                                                                                                                                                                                                                                           | File                                                                               |
+| ------------------------------------------------------------------------------------------------------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `HttpClient`                                                                                                        | `shared/api`                        | The transport port: five verbs, each taking a `url` and a config with a required `schema`                                                                                                                                                                                                | `src/shared/api/http-client.ts`                                                    |
+| `createHttpClient`                                                                                                  | `shared/api`                        | Builds an axios instance behind the port (base URL, timeout, `Accept`, `allowAbsoluteUrls: false`, header redaction), installs the bearer interceptors when given a source, then `normalizeErrors`                                                                                       | `src/shared/api/http-client.ts`                                                    |
+| `ResponseSchema`, `parseResponse`, `noContentSchema`                                                                | `shared/api`                        | The Standard Schema port, the validation step every response passes, and the empty-body schema                                                                                                                                                                                           | `src/shared/api/response-schema.ts`                                                |
+| `toValidationError`, `toSchemaFailureError`                                                                         | `shared/api`                        | Turn schema issues into a `validation` error and a throwing schema into an `unknown` one, both carrying the exchange's method, URL and status                                                                                                                                            | `src/shared/api/validation-error-mapper.ts`                                        |
+| `HttpError`, `isHttpError`, `toHttpError`                                                                           | `shared/api`                        | The failure type and its kind vocabulary, with no third-party import                                                                                                                                                                                                                     | `src/shared/api/http-error.ts`                                                     |
+| `toHttpErrorFromAxios`                                                                                              | `shared/api`                        | Classifies an `AxiosError` into a kind; hands anything else to `toHttpError`                                                                                                                                                                                                             | `src/shared/api/axios-error-mapper.ts`                                             |
+| `BearerTokenSource`                                                                                                 | `shared/api`                        | The credential port: `getToken()` and `renewToken(staleToken)`                                                                                                                                                                                                                           | `src/shared/api/bearer-token-source.ts`                                            |
+| `attachBearerToken`                                                                                                 | `shared/api`                        | A request interceptor that sends the token and a response interceptor that renews once on a 401 and replays                                                                                                                                                                              | `src/shared/api/attach-bearer-token.ts`                                            |
+| `useHttpClient`                                                                                                     | `shared/api`                        | Reads the client from `HttpClientContext`; throws outside a provider                                                                                                                                                                                                                     | `src/shared/api/http-client-context.ts`                                            |
+| `HttpClientProvider`                                                                                                | `shared/api`                        | Publishes one client to the React tree                                                                                                                                                                                                                                                   | `src/shared/api/http-client-provider.tsx`                                          |
+| `createQueryClient`                                                                                                 | `shared/api`                        | A TanStack `QueryClient` with stale and GC times, the kind-aware retry policy and the failure callbacks                                                                                                                                                                                  | `src/shared/api/query-client.ts`                                                   |
+| `index.ts`                                                                                                          | `shared/api`                        | The segment's public API; re-exports only                                                                                                                                                                                                                                                | `src/shared/api/index.ts`                                                          |
+| `createAuthenticatedTransport`                                                                                      | `app/entrypoint`                    | Builds the unauthenticated and the authenticated client, binds `createSessionTokenSource` to the latter, and assembles the five-member `AuthenticatedTransport` — `httpClient`, `sessionEnder`, `sessionObserver`, `sessionResolver`, `sessionStarter` — over one `createSessionStore()` | `src/app/entrypoint/create-authenticated-transport.ts`                             |
+| `AppProviders`                                                                                                      | `app/entrypoint`                    | Holds the transport and the query client in `useState` and publishes them through `HttpClientProvider` and `QueryClientProvider`                                                                                                                                                         | `src/app/entrypoint/app-providers.tsx`                                             |
+| `createQueryErrorHandlers`                                                                                          | `app/entrypoint`                    | Adapts `onQueryError` and `onMutationError` onto the `ErrorReporter`                                                                                                                                                                                                                     | `src/app/entrypoint/create-query-error-handlers.ts`                                |
+| `AppRouterContext`, `AppRouterProvider`                                                                             | `app/router`                        | Carry `httpClient` and `queryClient` to route `loader`s and `beforeLoad` guards                                                                                                                                                                                                          | `src/app/router/app-router-context.ts`, `src/app/router/app-router-provider.tsx`   |
+| `createSessionTokenSource`                                                                                          | `entities/session · model`          | The concrete `BearerTokenSource`: the renewal policy over the session store ([Session management](./session-management.md))                                                                                                                                                              | `src/entities/session/model/session-token-source.ts`                               |
+| `createSessionApi`                                                                                                  | `entities/session · api`            | `POST /auth/refresh`, `POST /auth/login` and `POST /auth/logout` on the unauthenticated client; turns `HttpError` statuses into outcomes                                                                                                                                                 | `src/entities/session/api/session-api.ts`                                          |
+| `createUserQueries`, `createUserMutations`                                                                          | `entities/user · api`               | Reference callers: `get` with `userDtoSchema` and `signal`, and `patch` with the same `userDtoSchema`, because the server answers a rename with the saved user                                                                                                                           | `src/entities/user/api/user-queries.ts`, `src/entities/user/api/user-mutations.ts` |
+| `parseStubResponse`                                                                                                 | `shared/testing`                    | The test-double seam: runs a stub body through the transport's own `parseResponse`, so a double rejects a bad body exactly as the axios client does                                                                                                                                      | `src/shared/testing/parse-stub-response.ts`                                        |
+| `useUserProfile`                                                                                                    | `pages/user-profile · model`        | Takes the client from `useHttpClient()` for the profile query                                                                                                                                                                                                                            | `src/pages/user-profile/model/use-user-profile.ts`                                 |
+| `useUpdateUserName`                                                                                                 | `features/update-user-name · model` | Takes the client from `useHttpClient()` for the name mutation                                                                                                                                                                                                                            | `src/features/update-user-name/model/use-update-user-name.ts`                      |
+| `TRANSPORT_VENDOR_IMPORT_PATHS`, `VALIDATOR_IMPORT_PATTERNS`, `LOWER_LAYER_IMPORT_PATHS`, the `parseResponse` block | outside layers                      | Lint fences: `axios` only in `shared/api`, no concrete validator inside it, no `createHttpClient` or `createQueryClient` below `app`, and `parseResponse` only in `shared/api` and `shared/testing`                                                                                      | `eslint.config.js`                                                                 |
 
 ## Public surface
 
 The transport serves no route. Its contract is the `@/shared/api` barrel
 (`src/shared/api/index.ts`); a deep import such as `@/shared/api/http-client` is a lint error.
 
-| Export                                                                                                       | Kind                        | Role                                                                       |
-| ------------------------------------------------------------------------------------------------------------ | --------------------------- | -------------------------------------------------------------------------- |
-| `createHttpClient`, `CreateHttpClientOptions`                                                                | factory, type               | Build a client. Importable only in `app/entrypoint`                        |
-| `HttpClient`                                                                                                 | type                        | The five-verb port every caller depends on, usually narrowed with `Pick`   |
-| `HttpRequestOptions`, `HttpRequestConfig`, `HttpBodyRequestConfig`, `HttpQueryParams`, `HttpQueryParamValue` | types                       | Per-request configuration                                                  |
-| `ResponseSchema`, `noContentSchema`                                                                          | type, constant              | The schema port, and the schema for an empty body                          |
-| `BearerTokenSource`                                                                                          | type                        | The credential port                                                        |
-| `HttpError`, `isHttpError`, `toHttpError`                                                                    | class, type guard, function | The failure type, its narrowing guard, and a wrapper for any thrown value  |
-| `HttpErrorDetails`, `HttpErrorKind`, `ResponseValidationIssue`                                               | types                       | The failure's fields                                                       |
-| `HttpClientProvider`, `useHttpClient`                                                                        | component, hook             | Publish and read the client in React                                       |
-| `createQueryClient`                                                                                          | factory                     | The configured TanStack `QueryClient`. Importable only in `app/entrypoint` |
+| Export                                                                                                       | Kind                        | Role                                                                                                                                                             |
+| ------------------------------------------------------------------------------------------------------------ | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createHttpClient`, `CreateHttpClientOptions`                                                                | factory, type               | Build a client. Importable only in `app/entrypoint`                                                                                                              |
+| `HttpClient`                                                                                                 | type                        | The five-verb port every caller depends on, usually narrowed with `Pick`                                                                                         |
+| `HttpRequestOptions`, `HttpRequestConfig`, `HttpBodyRequestConfig`, `HttpQueryParams`, `HttpQueryParamValue` | types                       | Per-request configuration                                                                                                                                        |
+| `ResponseSchema`, `noContentSchema`                                                                          | type, constant              | The schema port, and the schema for an empty body                                                                                                                |
+| `parseResponse`, `ExchangeContext`                                                                           | function, type              | The validation step every response passes, and the exchange it reports. Importable only in `shared/api` and `shared/testing`, where `parseStubResponse` wraps it |
+| `BearerTokenSource`                                                                                          | type                        | The credential port                                                                                                                                              |
+| `HttpError`, `isHttpError`, `toHttpError`                                                                    | class, type guard, function | The failure type, its narrowing guard, and a wrapper for any thrown value                                                                                        |
+| `HttpErrorDetails`, `HttpErrorKind`, `ResponseValidationIssue`                                               | types                       | The failure's fields                                                                                                                                             |
+| `HttpClientProvider`, `useHttpClient`                                                                        | component, hook             | Publish and read the client in React                                                                                                                             |
+| `createQueryClient`                                                                                          | factory                     | The configured TanStack `QueryClient`. Importable only in `app/entrypoint`                                                                                       |
 
 ### The transport, the schema port and the credential port
 
@@ -177,6 +179,18 @@ import type { StandardSchemaV1 } from '@standard-schema/spec';
 export type ResponseSchema<TValue> = StandardSchemaV1<unknown, TValue>;
 
 export declare const noContentSchema: ResponseSchema<null>;
+
+export interface ExchangeContext {
+  readonly method: string;
+  readonly url: string;
+  readonly status: number;
+}
+
+export declare function parseResponse<TValue>(
+  schema: ResponseSchema<TValue>,
+  body: unknown,
+  context: ExchangeContext,
+): Promise<TValue>;
 
 export interface BearerTokenSource {
   readonly getToken: () => string | null;
@@ -233,6 +247,10 @@ export declare function createHttpClient(options: CreateHttpClientOptions): Http
   asserted. `get` and `delete` take a config without `body`, so passing one is a compile error.
 - `noContentSchema` accepts `''`, `null` or `undefined` and resolves `null`; any other body fails
   with kind `validation` and the issue message `Expected an empty response body`.
+- `parseResponse` resolves the schema's output or rejects with the `validation` or `unknown`
+  `HttpError` described below, stamped with the `ExchangeContext` it is given. The client calls it
+  with the real method, URL and status; `parseStubResponse` calls it with the placeholders `STUB`,
+  `stubbed-response` and `200`, because a test double has no request to describe.
 
 ### The failure model
 
@@ -331,8 +349,10 @@ export declare function createQueryClient(options?: CreateQueryClientOptions): Q
 
 ### Internal by design
 
-`attachBearerToken`, `toHttpErrorFromAxios`, `parseResponse`, `toValidationError`,
-`toSchemaFailureError`, `HttpClientContext` and the `ExchangeContext` type stay inside the segment.
+`attachBearerToken`, `toHttpErrorFromAxios`, `toValidationError`, `toSchemaFailureError` and
+`HttpClientContext` stay inside the segment. `parseResponse` and `ExchangeContext` cross the barrel
+for one consumer, `shared/testing`, and an ESLint block rejects importing `parseResponse` from any
+other module under `src/`.
 No axios type crosses the barrel: `http-client.ts` uses `AxiosInstance` only internally, and
 `attach-bearer-token.ts` and `axios-error-mapper.ts` export nothing through `index.ts`.
 
@@ -467,13 +487,16 @@ export function createWorkspaceApi(httpClient: WorkspaceClient) {
 ### Test a consumer without a network
 
 Slice tests never stand up a server. They hand the code a plain object that satisfies the port and
-still runs the real schema over a fixture, so a wire-shape mismatch fails the test. For the
-`workspace` API above, in `workspace-api.test.ts`:
+still runs the real schema over a fixture through `parseStubResponse` from `@/shared/testing`, which
+calls the transport's own `parseResponse` — so a wire-shape mismatch fails the test with the same
+`HttpError` kind and issues production would raise. For the `workspace` API above, in
+`workspace-api.test.ts`:
 
 ```ts
 import { describe, expect, it } from 'vitest';
 
 import { toHttpError } from '@/shared/api';
+import { parseStubResponse } from '@/shared/testing';
 
 import { toWorkspaceId } from '../model/workspace';
 
@@ -485,15 +508,7 @@ const refuse = (): Promise<never> =>
 
 function createReadClient(payload: unknown): WorkspaceClient {
   return {
-    get: async (_url, config) => {
-      const result = await config.schema['~standard'].validate(payload);
-
-      if (result.issues !== undefined) {
-        throw toHttpError(new Error('the payload does not satisfy the request schema'));
-      }
-
-      return result.value;
-    },
+    get: (_url, config) => parseStubResponse(config.schema, payload),
     put: refuse,
     delete: refuse,
   };
@@ -744,17 +759,28 @@ argument — the way `createSessionApi` receives the unauthenticated client — 
   the heavier package is deliberate there.
 - **`noContentSchema` lives beside the port.** It is ten lines that keep `shared/api` free of a
   concrete validator; the port and its one canonical implementation are treated as one concept, and
-  a second schema owned by `shared/api` is the trigger to split the module. Two production callers
-  describe an empty body with it: `createUserMutations(httpClient).updateName`, whose `PATCH`
-  answers `204` ([Update user name](./update-user-name.md)), and the `signOut` of
-  `createSessionApi`, whose `POST /auth/logout` answers `204` on the unauthenticated client.
-  Describing a `204` still costs a validation pass, and that is the point: a backend that starts
-  returning a body fails the schema, `parseResponse` throws an `HttpError` with
-  `kind: 'validation'` and the issue message `Expected an empty response body`, and — because
+  a second schema owned by `shared/api` is the trigger to split the module. One production caller
+  describes an empty body with it: the `signOut` of `createSessionApi`, whose `POST /auth/logout`
+  answers `204` on the unauthenticated client. The user rename used it too until the entity was
+  pinned to backend-boilerplate, which answers a `PATCH` with the saved user
+  ([Update user name](./update-user-name.md)). Describing a `204` still costs a validation pass,
+  and that is the point: a backend that starts returning a body fails the schema, `parseResponse`
+  throws an `HttpError` with `kind: 'validation'` and the issue message
+  `Expected an empty response body`, and — because
   `signOut` catches every `HttpError` — that drift surfaces as `{ status: 'unavailable' }` rather
   than as anything naming a schema. It is detected and contained, not loudly reported: the same
   trade `refresh` already makes when it turns a non-401 `HttpError` into
   `{ status: 'unavailable' }`.
+- **The parser is exported for test doubles, and fenced to them.** A hand-written double that
+  checks a stub body itself throws whatever error its author chose, so a test could pass against a
+  double that fails differently from the real client — the substitutability a port promises, broken
+  where it is hardest to see. `parseStubResponse` closes that by running the real `parseResponse`,
+  which means `parseResponse` has to cross the barrel. Anywhere else it would mint an `HttpError`
+  for a request that never happened, so a dedicated `@typescript-eslint/no-restricted-imports`
+  block rejects it in every file under `src/` except `src/shared/api/**` and
+  `src/shared/testing/**`. It uses the typescript-eslint rule rather than the core
+  `no-restricted-imports`, whose options each block replaces rather than merges, so the fence
+  cannot wipe out, or be wiped out by, the vendor fences above it.
 - **Context and provider sit in two files.** `react-refresh/only-export-components` rejects a module
   that exports a component beside a hook, so `useHttpClient` and the unexported-from-the-barrel
   `HttpClientContext` live in `http-client-context.ts`, and `HttpClientProvider` in
@@ -771,6 +797,7 @@ argument — the way `createSessionApi` receives the unauthenticated client — 
 | `src/shared/api/http-error.test.ts`                         | `toHttpError` identity and wrapping (an `Error`, a string, anything else), `null` request details, the `HttpError` fields and `name`, and `isHttpError`                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `src/shared/api/query-client.test.ts`                       | Stale and GC times, no mutation retry, the per-group override merge, the retry limit and policy by kind (429 retried; 422, `canceled` and non-`HttpError` errors not), the callbacks' hashes (a custom `queryKeyHashFn` honoured, `[]` for a keyless mutation) and silence without callbacks                                                                                                                                                                                                                                                                                    |
 | `src/shared/api/http-client-provider.test.tsx`              | The provider renders its children; `useHttpClient()` returns the provided client and throws outside a provider                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `src/shared/testing/parse-stub-response.test.ts`            | `parseStubResponse` resolves the schema's output with unknown keys stripped, and rejects a refused body as an `HttpError` of kind `validation` carrying the failing path — the transport's own failure                                                                                                                                                                                                                                                                                                                                                                          |
 | `src/app/entrypoint/create-authenticated-transport.test.ts` | The two-client composition end to end: renew and replay through a real refresh call, no recursion when the refresh itself answers 401, the first request after a sign-in or a resolved session carrying the bearer token, and `sessionEnder.signOut()` reaching `POST /auth/logout` with a `null` `authorization` header — the cookie-client rule — resolving `signed-out` and moving the observer to `anonymous`, which a `500` leaves anonymous too while resolving `unavailable` ([Session management](./session-management.md))                                             |
 | `src/app/entrypoint/app-providers.test.tsx`                 | A usable client and the configured query client (`staleTime` of `30_000`) under `AppProviders`, one client instance across re-renders, and a query failure reaching the injected `onQueryError`                                                                                                                                                                                                                                                                                                                                                                                 |
 
@@ -783,8 +810,8 @@ both `ECONNABORTED` and `ETIMEDOUT` to `timeout` is covered environment-independ
 `axios-error-mapper.test.ts`. Every other test stubs the port as shown under
 [Test a consumer without a network](#test-a-consumer-without-a-network). The browser path is covered
 end to end: `e2e/user-profile.spec.ts` drives the built bundle, axios's `xhr` adapter included,
-against Playwright `page.route` stubs — a 200 read, a `204` save through `noContentSchema`, a `500`
-on save and a `404` read ([End-to-end testing](./e2e-testing.md)).
+against Playwright `page.route` stubs — a 200 read, a 200 save validated against `userDtoSchema`, a
+`500` on save and a `404` read ([End-to-end testing](./e2e-testing.md)).
 
 ```sh
 npm test

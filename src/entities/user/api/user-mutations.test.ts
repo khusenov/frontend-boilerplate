@@ -1,46 +1,71 @@
-import { QueryClient } from '@tanstack/react-query';
+import { MutationObserver, QueryClient } from '@tanstack/react-query';
 import type { MutationFunctionContext } from '@tanstack/react-query';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-import { toHttpError } from '@/shared/api';
+import { parseStubResponse } from '@/shared/testing';
 
 import { toUserId } from '../model/user';
-import type { UserNameChange } from '../model/user';
+import type { User, UserNameChange } from '../model/user';
 
 import { createUserMutations } from './user-mutations';
 import type { UserWriteClient } from './user-mutations';
+import { userQueryKeys } from './user-queries';
 
 interface RecordedRequest {
   readonly url: string;
   readonly body: unknown;
 }
 
-const ada: UserNameChange = { firstName: 'Ada', lastName: 'King' };
+const ADA_ID = '0198f0a2-7b1c-7d3e-8f00-123456789abc';
+const ADA_RESOURCE_PATH = `/users/${ADA_ID}`;
+
+const renameToAdaKing: UserNameChange = { firstName: 'Ada', lastName: 'King' };
+
+const savedAdaKingPayload = {
+  id: ADA_ID,
+  firstName: 'Ada',
+  lastName: 'King',
+  fullName: 'Ada King',
+  email: 'ada@example.test',
+  status: 'active',
+  createdAt: '2024-01-05T12:00:00.000Z',
+  updatedAt: '2024-03-09T08:15:00.000Z',
+};
+
+const savedAdaKing: User = {
+  id: toUserId(ADA_ID),
+  firstName: 'Ada',
+  lastName: 'King',
+  displayName: 'Ada King',
+  email: 'ada@example.test',
+  status: 'active',
+  joinedAt: new Date('2024-01-05T12:00:00.000Z'),
+};
+
+const cachedAdaLovelace: User = {
+  ...savedAdaKing,
+  lastName: 'Lovelace',
+  displayName: 'Ada Lovelace',
+};
 
 function createWriteClient(responseBody: unknown, requests: RecordedRequest[]): UserWriteClient {
   return {
     patch: async (url, config) => {
       requests.push({ url, body: config.body });
 
-      const result = await config.schema['~standard'].validate(responseBody);
-
-      if (result.issues !== undefined) {
-        throw toHttpError(new Error('the response does not satisfy the request schema'));
-      }
-
-      return result.value;
+      return parseStubResponse(config.schema, responseBody);
     },
   };
 }
 
-function updateName(client: UserWriteClient, userId: string) {
-  const { mutationFn, onSuccess } = createUserMutations(client).updateName(toUserId(userId));
+function requireUpdateNameFn(client: UserWriteClient, userId: string) {
+  const { mutationFn } = createUserMutations(client).updateName(toUserId(userId));
 
-  if (mutationFn === undefined || onSuccess === undefined) {
-    throw new Error('createUserMutations must supply both a mutationFn and an onSuccess handler.');
+  if (mutationFn === undefined) {
+    throw new Error('createUserMutations must supply a mutationFn for updateName.');
   }
 
-  return { mutationFn, onSuccess };
+  return mutationFn;
 }
 
 function toMutationContext(client: QueryClient): MutationFunctionContext {
@@ -48,69 +73,105 @@ function toMutationContext(client: QueryClient): MutationFunctionContext {
 }
 
 describe('createUserMutations', () => {
-  it('patches the user by id with the snake_case payload', async () => {
+  it('patches the user by id with the camelCase name payload', async () => {
     const requests: RecordedRequest[] = [];
-    const { mutationFn } = updateName(createWriteClient(null, requests), 'u_1');
+    const updateName = requireUpdateNameFn(
+      createWriteClient(savedAdaKingPayload, requests),
+      ADA_ID,
+    );
 
-    await mutationFn(ada, toMutationContext(new QueryClient()));
+    await updateName(renameToAdaKing, toMutationContext(new QueryClient()));
 
     expect(requests).toStrictEqual([
-      { url: '/users/u_1', body: { first_name: 'Ada', last_name: 'King' } },
+      { url: ADA_RESOURCE_PATH, body: { firstName: 'Ada', lastName: 'King' } },
     ]);
   });
 
   it('sends the trimmed name the schema validated', async () => {
     const requests: RecordedRequest[] = [];
-    const { mutationFn } = updateName(createWriteClient(null, requests), 'u_1');
+    const updateName = requireUpdateNameFn(
+      createWriteClient(savedAdaKingPayload, requests),
+      ADA_ID,
+    );
 
-    await mutationFn(
+    await updateName(
       { firstName: '  Ada  ', lastName: '  King  ' },
       toMutationContext(new QueryClient()),
     );
 
     expect(requests).toStrictEqual([
-      { url: '/users/u_1', body: { first_name: 'Ada', last_name: 'King' } },
+      { url: ADA_RESOURCE_PATH, body: { firstName: 'Ada', lastName: 'King' } },
     ]);
   });
 
   it('percent-encodes a slash so a crafted id cannot leave the users path', async () => {
     const requests: RecordedRequest[] = [];
-    const { mutationFn } = updateName(createWriteClient(null, requests), '../admin');
+    const updateName = requireUpdateNameFn(
+      createWriteClient(savedAdaKingPayload, requests),
+      '../admin',
+    );
 
-    await mutationFn(ada, toMutationContext(new QueryClient()));
+    await updateName(renameToAdaKing, toMutationContext(new QueryClient()));
 
     expect(requests[0]?.url).toBe('/users/..%2Fadmin');
   });
 
   it('rejects a dot segment identifier, which encoding alone would not contain', async () => {
     const requests: RecordedRequest[] = [];
-    const { mutationFn } = updateName(createWriteClient(null, requests), '..');
-    const rejection = mutationFn(ada, toMutationContext(new QueryClient()));
+    const updateName = requireUpdateNameFn(createWriteClient(savedAdaKingPayload, requests), '..');
+    const rejection = updateName(renameToAdaKing, toMutationContext(new QueryClient()));
 
     await expect(rejection).rejects.toThrow('dot segment');
     await expect(rejection).rejects.toMatchObject({ kind: 'unknown' });
     expect(requests).toStrictEqual([]);
   });
 
-  it('resolves null when the endpoint answers with an empty body', async () => {
-    const { mutationFn } = updateName(createWriteClient('', []), 'u_1');
+  it('resolves the saved user the endpoint returned, mapped into the domain', async () => {
+    const updateName = requireUpdateNameFn(createWriteClient(savedAdaKingPayload, []), ADA_ID);
 
-    await expect(mutationFn(ada, toMutationContext(new QueryClient()))).resolves.toBeNull();
+    await expect(
+      updateName(renameToAdaKing, toMutationContext(new QueryClient())),
+    ).resolves.toStrictEqual(savedAdaKing);
   });
 
-  it('rejects when the endpoint answers with a body, proving the 204 contract is enforced', async () => {
-    const { mutationFn } = updateName(createWriteClient({ id: 'u_1' }, []), 'u_1');
-
-    await expect(mutationFn(ada, toMutationContext(new QueryClient()))).rejects.toThrow();
-  });
-
-  it('invalidates the renamed user detail query on success', async () => {
+  it('rejects an empty body at the response schema and keeps the cached user', async () => {
     const queryClient = new QueryClient();
-    const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
-    const { onSuccess } = updateName(createWriteClient(null, []), 'u_1');
+    const adaUserId = toUserId(ADA_ID);
+    queryClient.setQueryData(userQueryKeys.detail(adaUserId), cachedAdaLovelace);
+    const updateName = requireUpdateNameFn(createWriteClient('', []), ADA_ID);
 
-    await onSuccess(null, ada, undefined, toMutationContext(queryClient));
+    await expect(updateName(renameToAdaKing, toMutationContext(queryClient))).rejects.toMatchObject(
+      { kind: 'validation' },
+    );
+    expect(queryClient.getQueryData(userQueryKeys.detail(adaUserId))).toStrictEqual(
+      cachedAdaLovelace,
+    );
+  });
 
-    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['users', 'detail', 'u_1'] });
+  it('replaces the cached user under the id the page queried with, not the canonical one', async () => {
+    const queryClient = new QueryClient();
+    const routeUserId = ADA_ID.toUpperCase();
+    queryClient.setQueryData(userQueryKeys.detail(toUserId(routeUserId)), cachedAdaLovelace);
+    const updateName = requireUpdateNameFn(createWriteClient(savedAdaKingPayload, []), routeUserId);
+
+    await updateName(renameToAdaKing, toMutationContext(queryClient));
+
+    expect(queryClient.getQueryData(userQueryKeys.detail(toUserId(routeUserId)))).toStrictEqual(
+      savedAdaKing,
+    );
+  });
+
+  it('keeps the cache write when a consumer supplies its own onSuccess', async () => {
+    const queryClient = new QueryClient();
+    const adaUserId = toUserId(ADA_ID);
+    queryClient.setQueryData(userQueryKeys.detail(adaUserId), cachedAdaLovelace);
+    const options = createUserMutations(createWriteClient(savedAdaKingPayload, [])).updateName(
+      adaUserId,
+    );
+    const observer = new MutationObserver(queryClient, { ...options, onSuccess: () => undefined });
+
+    await observer.mutate(renameToAdaKing);
+
+    expect(queryClient.getQueryData(userQueryKeys.detail(adaUserId))).toStrictEqual(savedAdaKing);
   });
 });

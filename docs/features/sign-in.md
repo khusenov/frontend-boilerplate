@@ -244,7 +244,7 @@ npm run dev
 ```
 
 Open `/sign-in` on the dev server, either directly or by visiting a private route such as
-`/users/u_1`, which the guard redirects there. `vite.config.ts` proxies `/v1` to
+`/users/<id>`, which the guard redirects there. `vite.config.ts` proxies `/v1` to
 `http://localhost:8000`; with no API listening there, a valid submission shows
 `signIn.unavailable` ("Sign-in is unavailable right now. Try again."), which is the transport,
 validation and outcome path working end to end. Against an API that serves `POST /v1/auth/login`, a

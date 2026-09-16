@@ -1,11 +1,11 @@
 # Authenticated route guard
 
-> **Status:** Complete · **Layers:** app, pages, entities, shared, outside layers · **Verified against:** `d442a06`
+> **Status:** Complete · **Layers:** app, pages, entities, shared, outside layers · **Verified against:** `d6deb01`
 
 ## Purpose
 
 A private screen is only useful to a signed-in visitor, and a single-page app has to establish that
-before it renders the screen: without a guard, a signed-out visitor opening `/users/u_1` got the
+before it renders the screen: without a guard, a signed-out visitor opening `/users/<id>` got the
 profile shell, a request with no bearer token, a wasted refresh round trip and a dead "This profile
 could not be loaded." page with no way to sign in. The route guard asks the session one question
 before any private screen loads — _may this navigation proceed?_ — and sends every visitor it cannot
@@ -226,7 +226,7 @@ rewrites the id back.
 
 ### See a guarded screen locally
 
-On `npm run dev` with no API behind the dev proxy, opening `/users/u_1` lands on `/sign-in`: the
+On `npm run dev` with no API behind the dev proxy, opening `/users/<id>` lands on `/sign-in`: the
 guard's refresh fails, so the status never reaches `authenticated`. See
 [User profile (read path) → See it run](./user-profile.md#see-it-run) for how to serve an API and
 sign in locally.
@@ -245,6 +245,8 @@ import type { HttpClient } from '@/shared/api';
 
 import { createAppRouter } from '../router/create-app-router';
 
+const ADA_PROFILE_URL = '/users/0198f0a2-7b1c-7d3e-8f00-123456789abc';
+
 function createRouterBehindGuard(httpClient: HttpClient, verdict: SessionStatus) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const router = createAppRouter({
@@ -253,7 +255,7 @@ function createRouterBehindGuard(httpClient: HttpClient, verdict: SessionStatus)
       queryClient,
       sessionResolver: { resolve: () => Promise.resolve(verdict) },
     },
-    history: createMemoryHistory({ initialEntries: ['/users/u_1'] }),
+    history: createMemoryHistory({ initialEntries: [ADA_PROFILE_URL] }),
   });
 
   return { router, queryClient };
@@ -273,9 +275,9 @@ plus the session providers the rendered screens read:
   `useNotifier must be called inside a NotifierProvider` with no provider above it.
 
 `renderGuardedRoute` in `src/app/routes/_authenticated.test.tsx` mounts all three — it starts at
-`/users/u_1` and its denied cases land on `/sign-in` — nesting `NotifierProvider` innermost, inside
-`SessionEnderProvider`, itself inside `SessionStarterProvider`, each satisfied by an inert object
-literal or function:
+`ADA_PROFILE_URL`, a profile path with a well-formed UUID, and its denied cases land on `/sign-in` —
+nesting `NotifierProvider` innermost, inside `SessionEnderProvider`, itself inside
+`SessionStarterProvider`, each satisfied by an inert object literal or function:
 
 ```ts
 const noopNotifier: Notifier = () => undefined;
@@ -402,7 +404,7 @@ implementation is therefore bound on one line, the `sessionResolver` entry that
 Unit and component tests sit beside the code they cover; the browser suite lives in `e2e/`.
 
 - `src/app/routes/_authenticated.test.tsx` — the guard through the real route tree:
-  `createAppRouter` with a memory history at `/users/u_1` and a stubbed `sessionResolver`. An
+  `createAppRouter` with a memory history at `/users/{uuid}` and a stubbed `sessionResolver`. An
   `'authenticated'` verdict renders the profile and keeps the URL; `'anonymous'` and `'unknown'`
   both land on `/sign-in`; a visitor it turns away triggers no HTTP request; a pending verdict shows
   "Checking your session…" and then the profile once it settles; and the guard asks the port for

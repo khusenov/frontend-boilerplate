@@ -1,14 +1,18 @@
 import * as zm from 'zod/mini';
 
 export const userDtoSchema = zm.object({
-  id: zm.string(),
-  first_name: zm.string(),
-  last_name: zm.string(),
+  id: zm.uuid(),
+  firstName: zm.string(),
+  lastName: zm.string(),
+  fullName: zm.string(),
   email: zm.email(),
-  role: zm.enum(['ADMIN', 'MEMBER', 'VIEWER']),
-  created_at: zm.iso.datetime({ offset: true }),
+  status: zm.enum(['active', 'inactive', 'pending']),
+  createdAt: zm.iso.datetime({ offset: true }),
 });
 
 export type UserDto = zm.infer<typeof userDtoSchema>;
 
-export type UpdateUserNameDto = Pick<UserDto, 'first_name' | 'last_name'>;
+export interface UpdateUserNameRequestDto {
+  readonly firstName: string;
+  readonly lastName: string;
+}

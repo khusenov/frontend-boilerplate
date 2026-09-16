@@ -1,10 +1,11 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 
 import { toUserId } from '@/entities/user';
 import { toHttpError } from '@/shared/api';
-import type { HttpClient, ResponseSchema } from '@/shared/api';
-import { createHttpClientStub, renderWithProviders } from '@/shared/testing';
+import type { HttpClient } from '@/shared/api';
+import { createHttpClientStub, parseStubResponse, renderWithProviders } from '@/shared/testing';
 
 import { MAXIMUM_NAME_LENGTH } from '../model/user-name-change-schema';
 
@@ -15,24 +16,43 @@ interface RecordedRequest {
   readonly body: unknown;
 }
 
-const ada = { id: toUserId('u_1'), firstName: 'Ada', lastName: 'Lovelace' };
+const ADA_ID = '0198f0a2-7b1c-7d3e-8f00-123456789abc';
+const ADA_RESOURCE_PATH = `/users/${ADA_ID}`;
 
-async function parseEmptyResponse<TValue>(schema: ResponseSchema<TValue>): Promise<TValue> {
-  const result = await schema['~standard'].validate(null);
+const ada = { id: toUserId(ADA_ID), firstName: 'Ada', lastName: 'Lovelace' };
 
-  if (result.issues !== undefined) {
-    throw toHttpError(new Error('the response does not satisfy the request schema'));
-  }
+const adaPayload = {
+  id: ADA_ID,
+  firstName: 'Ada',
+  lastName: 'Lovelace',
+  fullName: 'Ada Lovelace',
+  email: 'ada@example.test',
+  status: 'active',
+  createdAt: '2024-01-05T12:00:00.000Z',
+  updatedAt: '2024-01-05T12:00:00.000Z',
+};
 
-  return result.value;
-}
+const namePatchSchema = z.object({ firstName: z.string(), lastName: z.string() });
 
 function createRecordingClient(requests: RecordedRequest[]): HttpClient {
   return createHttpClientStub({
-    patch: (url, config) => {
+    patch: async (url, config) => {
       requests.push({ url, body: config.body });
 
-      return parseEmptyResponse(config.schema);
+      const namePatch = namePatchSchema.safeParse(config.body);
+
+      if (!namePatch.success) {
+        throw toHttpError(namePatch.error);
+      }
+
+      const { firstName, lastName } = namePatch.data;
+
+      return parseStubResponse(config.schema, {
+        ...adaPayload,
+        firstName,
+        lastName,
+        fullName: `${firstName} ${lastName}`,
+      });
     },
   });
 }
@@ -74,7 +94,7 @@ describe('UpdateUserNameForm', () => {
     expect(screen.getByLabelText('Last name')).toHaveAttribute('autocomplete', 'family-name');
   });
 
-  it('sends the trimmed snake_case payload when a valid name is submitted', async () => {
+  it('sends the trimmed camelCase payload when a valid name is submitted', async () => {
     const requests: RecordedRequest[] = [];
     const { user } = renderForm(createRecordingClient(requests));
 
@@ -84,7 +104,7 @@ describe('UpdateUserNameForm', () => {
 
     await waitFor(() => {
       expect(requests).toStrictEqual([
-        { url: '/users/u_1', body: { first_name: 'Ada', last_name: 'King' } },
+        { url: ADA_RESOURCE_PATH, body: { firstName: 'Ada', lastName: 'King' } },
       ]);
     });
   });
@@ -108,7 +128,7 @@ describe('UpdateUserNameForm', () => {
     await user.paste('a'.repeat(MAXIMUM_NAME_LENGTH + 1));
     await user.click(screen.getByRole('button', { name: 'Save name' }));
 
-    expect(await formFields().findByText('Use at most 80 characters.')).toBeInTheDocument();
+    expect(await formFields().findByText('Use at most 100 characters.')).toBeInTheDocument();
     expect(requests).toStrictEqual([]);
   });
 
@@ -153,7 +173,7 @@ describe('UpdateUserNameForm', () => {
         patch: async (_url, config) => {
           await deferred.promise;
 
-          return parseEmptyResponse(config.schema);
+          return parseStubResponse(config.schema, adaPayload);
         },
       }),
     );

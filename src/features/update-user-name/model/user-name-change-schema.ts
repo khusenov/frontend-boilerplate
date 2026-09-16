@@ -3,7 +3,7 @@ import * as zm from 'zod/mini';
 
 import type { UserNameChange } from '@/entities/user';
 
-export const MAXIMUM_NAME_LENGTH = 80;
+export const MAXIMUM_NAME_LENGTH = 100;
 
 export interface UserNameChangeMessages {
   readonly firstNameRequired: string;

@@ -2,7 +2,7 @@ declare const userIdBrand: unique symbol;
 
 export type UserId = string & { readonly [userIdBrand]: 'UserId' };
 
-export type UserRole = 'admin' | 'member' | 'viewer';
+export type UserStatus = 'active' | 'inactive' | 'pending';
 
 export interface User {
   readonly id: UserId;
@@ -10,7 +10,7 @@ export interface User {
   readonly lastName: string;
   readonly displayName: string;
   readonly email: string;
-  readonly role: UserRole;
+  readonly status: UserStatus;
   readonly joinedAt: Date;
 }
 

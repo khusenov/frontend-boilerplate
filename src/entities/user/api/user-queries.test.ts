@@ -2,19 +2,25 @@ import { QueryClient } from '@tanstack/react-query';
 import { describe, expect, it } from 'vitest';
 
 import { toHttpError } from '@/shared/api';
+import { parseStubResponse } from '@/shared/testing';
 
 import { toUserId } from '../model/user';
 
 import { createUserQueries, userQueryKeys } from './user-queries';
 import type { UserReadClient } from './user-queries';
 
+const ADA_ID = '0198f0a2-7b1c-7d3e-8f00-123456789abc';
+const ADA_RESOURCE_PATH = `/users/${ADA_ID}`;
+
 const adaPayload = {
-  id: 'u_1',
-  first_name: 'Ada',
-  last_name: 'Lovelace',
+  id: ADA_ID,
+  firstName: 'Ada',
+  lastName: 'Lovelace',
+  fullName: 'Ada Lovelace',
   email: 'ada@example.test',
-  role: 'ADMIN',
-  created_at: '2024-01-05T12:00:00.000Z',
+  status: 'active',
+  createdAt: '2024-01-05T12:00:00.000Z',
+  updatedAt: '2024-03-09T08:15:00.000Z',
 };
 
 function createReadClient(payload: unknown, expectedPath: string): UserReadClient {
@@ -24,13 +30,7 @@ function createReadClient(payload: unknown, expectedPath: string): UserReadClien
         throw toHttpError(new Error(`expected a request to ${expectedPath}, received ${url}`));
       }
 
-      const result = await config.schema['~standard'].validate(payload);
-
-      if (result.issues !== undefined) {
-        throw toHttpError(new Error('the payload does not satisfy the request schema'));
-      }
-
-      return result.value;
+      return parseStubResponse(config.schema, payload);
     },
   };
 }
@@ -47,25 +47,25 @@ describe('userQueryKeys', () => {
   });
 
   it('nests the detail key under the root so invalidating the root reaches it', () => {
-    const detail = userQueryKeys.detail(toUserId('u_1'));
+    const detail = userQueryKeys.detail(toUserId(ADA_ID));
     const root = userQueryKeys.all();
 
-    expect(detail).toStrictEqual(['users', 'detail', 'u_1']);
+    expect(detail).toStrictEqual(['users', 'detail', ADA_ID]);
     expect(detail.slice(0, root.length)).toStrictEqual(root);
   });
 });
 
 describe('createUserQueries', () => {
   it('requests the user by id and resolves the mapped domain model', async () => {
-    const client = createReadClient(adaPayload, '/users/u_1');
+    const client = createReadClient(adaPayload, ADA_RESOURCE_PATH);
 
-    await expect(fetchUser(client, 'u_1')).resolves.toStrictEqual({
-      id: 'u_1',
+    await expect(fetchUser(client, ADA_ID)).resolves.toStrictEqual({
+      id: ADA_ID,
       firstName: 'Ada',
       lastName: 'Lovelace',
       displayName: 'Ada Lovelace',
       email: 'ada@example.test',
-      role: 'admin',
+      status: 'active',
       joinedAt: new Date('2024-01-05T12:00:00.000Z'),
     });
   });
@@ -73,31 +73,49 @@ describe('createUserQueries', () => {
   it('percent-encodes a slash so a crafted id cannot leave the users path', async () => {
     const client = createReadClient(adaPayload, '/users/..%2Fadmin');
 
-    await expect(fetchUser(client, '../admin')).resolves.toMatchObject({ id: 'u_1' });
+    await expect(fetchUser(client, '../admin')).resolves.toMatchObject({ id: ADA_ID });
   });
 
   it('refuses a dot segment identifier, which encoding alone would not contain', async () => {
-    const client = createReadClient(adaPayload, '/users/u_1');
+    const client = createReadClient(adaPayload, ADA_RESOURCE_PATH);
 
     await expect(fetchUser(client, '..')).rejects.toThrow('dot segment');
     await expect(fetchUser(client, '..')).rejects.toMatchObject({ kind: 'unknown' });
   });
 
-  it('rejects a role the dto schema does not accept', async () => {
-    const client = createReadClient({ ...adaPayload, role: 'OWNER' }, '/users/u_1');
+  it('rejects an identifier that is not a UUID', async () => {
+    const client = createReadClient({ ...adaPayload, id: 'not-a-uuid' }, ADA_RESOURCE_PATH);
 
-    await expect(fetchUser(client, 'u_1')).rejects.toThrow();
+    await expect(fetchUser(client, ADA_ID)).rejects.toMatchObject({
+      kind: 'validation',
+      issues: [{ path: 'id' }],
+    });
+  });
+
+  it('rejects a status the dto schema does not accept', async () => {
+    const client = createReadClient({ ...adaPayload, status: 'suspended' }, ADA_RESOURCE_PATH);
+
+    await expect(fetchUser(client, ADA_ID)).rejects.toMatchObject({
+      kind: 'validation',
+      issues: [{ path: 'status' }],
+    });
   });
 
   it('rejects an email the dto schema does not accept', async () => {
-    const client = createReadClient({ ...adaPayload, email: 'not-an-email' }, '/users/u_1');
+    const client = createReadClient({ ...adaPayload, email: 'not-an-email' }, ADA_RESOURCE_PATH);
 
-    await expect(fetchUser(client, 'u_1')).rejects.toThrow();
+    await expect(fetchUser(client, ADA_ID)).rejects.toMatchObject({
+      kind: 'validation',
+      issues: [{ path: 'email' }],
+    });
   });
 
   it('rejects a timestamp the dto schema does not accept', async () => {
-    const client = createReadClient({ ...adaPayload, created_at: 'yesterday' }, '/users/u_1');
+    const client = createReadClient({ ...adaPayload, createdAt: 'yesterday' }, ADA_RESOURCE_PATH);
 
-    await expect(fetchUser(client, 'u_1')).rejects.toThrow();
+    await expect(fetchUser(client, ADA_ID)).rejects.toMatchObject({
+      kind: 'validation',
+      issues: [{ path: 'createdAt' }],
+    });
   });
 });

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { isHttpError, noContentSchema, toHttpError } from '@/shared/api';
+import { isHttpError, noContentSchema } from '@/shared/api';
 
 import { createHttpClientStub } from './create-http-client-stub';
+import { parseStubResponse } from './parse-stub-response';
 
 describe('the http client stub', () => {
   it('rejects every verb that the test did not stub', async () => {
@@ -35,15 +36,7 @@ describe('the http client stub', () => {
 
   it('uses the override for a stubbed verb and keeps the rest rejecting', async () => {
     const client = createHttpClientStub({
-      get: async (_url, config) => {
-        const result = await config.schema['~standard'].validate(null);
-
-        if (result.issues !== undefined) {
-          throw toHttpError(new Error('the response does not satisfy the request schema'));
-        }
-
-        return result.value;
-      },
+      get: (_url, config) => parseStubResponse(config.schema, null),
     });
 
     await expect(client.get('/anything', { schema: noContentSchema })).resolves.toBeNull();

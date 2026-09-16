@@ -1,20 +1,23 @@
 import { describe, expect, it } from 'vitest';
 
 import type { UserDto } from './user-dto';
-import { toUpdateUserNameDto, toUser } from './user-mapper';
+import { toUpdateUserNameRequestDto, toUser } from './user-mapper';
+
+const ADA_ID = '0198f0a2-7b1c-7d3e-8f00-123456789abc';
 
 const adaDto: UserDto = {
-  id: 'u_1',
-  first_name: 'Ada',
-  last_name: 'Lovelace',
+  id: ADA_ID,
+  firstName: 'Ada',
+  lastName: 'Lovelace',
+  fullName: 'Ada Lovelace',
   email: 'ada@example.test',
-  role: 'ADMIN',
-  created_at: '2024-01-05T12:00:00.000Z',
+  status: 'active',
+  createdAt: '2024-01-05T12:00:00.000Z',
 };
 
 describe('toUser', () => {
-  it('joins the wire name fields into a single display name', () => {
-    expect(toUser(adaDto).displayName).toBe('Ada Lovelace');
+  it('shows the full name the server composed as the display name', () => {
+    expect(toUser({ ...adaDto, fullName: 'Ada King' }).displayName).toBe('Ada King');
   });
 
   it('keeps the name parts the domain needs to edit a name', () => {
@@ -24,22 +27,10 @@ describe('toUser', () => {
     expect(ada.lastName).toBe('Lovelace');
   });
 
-  it('trims the display name when the wire sends an empty surname', () => {
-    expect(toUser({ ...adaDto, last_name: '' }).displayName).toBe('Ada');
-  });
-
-  it('leaves no double space in the display name when a wire field is padded', () => {
-    const padded = toUser({ ...adaDto, first_name: ' Ada ', last_name: ' Lovelace ' });
-
-    expect(padded.displayName).toBe('Ada Lovelace');
-    expect(padded.firstName).toBe('Ada');
-    expect(padded.lastName).toBe('Lovelace');
-  });
-
-  it('translates every wire role into its domain role', () => {
-    expect(toUser({ ...adaDto, role: 'ADMIN' }).role).toBe('admin');
-    expect(toUser({ ...adaDto, role: 'MEMBER' }).role).toBe('member');
-    expect(toUser({ ...adaDto, role: 'VIEWER' }).role).toBe('viewer');
+  it('carries every wire status into the domain', () => {
+    expect(toUser({ ...adaDto, status: 'active' }).status).toBe('active');
+    expect(toUser({ ...adaDto, status: 'inactive' }).status).toBe('inactive');
+    expect(toUser({ ...adaDto, status: 'pending' }).status).toBe('pending');
   });
 
   it('parses the wire timestamp into a date', () => {
@@ -47,7 +38,7 @@ describe('toUser', () => {
   });
 
   it('carries the identifier across unchanged', () => {
-    expect(toUser(adaDto).id).toBe('u_1');
+    expect(toUser(adaDto).id).toBe(ADA_ID);
   });
 
   it('keeps no wire field names on the domain model', () => {
@@ -58,36 +49,38 @@ describe('toUser', () => {
       'id',
       'joinedAt',
       'lastName',
-      'role',
+      'status',
     ]);
   });
 });
 
-describe('toUpdateUserNameDto', () => {
-  it('renames the domain name parts into the wire vocabulary', () => {
-    expect(toUpdateUserNameDto({ firstName: 'Ada', lastName: 'Lovelace' })).toStrictEqual({
-      first_name: 'Ada',
-      last_name: 'Lovelace',
+describe('toUpdateUserNameRequestDto', () => {
+  it('carries both name parts into the wire payload', () => {
+    expect(toUpdateUserNameRequestDto({ firstName: 'Ada', lastName: 'Lovelace' })).toStrictEqual({
+      firstName: 'Ada',
+      lastName: 'Lovelace',
     });
   });
 
   it('trims each part so the payload matches what the schema validated', () => {
-    expect(toUpdateUserNameDto({ firstName: '  Ada  ', lastName: '  King  ' })).toStrictEqual({
-      first_name: 'Ada',
-      last_name: 'King',
-    });
+    expect(
+      toUpdateUserNameRequestDto({ firstName: '  Ada  ', lastName: '  King  ' }),
+    ).toStrictEqual({ firstName: 'Ada', lastName: 'King' });
   });
 
-  it('sends no field the wire contract does not name', () => {
-    const dto = toUpdateUserNameDto({ firstName: 'Ada', lastName: 'Lovelace' });
+  it('sends only the name parts even when the change object carries more', () => {
+    const changeWithEmail = { firstName: 'Ada', lastName: 'Lovelace', email: 'ada@example.test' };
 
-    expect(Object.keys(dto).sort()).toStrictEqual(['first_name', 'last_name']);
+    expect(Object.keys(toUpdateUserNameRequestDto(changeWithEmail)).sort()).toStrictEqual([
+      'firstName',
+      'lastName',
+    ]);
   });
 
   it('leaves its argument unmutated', () => {
     const change = { firstName: '  Ada  ', lastName: '  King  ' };
 
-    toUpdateUserNameDto(change);
+    toUpdateUserNameRequestDto(change);
 
     expect(change).toStrictEqual({ firstName: '  Ada  ', lastName: '  King  ' });
   });

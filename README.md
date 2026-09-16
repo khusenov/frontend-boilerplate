@@ -33,7 +33,7 @@ Clone it, rename it, and start writing features on top of infrastructure that is
 - **[Entities and DTO mapping](./docs/features/user-profile.md)** — `entities/user` is the reference
   read path: DTO schema, mapper, query factory, a screen in three explicit states.
 - **[Write path](./docs/features/update-user-name.md)** — `features/update-user-name` is the
-  reference mutation: validated form, command, outbound DTO, `PATCH`, cache invalidation.
+  reference mutation: validated form, command, outbound DTO, `PATCH`, write-through cache update.
 - **[Forms](./docs/features/forms.md)** — one `useAppForm` seam over TanStack Form, with
   `aria-invalid`, `aria-describedby` and a blocked second submit by construction.
 - **[Design system](./docs/features/design-system.md)** — semantic Tailwind v4 tokens in
@@ -85,7 +85,7 @@ the app somewhere else.
 - `/` renders the home screen with the resolved mode and API base URL.
 - `/sign-in` renders, validates and submits; the submission answers _"Sign-in is unavailable right
   now. Try again."_ — the transport, validation and outcome path working end to end.
-- `/users/u_1` is private and redirects to `/sign-in`: the guard's refresh cannot reach an API, so
+- `/users/<id>` is private and redirects to `/sign-in`: the guard's refresh cannot reach an API, so
   the session never becomes `authenticated`.
 - `npm test` and `npm run test:e2e` pass; neither needs a server.
 
@@ -93,9 +93,27 @@ the app somewhere else.
 `http://localhost:8000`, which is what
 [backend-boilerplate](https://github.com/khusenov/backend-boilerplate) serves out of the box — so
 every request stays same-origin, with no CORS and no `sameSite` question. Start it, run
-`npm run dev`, sign in at `/sign-in` and open `/users/<id>`. This app calls `POST /v1/auth/login`,
-`POST /v1/auth/refresh`, `POST /v1/auth/logout`, `GET /v1/users/:id` and `PATCH /v1/users/:id`; the
-wire shapes it expects are [`session-dto.ts`](./src/entities/session/api/session-dto.ts) and
+`npm run dev`, sign in at `/sign-in` and open `/users/<id>`.
+
+A fresh backend has no users and this app has no sign-up screen, so create the first account
+through the API. Registration answers `201` with the new user's `id` and `"status":"pending"`; the
+backend refuses to sign in a pending user until the 6-digit code it mails — readable in the
+backend's Mailpit at <http://localhost:8025> — is verified:
+
+```bash
+curl -s http://localhost:8000/v1/auth/register -H 'Content-Type: application/json' \
+  -d '{"firstName":"Ada","lastName":"Lovelace","email":"ada@example.test","password":"<8 to 128 characters>"}'
+curl -s http://localhost:8000/v1/auth/verify-email -H 'Content-Type: application/json' \
+  -d '{"email":"ada@example.test","code":"<the code from Mailpit>"}'
+```
+
+Open `/users/<id>` with the `id` exactly as registration returned it: the backend compares a
+caller's own id case-sensitively, so an upper-cased copy is someone else's profile and answers
+`403`.
+
+This app calls `POST /v1/auth/login`, `POST /v1/auth/refresh`, `POST /v1/auth/logout`,
+`GET /v1/users/:id` and `PATCH /v1/users/:id`; the wire shapes it expects are
+[`session-dto.ts`](./src/entities/session/api/session-dto.ts) and
 [`user-dto.ts`](./src/entities/user/api/user-dto.ts). `POST /v1/auth/logout` has no wire shape of
 its own: it is authenticated by the refresh cookie rather than by a bearer token, sends `{}` as its
 body, and must answer `204` with an empty body. It rides the same cookie-bearing client as
@@ -145,7 +163,7 @@ the importee's public `index.ts` and never through an inner file.
 | `pages`         | Route-level screens, assembled and router-free                                             | `widgets` and below  |
 | `widgets`       | Self-contained blocks shared by several screens — today `app-header`                       | `features` and below |
 | `features`      | One user action that changes state                                                         | `entities`, `shared` |
-| `entities`      | Business nouns: model, DTO schema, mapper, HTTP calls                                      | `shared`             |
+| `entities`      | Business nouns: model, DTO schema, mapper, HTTP calls, value presenters                    | `shared`             |
 | `shared`        | `api`, `config`, `i18n`, `lib`, `notifications`, `observability`, `testing`, `theme`, `ui` | Nothing above it     |
 
 `src/main.tsx` sits outside the layer system, so steiger cannot analyse it and a lint rule stands
@@ -172,8 +190,10 @@ rule set, and [`docs/README.md`](./docs/README.md) the per-feature documentation
 A capability usually spans several layers. Copy the shape of the user profile rather than inventing
 one. In order:
 
-1. **Entity** — `src/entities/<noun>/`: the model in `model/`, and in `api/` the DTO schema, the
-   mapper and a query or mutation factory. This is where the wire shape stops.
+1. **Entity** — `src/entities/<noun>/`: the model in `model/`; in `api/` the DTO schema, the mapper
+   and a query or mutation factory, plus a cache helper when a write returns the saved record; and
+   in `ui/` any component that presents a model value on its own, as `UserStatusLabel` does. This is
+   where the wire shape stops.
    [Add the next entity](./docs/features/user-profile.md#add-the-next-entity)
 2. **Feature** — `src/features/<verb-noun>/`: one user action, its state and its UI. Build any form
    through `useAppForm`, never directly on TanStack Form.
@@ -283,10 +303,10 @@ how to add a gate.
 
 ## Troubleshooting
 
-**`/users/u_1` bounces to `/sign-in`, and signing in says it is unavailable.** Expected with no API:
-the guard resolves the session through `POST /v1/auth/refresh` and a refused connection is not an
-authenticated session. Run an API behind the dev proxy — see
-[Getting started](#getting-started) — or read
+**`/users/<id>` bounces to `/sign-in`, and signing in says it is unavailable.** Expected with no
+API: the guard resolves the session through `POST /v1/auth/refresh` and a refused connection is not
+an authenticated session. Run an API behind the dev proxy — see [Getting started](#getting-started)
+— or read
 [See a guarded screen locally](./docs/features/route-guard.md#see-a-guarded-screen-locally).
 
 **`npm run typecheck` fails on a route you just added.** The route tree is generated, and `tsc`
