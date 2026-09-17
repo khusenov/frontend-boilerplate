@@ -1,6 +1,6 @@
 # Quality gates
 
-> **Status:** Complete · **Layers:** outside layers · **Verified against:** `6cf48b8`
+> **Status:** Complete · **Layers:** outside layers · **Verified against:** `b28e2bb`
 
 ## Purpose
 
@@ -334,17 +334,26 @@ recent commits. The `npm` entry (`directory: /`, weekly on Monday, `open-pull-re
 ignores two kinds of update: semver-major releases of `@types/node`, which follow the Node line
 `.nvmrc` pins rather than the newest Node, and semver-major and semver-minor releases of
 `typescript`, which move only when `typescript-eslint`'s peer range — `>=4.8.4 <6.1.0` today —
-admits them. It declares five groups. A dependency joins the first group it matches;
-a named group carries every update type, majors included; a dependency no group matches is updated
-in a pull request of its own.
+admits them. It declares five groups, and no dependency matches two of them: a named group carries
+every update type, majors included, and a major release of any other dependency is updated in a
+pull request of its own.
 
-| Group             | Matches                                                                          |
-| ----------------- | -------------------------------------------------------------------------------- |
-| `tanstack`        | `@tanstack/*` — including both TanStack ESLint plugins, which match here first   |
-| `eslint`          | `eslint`, `eslint-*`, `@eslint/*`, `@eslint-react/*`, `typescript-eslint`        |
-| `build-and-test`  | `vite`, `@vitejs/*`, `vitest`, `@vitest/*`, `@testing-library/*`, `jsdom`, `msw` |
-| `react`           | `react`, `react-dom`, `@types/react`, `@types/react-dom`                         |
-| `minor-and-patch` | Every other dependency, for `update-types: ['minor', 'patch']` only              |
+| Group             | Matches                                                                                                                      |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `tanstack`        | `@tanstack/*`, both TanStack ESLint plugins included                                                                         |
+| `eslint`          | `eslint`, `eslint-*`, `@eslint/*`, `@eslint-react/*`, `typescript-eslint`                                                    |
+| `build-and-test`  | `vite`, `@vitejs/*`, `vitest`, `@vitest/*`, `@testing-library/*`, `jsdom`, `msw`                                             |
+| `react`           | `react`, `react-dom`, `@types/react`, `@types/react-dom`                                                                     |
+| `minor-and-patch` | Every other dependency, for `update-types: ['minor', 'patch']` only: its `exclude-patterns` repeat the four groups' patterns |
+
+The exclusions are load-bearing. GitHub's documentation says a dependency that matches several
+groups joins the first of them, but Dependabot's updater picks the most specific and ranks a group
+without `patterns` above a wildcard. Before the exclusions, Dependabot's update log dropped every
+wildcard match from its named group because it `belongs to more specific group 'minor-and-patch'`,
+and warned that `tanstack` matched no dependency; exact names such as `react`, `eslint` and `vite`
+stayed in their groups, but whenever a `minor-and-patch` pull request was open, Dependabot refreshed
+that one first and took them along. Over that period the named groups opened a single pull
+request, and `minor-and-patch` carried every other minor and patch update, `b28e2bb` included.
 
 The `docker` entry (`directory: /`) runs weekly on Monday for the two base images in the
 `Dockerfile`, and ignores semver-major updates of `node`, so the build stage stays on the Node line
@@ -527,29 +536,44 @@ npm run audit
 ```
 
 **Grouped packages.** When a new family of packages must move in step — a Storybook setup, say — add
-a group before `minor-and-patch`, because a dependency joins the first group it matches. The `npm`
-entry then reads:
+a group for it and repeat its patterns under `minor-and-patch`'s `exclude-patterns`; without them,
+`minor-and-patch` takes the family's minor and patch updates (see
+[Dependabot groups](#dependabot-groups)). The `npm` entry's `groups` then read:
 
 ```yaml
-- package-ecosystem: npm
-  directory: /
-  schedule:
-    interval: weekly
-    day: monday
-  open-pull-requests-limit: 5
-  groups:
-    tanstack:
-      patterns: ['@tanstack/*']
-    eslint:
-      patterns: ['eslint', 'eslint-*', '@eslint/*', '@eslint-react/*', 'typescript-eslint']
-    build-and-test:
-      patterns: ['vite', '@vitejs/*', 'vitest', '@vitest/*', '@testing-library/*', 'jsdom', 'msw']
-    react:
-      patterns: ['react', 'react-dom', '@types/react', '@types/react-dom']
-    storybook:
-      patterns: ['storybook', '@storybook/*']
-    minor-and-patch:
-      update-types: ['minor', 'patch']
+groups:
+  tanstack:
+    patterns: ['@tanstack/*']
+  eslint:
+    patterns: ['eslint', 'eslint-*', '@eslint/*', '@eslint-react/*', 'typescript-eslint']
+  build-and-test:
+    patterns: ['vite', '@vitejs/*', 'vitest', '@vitest/*', '@testing-library/*', 'jsdom', 'msw']
+  react:
+    patterns: ['react', 'react-dom', '@types/react', '@types/react-dom']
+  storybook:
+    patterns: ['storybook', '@storybook/*']
+  minor-and-patch:
+    update-types: ['minor', 'patch']
+    exclude-patterns:
+      - '@tanstack/*'
+      - 'eslint'
+      - 'eslint-*'
+      - '@eslint/*'
+      - '@eslint-react/*'
+      - 'typescript-eslint'
+      - 'vite'
+      - '@vitejs/*'
+      - 'vitest'
+      - '@vitest/*'
+      - '@testing-library/*'
+      - 'jsdom'
+      - 'msw'
+      - 'react'
+      - 'react-dom'
+      - '@types/react'
+      - '@types/react-dom'
+      - 'storybook'
+      - '@storybook/*'
 ```
 
 ### Suppress one accessibility finding
@@ -585,27 +609,32 @@ instead of skipping it.
 ### Measure the bundle
 
 No gate limits bundle size; the baseline below makes growth visible, and a jump against it is a
-review item, not a failure. It was recorded from `npm run build` once `entities/user` had been
-re-pinned to backend-boilerplate's contract, with no `.env` present — Vite 8.2.2, production mode,
-620 modules transformed, ten entries in Vite's size table beside the copied `public/favicon.svg`:
+review item, not a failure. It was recorded from `npm run build` at `b28e2bb`, the dependency update
+that brought React 19.3, with no `.env` present — Vite 8.3.0, production mode, 627 modules
+transformed, ten entries in Vite's size table beside the copied `public/favicon.svg`:
 
-| Asset                | Raw       | Gzip      | Loaded                                                                                     |
-| -------------------- | --------- | --------- | ------------------------------------------------------------------------------------------ |
-| `index-*.js`         | 363.72 kB | 117.94 kB | Up front: the entry script, including sonner and the CSS string it injects at module scope |
-| `button-*.js`        | 103.52 kB | 34.34 kB  | Up front (`modulepreload`): the `shared/ui` primitives and i18next                         |
-| `session-*.js`       | 33.13 kB  | 11.43 kB  | Up front (`modulepreload`): `zod/mini`, TanStack Query's core and `entities/session`       |
-| `index-*.css`        | 20.55 kB  | 4.46 kB   | Up front: the single stylesheet                                                            |
-| `index.html`         | 1.37 kB   | 0.64 kB   | The document, including the inline pre-paint theme script Vite does not minify             |
-| `form-*.js`          | 74.03 kB  | 19.06 kB  | With `/sign-in` or `/users/$userId`: TanStack Form and the fields                          |
-| `routes-*.js`        | 12.01 kB  | 5.09 kB   | With `/`: the home page                                                                    |
-| `users._userId-*.js` | 12.78 kB  | 4.56 kB   | With `/users/$userId`                                                                      |
-| `sign-in-*.js`       | 2.57 kB   | 1.14 kB   | With `/sign-in`                                                                            |
-| `home-*.js`          | 0.63 kB   | 0.31 kB   | On demand: the Russian `home` namespace                                                    |
+| Asset                | Raw       | Gzip      | Loaded                                                                                                   |
+| -------------------- | --------- | --------- | -------------------------------------------------------------------------------------------------------- |
+| `index-*.js`         | 390.44 kB | 126.04 kB | Up front: the entry script, including sonner and the CSS string it injects at module scope               |
+| `button-*.js`        | 104.32 kB | 34.53 kB  | Up front (`modulepreload`): the `shared/ui` primitives and i18next                                       |
+| `session-*.js`       | 41.19 kB  | 14.12 kB  | Up front (`modulepreload`): `zod/mini`, TanStack Query's core, the TanStack store and `entities/session` |
+| `index-*.css`        | 20.55 kB  | 4.46 kB   | Up front: the single stylesheet                                                                          |
+| `index.html`         | 1.49 kB   | 0.69 kB   | The document, including the inline pre-paint theme script Vite does not minify                           |
+| `form-*.js`          | 70.06 kB  | 17.55 kB  | With `/sign-in` or `/users/$userId`: TanStack Form and the fields                                        |
+| `routes-*.js`        | 12.01 kB  | 5.09 kB   | With `/`: the home page                                                                                  |
+| `users._userId-*.js` | 12.71 kB  | 4.53 kB   | With `/users/$userId`                                                                                    |
+| `sign-in-*.js`       | 2.57 kB   | 1.14 kB   | With `/sign-in`                                                                                          |
+| `home-*.js`          | 0.63 kB   | 0.31 kB   | On demand: the Russian `home` namespace                                                                  |
 
-The three chunks `dist/index.html` loads up front total 500.37 kB raw and 163.71 kB gzip, plus the
-stylesheet. Re-pinning the user entity moved them by less than 1 kB: the write-through cache helper
-lands in the entry chunk, and `zm.uuid()` adds 0.22 kB gzip to `session-*.js`. sonner accounts for
-nearly all of the entry chunk's jump from `5c55de1`'s 328.83 kB / 108.55 kB: most of it is 14,916
+The three chunks `dist/index.html` loads up front total 535.95 kB raw and 174.69 kB gzip, plus the
+stylesheet. The dependency update grew them by 35.58 kB raw and 10.98 kB gzip; attributed with the
+build's source maps, react-dom 19.3 accounts for 28.9 kB raw of that, zod 4.6 for 3.9 kB and axios
+1.20 for 2.9 kB, and the rest nets out to roughly zero. Part of that rest is TanStack Router moving
+to TanStack Form's `@tanstack/react-store` range, so the build carries one store instead of two: the
+router's copy left the entry chunk, most of the form's left `form-*.js`, and the one both now use
+sits in `session-*.js`, which is why `form-*.js` fell from 74.03 to 70.06 kB raw
+([Forms](./forms.md)). Before the update the entry chunk weighed 363.72 kB / 117.94 kB, and sonner
+accounts for nearly all of its jump from `5c55de1`'s 328.83 kB / 108.55 kB: most of it is 14,916
 bytes of minified CSS that sonner inlines as a JavaScript string and injects into `document.head` at
 module-evaluation time, which never passes through Vite's CSS pipeline and cannot be preloaded. The
 rest is fetched on navigation: `autoCodeSplitting` gives each route component a chunk of its own,
@@ -686,7 +715,7 @@ gate.
   and shell scripts, with staged-file templating, re-staging, per-job globs and glob-gated skips
   built in. The lint-staged guarantee that matters most is kept: lefthook 2 sets aside the unstaged
   hunks of a partially staged file while the jobs run and restores them afterwards. Verified with
-  the installed 2.1.10: after staging one hunk of a file, the `format` job formatted and committed
+  the installed 2.1.12: after staging one hunk of a file, the `format` job formatted and committed
   that hunk only, and the unstaged one came back untouched.
 - **Hooks install through lefthook's own `postinstall`, with no `prepare` script.** The
   `postinstall` already runs `lefthook install -f`, skips itself under `CI` and swallows its own
@@ -726,7 +755,7 @@ gate.
   equally fails a hand edit that relaxes or deletes a rule. The cost is that no rule can be relaxed
   in config — an exception is an inline directive in the code, visible in review.
 - **TypeScript is pinned to `~6.0.x` because the lint gate cannot run on anything newer.**
-  typescript-eslint declares the peer `typescript: >=4.8.4 <6.1.0` — the installed 8.67.0 does, and
+  typescript-eslint declares the peer `typescript: >=4.8.4 <6.1.0` — the installed 8.70.0 does, and
   so did its newest release when this document was verified — and `~6.0.2`, which means
   `>=6.0.2 <6.1.0`, is the widest range inside it. TypeScript 7 is published; a reproduction at this
   commit with `typescript@7.0.2` shows what installing it does. `npm install` succeeds while printing
@@ -772,11 +801,14 @@ gate.
   pending run per group and replaces it with a newer one.
 - **Dependabot groups follow peer coupling.** Packages whose peer ranges tie them together arrive in
   one pull request, so CI judges the combination that will actually be installed:
-  `@vitest/coverage-v8` 4.1.11 requires `vitest` at exactly `4.1.11`, `react-dom` 19.2.8 requires
-  `react` `^19.2.8`, and `@tanstack/router-plugin` requires `@tanstack/react-router` `^1.170.32`.
-  `minor-and-patch` comes last as the catch-all for everything else, so the named groups claim their
-  packages first; a major release outside the named groups arrives alone, where it can be reviewed
-  on its own.
+  `@vitest/coverage-v8` 4.1.11 requires `vitest` at exactly `4.1.11`, `react-dom` 19.3.0 requires
+  `react` `^19.3.0`, and `@tanstack/router-plugin` requires `@tanstack/react-router` `^1.170.36`.
+  `minor-and-patch` is the catch-all for everything else, and it excludes the named groups' patterns
+  rather than relying on coming last, because Dependabot resolves an overlap by specificity, not by
+  order: left to overlap, a wildcard family such as `@tanstack/*` drops out of its own group, and a
+  major of `@tanstack/router-plugin` could no longer arrive with the `@tanstack/react-router` major
+  it requires. The price is each family's patterns written twice. A major release outside the named
+  groups arrives alone, where it can be reviewed on its own.
 - **engine-strict makes the Node floor a failure, not a warning.** Without it npm prints
   `EBADENGINE` and installs anyway, and the mismatch surfaces later as an obscure runtime error. With
   it the install stops at once. `.nvmrc` holds only the major, `24`, so CI's `setup-node` takes the
@@ -844,7 +876,7 @@ In CI, the `coverage` and `playwright-report` artifacts keep each run's evidence
   installed package, not only the root's (`#checkEngineAndPlatform` in npm's `@npmcli/arborist`), so
   `engines.node` repeats the narrowest range a dependency declares — `jsdom` 30's
   `^22.22.2 || ^24.15.0 || >=26.0.0`, minus the Node 22 line `.nvmrc` does not use.
-  `dependency-cruiser` 18.2.0 (`^22||^24||>=26`) and its dependency `watskeburt` 6.0.0
+  `dependency-cruiser` 18.3.0 (`^22||^24||>=26`) and its dependency `watskeburt` 6.0.0
   (`^22.13||^24||>=26`) sit inside that range. A dependency update that narrows it further fails
   `npm ci` with the dependency's own `EBADENGINE` until the root is edited to match, and because
   `engine-strict` gates installs rather than `npm run`, an already-populated `node_modules` hides a
@@ -877,6 +909,11 @@ In CI, the `coverage` and `playwright-report` artifacts keep each run's evidence
   `cmd.exe`, the script shell npm uses by default on Windows.
 - **Bundle size is not gated.** No script compares the build against a budget; the baseline under
   [Measure the bundle](#measure-the-bundle) is informational and must be re-recorded by hand.
-- **Nothing but review holds the TypeScript pin.** `.github/dependabot.yml` has no `ignore` entry for
-  `typescript`, so a Dependabot pull request that moves the range past `~6.0.x` is possible; judge it
-  against `npm view typescript-eslint peerDependencies`, not only against a green run.
+- **The TypeScript pin is lifted by hand.** `.github/dependabot.yml` ignores `typescript` majors and
+  minors, so Dependabot stays silent even after `typescript-eslint`'s peer range admits a newer
+  release; when a `typescript-eslint` update arrives, run
+  `npm view typescript-eslint peerDependencies` and widen the range as
+  [Upgrade the toolchain](#upgrade-the-toolchain) describes.
+- **The Dependabot exclusions are kept in step by hand.** A pattern added to a named group but not
+  to `minor-and-patch`'s `exclude-patterns` overlaps again, and nothing checks that the two lists
+  agree.

@@ -1,6 +1,6 @@
 # Forms
 
-> **Status:** Complete · **Layers:** features, shared, outside layers · **Verified against:** `d6deb01`
+> **Status:** Complete · **Layers:** features, shared, outside layers · **Verified against:** `b28e2bb`
 
 ## Purpose
 
@@ -525,10 +525,11 @@ from a list needs its own component inside `src/shared/ui/form`, modelled on `te
   own code; classic `zod` beside it would add a second validator runtime, and that runtime is a
   multiple, not a rounding error. Bundled in isolation with the repo's own toolchain (Vite 8 /
   Rolldown, minified, React external), an object schema of `z.object` + `z.email` +
-  `z.string().min` comes out around 79 kB raw / 18 kB gzip with classic `zod` against roughly
-  14 kB / 4.5 kB with `zod/mini` — about 5× the raw bytes and 4× the gzipped bytes for the same
+  `z.string().min` comes out around 104 kB raw / 25 kB gzip with classic `zod` against roughly
+  19 kB / 5.8 kB with `zod/mini` — about 5× the raw bytes and 4× the gzipped bytes for the same
   rules. Read the ratio rather than the decimals: no benchmark is checked into the repo, and the
-  absolute figures move with the bundler and the `zod` version (`^4.4.3` here).
+  absolute figures move with the bundler and the `zod` version — 4.6.5 here, where 4.4.3 gave
+  78 kB / 18 kB against 14 kB / 4.4 kB.
   `zod/mini` composes functionally: `zm.string().check(zm.refine(predicate, message))`, and
   `zm.nullable(zm.string())` where classic `zod` would chain `.nullable()`. The rule is a
   convention, not a lint: `VALIDATOR_IMPORT_PATTERNS` covers only `shared/ui/form` and
@@ -597,8 +598,8 @@ from a list needs its own component inside `src/shared/ui/form`, modelled on `te
   `disabled={isSigningOut}`, and a label that swaps `t('signOut.action')` for
   `t('signOut.inProgress')`. The convention travels; the component does not.
 - **The seam costs one lazily loaded chunk, shared by every form.** On a production build at
-  `1c193c6`, TanStack Form, the seam's components and the `Input` and `Label` primitives they
-  render sit in one `form-*.js` chunk of 74.03 kB raw / 19.06 kB gzip. Almost all of that is the
+  `b28e2bb`, TanStack Form, the seam's components and the `Input` and `Label` primitives they
+  render sit in one `form-*.js` chunk of 70.06 kB raw / 17.55 kB gzip. Almost all of that is the
   library, not the validation: when the seam first started shipping — with
   `features/update-user-name`, its first non-test consumer — the route chunk that carried it then
   grew by 19.15 kB gzip, of which the `zod/mini` schema was ~1 kB and TanStack Form plus the field
@@ -608,12 +609,15 @@ from a list needs its own component inside `src/shared/ui/form`, modelled on `te
   visitor navigates to `/sign-in` or `/users/$userId`, whose route chunks import that one copy
   (`grep -lE 'submissionAttempts' dist/assets/*.js` matches it alone). `autoCodeSplitting` in
   `vite.config.ts` keeps it out of the entry. The cost is paid once and amortised: the whole
-  `/sign-in` route chunk — the `features/sign-in` slice and its page — is 2.60 kB raw / 1.15 kB
-  gzip. TanStack Router 1.170.32 depends on `@tanstack/react-store@^0.9.3` and TanStack Form on
-  `^0.11.0`, so npm installs a second copy of `@tanstack/react-store` and `@tanstack/store` under
-  `node_modules/@tanstack/react-form`; that resolves when the router widens its range. The seam's
-  CSS is not lazy: Tailwind v4 scans the files under `src` rather than the import graph, so the
-  utilities on `TextField`, `Input` and `Label` are in `index.css` on every page.
+  `/sign-in` route chunk — the `features/sign-in` slice and its page — is 2.57 kB raw / 1.14 kB
+  gzip. The form shares its store with the router: TanStack Form requires
+  `@tanstack/react-store@^0.11.0`, TanStack Router declares the same range from 1.170.35, so npm
+  installs one copy of `@tanstack/react-store` and `@tanstack/store`, and the build puts the store
+  code both libraries run in the preloaded `session-*.js` chunk. Before that, the router's `^0.9.3`
+  made npm nest a second copy under the form packages, and `form-*.js` carried it — 74.03 kB raw /
+  19.06 kB gzip at `1c193c6`. The seam's CSS is not lazy: Tailwind v4 scans the files under `src`
+  rather than the import graph, so the utilities on `TextField`, `Input` and `Label` are in
+  `index.css` on every page.
 
 ## Testing
 

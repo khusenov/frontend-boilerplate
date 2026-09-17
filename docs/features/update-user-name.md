@@ -1,6 +1,6 @@
 # Update user name (write path)
 
-> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `d6deb01`
+> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `b28e2bb`
 
 ## Purpose
 
@@ -529,11 +529,6 @@ write reaches them through the same ports.
   a check that expects the `users._userId` chunk predates that split. The entity's write code
   (`createUserMutations`, `toUpdateUserNameRequestDto`, `replaceCachedUser`) ships in the eager
   entry chunk, alongside the read-side modules the route `loader` already pulls in.
-- **A duplicated store is expected.** `@tanstack/react-form@1.33.5` requires
-  `@tanstack/react-store@^0.11.0`, while `@tanstack/react-router@1.170.32` declares `^0.9.3`, a
-  range that cannot reach it, so npm nests a second copy of both `@tanstack/react-store` and
-  `@tanstack/store` (0.11.1) under the form packages. It resolves itself when TanStack Router widens
-  its range; nothing needs doing here.
 
 ## Testing
 
