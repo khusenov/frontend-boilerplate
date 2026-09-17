@@ -1,7 +1,7 @@
 {
   "name": "frontend-boilerplate",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Production-shaped React + TypeScript frontend template: Vite, TanStack Router/Query/Form, Tailwind CSS v4 and Zod in strict Feature-Sliced Design, with layer boundaries enforced in CI.",
   "license": "MIT",
   "type": "module",
