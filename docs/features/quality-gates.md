@@ -1,6 +1,6 @@
 # Quality gates
 
-> **Status:** Complete · **Layers:** outside layers · **Verified against:** `b28e2bb`
+> **Status:** Complete · **Layers:** outside layers · **Verified against:** `82072e5`
 
 ## Purpose
 
@@ -429,7 +429,7 @@ If the hooks are missing — a clone installed with `--ignore-scripts`, or a han
 | `arch`                                        | See [Architecture boundaries](./architecture-boundaries.md)                                                                                                                                                                                                                              |
 | `build`                                       | `tsc -b` passed as gate 5 and runs again first, so the error is `vite build`'s: read the Rollup/Vite message and fix the reported module or plugin config. This is the only gate that runs the Vite plugins, so a route-tree or code-splitting failure surfaces here and nowhere earlier |
 | `test:coverage`                               | Add tests until the file clears 90% (see [Unit and component testing](./unit-testing.md))                                                                                                                                                                                                |
-| `verify:coverage-scope`                       | A pattern in `coverage.exclude` in `vite.config.ts` swallowed a source file — typically a `.ts` pattern that also matches a `.tsx` file; narrow it                                                                                                                                       |
+| `verify:coverage-scope`                       | A pattern in `coverage.exclude` in `vite.config.ts` swallowed a source file; narrow it, or mirror a deliberate exclusion in the script                                                                                                                                                   |
 | `verify:import-fence`                         | The `import-x` resolver or the `no-restricted-paths` block in `eslint.config.js` moved or lost its `basePath`; the message says which direction failed                                                                                                                                   |
 | `audit:deps`                                  | Upgrade the vulnerable package, usually by merging Dependabot's pull request                                                                                                                                                                                                             |
 
@@ -445,14 +445,14 @@ If the hooks are missing — a clone installed with `--ignore-scripts`, or a han
    `{staged_files}` command. Under the default `gobwas` matcher `*` matches across `/`, so
    `src/*.ts` covers every depth and `src/**/*.ts` skips files directly in `src/`.
 
-For example, a gate that fails when the committed dependency graph no longer matches the imports,
-once `docs/architecture-graph.md` is tracked:
+For example, a gate that fails when the committed `docs/architecture-graph.md` no longer matches
+the imports:
 
 ```json
 {
   "scripts": {
     "verify:arch-graph": "npm run arch:graph && git diff --exit-code -- docs/architecture-graph.md",
-    "audit": "npm run verify:lock && npm run format:check && npm run lint && npm run lint:a11y && npm run typecheck && npm run arch && npm run verify:arch-graph && npm run build && npm run test:coverage && npm run verify:coverage-scope"
+    "audit": "npm run verify:lock && npm run format:check && npm run lint && npm run lint:a11y && npm run typecheck && npm run arch && npm run verify:arch-graph && npm run build && npm run test:coverage && npm run verify:coverage-scope && npm run verify:import-fence"
   }
 }
 ```
@@ -766,17 +766,17 @@ gate.
   `TypeError: Cannot read properties of undefined (reading 'Intrinsic')`, thrown from `ts-api-utils`
   — having run no rule. Widen the range only after `npm view typescript-eslint peerDependencies`
   admits the new version.
-- **`verify:coverage-scope` restates the exclusion policy instead of reading it.** Vitest matches
-  `coverage.exclude` with picomatch `contains: true`, which makes every pattern an unanchored
-  substring match, so a pattern ending `.ts` also excludes its `.tsx` sibling — a per-file threshold
-  that silently stops evaluating a file. The script derives the expected file set on its own and
-  diffs it against the report; a check computed from `vite.config.ts` would inherit the very mistake
-  it exists to catch. The cost is that a genuine new exclusion takes two edits, which is why the
-  failure message names `vite.config.ts`. The script parses lcov's plain `SF:` lines rather than
-  calling `JSON.parse` on a JSON summary, whose `any` result would trip the type-aware
-  `no-unsafe-*` rules that lint `scripts/**/*.mjs`. Barrels need no exclusion at all:
-  `no-restricted-syntax` keeps every `src/**/index.ts` free of statements, so they have nothing to
-  cover and cannot fail a threshold.
+- **`verify:coverage-scope` restates the exclusion policy instead of reading it.** A
+  `coverage.exclude` pattern that reaches further than meant silently stops the per-file threshold
+  from evaluating a file — under Vitest 4, whose picomatch `contains: true` made every pattern an
+  unanchored substring match, a pattern ending `.ts` also excluded its `.tsx` sibling. The script
+  derives the expected file set on its own and diffs it against the report; a check computed from
+  `vite.config.ts` would inherit the very mistake it exists to catch. The cost is that a genuine new
+  exclusion takes two edits, which is why the failure message names `vite.config.ts`. The script
+  parses lcov's plain `SF:` lines rather than calling `JSON.parse` on a JSON summary, whose `any`
+  result would trip the type-aware `no-unsafe-*` rules that lint `scripts/**/*.mjs`. Barrels need no
+  exclusion at all: `no-restricted-syntax` keeps every `src/**/index.ts` free of statements, so they
+  have nothing to cover and cannot fail a threshold.
 - **`Dependency audit` is a separate job that installs nothing and should never be required.**
   `npm audit` resolves from `package-lock.json`, so the job skips `npm ci`. It fails whenever a
   high-severity advisory is published against a production dependency — with no change on this side
@@ -801,7 +801,7 @@ gate.
   pending run per group and replaces it with a newer one.
 - **Dependabot groups follow peer coupling.** Packages whose peer ranges tie them together arrive in
   one pull request, so CI judges the combination that will actually be installed:
-  `@vitest/coverage-v8` 4.1.11 requires `vitest` at exactly `4.1.11`, `react-dom` 19.3.0 requires
+  `@vitest/coverage-v8` 5.0.0 requires `vitest` at exactly `5.0.0`, `react-dom` 19.3.0 requires
   `react` `^19.3.0`, and `@tanstack/router-plugin` requires `@tanstack/react-router` `^1.170.36`.
   `minor-and-patch` is the catch-all for everything else, and it excludes the named groups' patterns
   rather than relying on coming last, because Dependabot resolves an overlap by specificity, not by

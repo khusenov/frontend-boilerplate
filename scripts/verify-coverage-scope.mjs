@@ -44,8 +44,8 @@ function reportUnmeasured(unmeasured) {
   }
 
   console.error(
-    '\nVitest matches coverage.exclude with picomatch `contains: true`, so every pattern is\n' +
-      'unanchored — a pattern ending `.ts` also matches its `.tsx` sibling. Check vite.config.ts.',
+    '\nA coverage.include or coverage.exclude pattern in vite.config.ts leaves them out.\n' +
+      'Narrow the pattern, or mirror a deliberate exclusion in this script.',
   );
 }
 
