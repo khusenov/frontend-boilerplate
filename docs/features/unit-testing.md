@@ -1,6 +1,6 @@
 # Unit and component testing
 
-> **Status:** Complete · **Layers:** app, pages, widgets, features, entities, shared, outside layers · **Verified against:** `d6deb01`
+> **Status:** Complete · **Layers:** app, pages, widgets, features, entities, shared, outside layers · **Verified against:** `82072e5`
 
 ## Purpose
 
@@ -63,11 +63,12 @@ A run starts from `npm test` (`vitest run`), `npm run test:watch` (`vitest`) or
      The first two are the locale's, the last two the theme's; all four are hygiene rather than a
      capability, since a test that asserts on `<html>` must not inherit the previous test's state.
 5. **The tests run.** With `globals: false`, each file imports `describe`, `it`, `expect`, `vi` and
-   the lifecycle hooks from `vitest`. A component test renders its unit with `render`, supplies
-   collaborators through the props, providers or factory arguments the unit already accepts, drives
-   it with `userEvent`, and asserts on roles, accessible names and copy. `useTranslation` falls back
-   to the global instance from step 4 when no `I18nProvider` is mounted, so rendered copy is real
-   English.
+   the lifecycle hooks from `vitest`. Before each test Vitest clears every mock's recorded calls —
+   `clearMocks` is on by default from Vitest 5 — but keeps each mock's implementation and every
+   `vi.stubGlobal` stub. A component test renders its unit with `render`, supplies collaborators
+   through the props, providers or factory arguments the unit already accepts, drives it with
+   `userEvent`, and asserts on roles, accessible names and copy. `useTranslation` falls back to the
+   global instance from step 4 when no `I18nProvider` is mounted, so rendered copy is real English.
 6. **With `--coverage`, every source file is measured and judged on its own.** The `v8` provider
    reads the coverage V8 records natively, with no instrumentation step. It measures
    `src/**/*.{ts,tsx}` — including files no test imports — minus test files, `.d.ts` declarations
@@ -88,9 +89,9 @@ A run starts from `npm test` (`vitest run`), `npm run test:watch` (`vitest`) or
   `npm run test:coverage` exits 1 even though every test passed. `npm test` checks no threshold.
 - _A source file escapes measurement._ A `coverage.exclude` pattern that matches more than intended
   removes the file from the report, so no threshold can ever fail for it. The gate prints
-  `These source files escaped coverage measurement:`, lists each file, explains the
-  unanchored-matching hazard described under [Design decisions](#design-decisions--trade-offs) and
-  exits 1. Run with no report on disk, it prints
+  `These source files escaped coverage measurement:`, lists each file, points at the `coverage`
+  patterns in `vite.config.ts` (see [Design decisions](#design-decisions--trade-offs)) and exits 1.
+  Run with no report on disk, it prints
   ``No coverage report found. Run `npm run test:coverage` first.`` and exits 1.
 - _A promise rejects with no handler._ Vitest reports it under `Unhandled Rejection` and
   `vitest run` exits 1, while the summary still counts every test as passed next to an `Errors`
@@ -150,7 +151,7 @@ the rule set as a whole.
 | Vitest lint block                                              | `outside layers`            | `vitest.configs.recommended` over `src/**/*.test.{ts,tsx}`                                                                                                                     | `eslint.config.js`                                                                                                                             |
 | Test-file import carve-outs                                    | `outside layers`            | The `src/shared/api/**/*.test.{ts,tsx}` block and the `ignores` on the `shared/ui/form` and `shared/ui/error-boundary` blocks; `shared/notifications` deliberately has neither | `eslint.config.js`                                                                                                                             |
 | `include` (`src`, `env.d.ts`, `vitest.setup.ts`)               | `outside layers`            | Puts tests and the setup file — and with it the jest-dom matcher types — under `npm run typecheck`                                                                             | `tsconfig.app.json`                                                                                                                            |
-| Test scripts                                                   | `outside layers`            | `test`, `test:watch`, `test:coverage`, `verify:coverage-scope`; `audit` ends with the last two                                                                                 | `package.json`                                                                                                                                 |
+| Test scripts                                                   | `outside layers`            | `test`, `test:watch`, `test:coverage`, `verify:coverage-scope`; `audit` runs the last two just before `verify:import-fence`                                                    | `package.json`                                                                                                                                 |
 | Entry-point test                                               | `outside layers`            | The `#root` fail-fast guard and a real mount of `App` under `act` and `waitFor`                                                                                                | `src/main.test.ts`                                                                                                                             |
 | `createAuthenticatedTransport` test                            | `app/entrypoint`            | Node environment and MSW: the two-client composition end to end, with a real Web Lock                                                                                          | `src/app/entrypoint/create-authenticated-transport.test.ts`                                                                                    |
 | `LocaleSwitcher` test                                          | `features/switch-locale`    | One control per supported locale under its endonym, the pressed state following the active locale, and the `lang` tag on each button                                           | `src/features/switch-locale/ui/locale-switcher.test.tsx`                                                                                       |
@@ -172,18 +173,18 @@ the guarantees the setup file gives every test, and the lint and coverage contra
 
 **Scripts** (`package.json`):
 
-| Command                         | Runs                                     | Contract                                                                                                        |
-| ------------------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `npm test`                      | `vitest run`                             | The whole suite, once. No coverage and no thresholds                                                            |
-| `npm run test:watch`            | `vitest`                                 | Watch mode: re-runs the tests affected by each saved change                                                     |
-| `npm run test:coverage`         | `vitest run --coverage`                  | The whole suite with `v8` coverage; exits 1 if any measured file is below 90% on any metric; writes `coverage/` |
-| `npm run verify:coverage-scope` | `node scripts/verify-coverage-scope.mjs` | Exits 1 if the report is missing or a source file is absent from it; run it after `npm run test:coverage`       |
-| `npm run audit`                 | every gate in sequence                   | Ends with `npm run test:coverage && npm run verify:coverage-scope` (see [Quality gates](./quality-gates.md))    |
+| Command                         | Runs                                     | Contract                                                                                                                                 |
+| ------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm test`                      | `vitest run`                             | The whole suite, once. No coverage and no thresholds                                                                                     |
+| `npm run test:watch`            | `vitest`                                 | Watch mode: re-runs the tests affected by each saved change                                                                              |
+| `npm run test:coverage`         | `vitest run --coverage`                  | The whole suite with `v8` coverage; exits 1 if any measured file is below 90% on any metric; writes `coverage/`                          |
+| `npm run verify:coverage-scope` | `node scripts/verify-coverage-scope.mjs` | Exits 1 if the report is missing or a source file is absent from it; run it after `npm run test:coverage`                                |
+| `npm run audit`                 | every gate in sequence                   | Runs `npm run test:coverage && npm run verify:coverage-scope`, then `verify:import-fence` last (see [Quality gates](./quality-gates.md)) |
 
 **Per-file environment.** A `// @vitest-environment node` comment at the top of a test file runs
 that file in plain Node instead of jsdom. All three files that use it put it on line 1.
 
-**What every test can rely on** (`vitest.setup.ts`):
+**What every test can rely on** (`vitest.setup.ts`, plus Vitest's `clearMocks` default):
 
 | Guarantee                                                                                        | Applies to                                                    |
 | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
@@ -191,6 +192,7 @@ that file in plain Node instead of jsdom. All three files that use it put it on 
 | `scrollTo` is a `vi.fn()`                                                                        | Every file, until a `vi.unstubAllGlobals()` call in that file |
 | `matchMedia` returns a `MediaQueryList`-shaped object reporting `matches: false`                 | Every file, until a `vi.unstubAllGlobals()` call in that file |
 | Everything `render` mounted is unmounted after each test                                         | Every file                                                    |
+| Every mock's recorded calls are cleared before each test                                         | Every file                                                    |
 | `localStorage` is empty when each test starts                                                    | jsdom files                                                   |
 | react-i18next's global instance is a fresh `en` instance with detection and caching disabled     | jsdom files, rebuilt before each test                         |
 | `<html>` carries no `lang`, `dir`, `class` or `style` attribute left behind by the previous test | jsdom files                                                   |
@@ -236,11 +238,11 @@ one test is replayed into the next test's viewport and a role query throws
 `src/**/*.{ts,tsx}` file except `*.test.ts(x)` and `*.spec.ts(x)` files, `*.d.ts` declarations and
 `src/app/router/route-tree.gen.ts`.
 
-| Situation                             | Output                                                                                                              | Exit code |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | --------- |
-| `coverage/lcov.info` does not exist   | ``No coverage report found. Run `npm run test:coverage` first.``                                                    | 1         |
-| A source file has no `SF:` record     | `These source files escaped coverage measurement:`, the sorted list, and the picomatch note naming `vite.config.ts` | 1         |
-| Every source file has an `SF:` record | `Coverage scope verified: <count> source files measured.`                                                           | 0         |
+| Situation                             | Output                                                                                                  | Exit code |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------- | --------- |
+| `coverage/lcov.info` does not exist   | ``No coverage report found. Run `npm run test:coverage` first.``                                        | 1         |
+| A source file has no `SF:` record     | `These source files escaped coverage measurement:`, the sorted list, and a note naming `vite.config.ts` | 1         |
+| Every source file has an `SF:` record | `Coverage scope verified: <count> source files measured.`                                               | 0         |
 
 ## Configuration
 
@@ -262,7 +264,7 @@ root.
 | `test.coverage.provider`                                                   | `'v8'`                                                                               | V8's native coverage, through `@vitest/coverage-v8`                                                                 |
 | `test.coverage.reporter`                                                   | `['text', 'lcov']`                                                                   | A terminal table, plus `coverage/lcov.info` (read by the scope gate) and the HTML report in `coverage/lcov-report/` |
 | `test.coverage.include`                                                    | `['src/**/*.{ts,tsx}']`                                                              | Every source file is measured, including files no test imports                                                      |
-| `test.coverage.exclude`                                                    | `['src/**/*.{test,spec}.{ts,tsx}', '**/*.d.ts', 'src/app/router/route-tree.gen.ts']` | Matched unanchored (picomatch `contains: true`), so a pattern ending `.ts` also matches its `.tsx` sibling          |
+| `test.coverage.exclude`                                                    | `['src/**/*.{test,spec}.{ts,tsx}', '**/*.d.ts', 'src/app/router/route-tree.gen.ts']` | Each pattern must match a file's whole path relative to the project root                                            |
 | `test.coverage.thresholds.perFile`                                         | `true`                                                                               | Thresholds apply to each file, not to the total                                                                     |
 | `test.coverage.thresholds.lines`, `.functions`, `.branches`, `.statements` | `90`                                                                                 | The minimum percentage on each metric, for every measured file                                                      |
 | `plugins` when `mode === 'test'`                                           | `[react(), tailwindcss()]`                                                           | `routerPlugin` is left out of Vitest runs                                                                           |
@@ -749,9 +751,8 @@ function measurableSourceFiles() {
 }
 ```
 
-Prefer an exact path to a glob, remember that every exclude pattern matches unanchored, and run
-`npm run test:coverage && npm run verify:coverage-scope`: the gate lists any file the new pattern
-swallowed by accident.
+Prefer an exact path to a glob, and run `npm run test:coverage && npm run verify:coverage-scope`:
+the gate lists any file the new pattern swallowed by accident.
 
 ## Design decisions & trade-offs
 
@@ -858,13 +859,15 @@ swallowed by accident.
   threshold applies to source files, not to test files: a module may earn its coverage through
   another module's test, as `src/shared/ui/form/use-app-form.ts` does through the form component
   tests ([Forms](./forms.md)).
-- **The exclusion list is minimal, and barrels are measured.** Vitest matches `coverage.exclude`
-  with picomatch's `contains: true`, which makes every pattern an unanchored match against the
-  absolute path, so a pattern ending `.ts` also matches its `.tsx` sibling. An earlier barrel
-  exclusion, `src/**/index.ts`, silently excluded `src/app/routes/index.tsx` as well, so the
-  per-file threshold never evaluated that route module. Commit `ad0bca2` found it, deleted the
-  pattern rather than rewriting it — a cleverer list only moves where the hazard bites — and added
-  the scope gate so the hole cannot reopen unnoticed. Barrels never needed excluding:
+- **The exclusion list is minimal, and barrels are measured.** Vitest 4 matched `coverage.exclude`
+  with picomatch's `contains: true`, an unanchored match against the absolute path, so a pattern
+  ending `.ts` also matched its `.tsx` sibling. An earlier barrel exclusion, `src/**/index.ts`,
+  silently excluded `src/app/routes/index.tsx` as well, so the per-file threshold never evaluated
+  that route module. Commit `ad0bca2` found it, deleted the pattern rather than rewriting it — a
+  cleverer list only moves where the hazard bites — and added the scope gate so the hole cannot
+  reopen unnoticed. Vitest 5 matches each pattern against a file's whole path relative to the
+  project root, so the same pattern would now leave `index.tsx` measured, but a pattern can still
+  reach further than its author meant, and the gate stays. Barrels never needed excluding:
   `no-restricted-syntax` keeps every `src/**/index.ts` a pure re-export barrel with no coverable
   statements, so it cannot fail a threshold, and if logic ever lands in one it is measured rather
   than exempt.

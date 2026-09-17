@@ -50,9 +50,6 @@ export default defineConfig(({ mode, isPreview = false }) => ({
       provider: 'v8',
       reporter: ['text', 'lcov'],
       include: ['src/**/*.{ts,tsx}'],
-      // Vitest matches these with picomatch `contains: true`, so every pattern is unanchored:
-      // one ending `.ts` also matches its `.tsx` sibling. Keep this list minimal and let
-      // scripts/verify-coverage-scope.mjs prove nothing escaped.
       exclude: ['src/**/*.{test,spec}.{ts,tsx}', '**/*.d.ts', 'src/app/router/route-tree.gen.ts'],
       thresholds: {
         perFile: true,
