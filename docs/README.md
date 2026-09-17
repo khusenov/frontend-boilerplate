@@ -2,7 +2,7 @@
 
 A React + TypeScript single-page-application template built on **Vite**, organised by **Feature-Sliced Design**, with **TanStack Router / Query / Form**, **axios** behind an `HttpClient` port, **Zod** response validation and **i18next**. This directory is the documentation index; every capability is explained in its own document under [`features/`](./features/).
 
-> **Verified against:** `9a7d7af`
+> **Verified against:** `v1.0.0`
 
 ## Getting started
 
@@ -94,7 +94,7 @@ Every capability discovered in this codebase was complete enough to document —
 
 **How these docs stay honest:**
 
-- Every doc states the commit it was checked against on its `Verified against` line, so a reader can `git diff` from there and see exactly what may have moved since. Pull requests are squash-merged, so a doc edited in a pull request names that pull request's base — the last commit on `main` when it was written — and the squash commit that follows it is the change the doc already describes.
+- Every doc states the commit it was checked against on its `Verified against` line, so a reader can `git diff` from there and see exactly what may have moved since. Pull requests are squash-merged, so a doc edited in a pull request names that pull request's base — the last commit on `main` when it was written — and the squash commit that follows it is the change the doc already describes. This index names a release tag instead: `v1.0.0` marks the commit that contains the index as it reads here.
 - When a doc describes something not yet in the commit it names, it says so rather than quietly claiming it, so the `Verified against` line and the prose never disagree. No doc carries such a caveat today: the tooling that once did — `arch:graph`, its `dependency-cruiser` dependency and this `docs/` directory — is committed.
 - A change to the code is a change to its doc. Update the feature doc in the same commit and move its `Verified against` SHA forward; a doc left behind is worse than no doc.
 - Run `npm run arch:graph` whenever imports change and commit the regenerated [`architecture-graph.md`](./architecture-graph.md) alongside them, so the picture is always derived from the source rather than remembered.
