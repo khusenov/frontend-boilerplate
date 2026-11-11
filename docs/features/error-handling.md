@@ -602,7 +602,7 @@ place of the beacon.
       also removes the two module-scope stubs `vitest.setup.ts` installs, and a module-scope stub is
       never reinstalled between cases, so every case that runs afterwards loses them. The shared
       `afterEach` first fires after the first case, so three of the four cases that mount the real
-      `App` would run without them. Without `matchMedia`, jsdom 30 leaves `window.matchMedia`
+      `App` would run without them. Without `matchMedia`, jsdom 31 leaves `window.matchMedia`
       undefined and `AppProviders` throws inside `createSystemThemeSource()`; without `scrollTo`, a
       navigating case prints jsdom's not-implemented error
       ([Unit and component testing](./unit-testing.md#known-limitations)).

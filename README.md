@@ -111,7 +111,7 @@ Then make it yours before the first feature:
 ## Requirements
 
 - **Node 24.15+** — [`.nvmrc`](./.nvmrc) pins the major, `24`, and `nvm use` resolves that to your
-  newest 24.x. `engines.node` is `^24.15.0 || >=26.0.0`, the range `jsdom` 30 accepts, which rules
+  newest 24.x. `engines.node` is `^24.15.0 || >=26.0.0`, the range `jsdom` 31 accepts, which rules
   out Node 25 entirely; `.npmrc` sets `engine-strict=true`, so an unsupported version fails
   `npm install` with `EBADENGINE` instead of only warning.
 - **npm 11.16.0**, declared via `packageManager`.
