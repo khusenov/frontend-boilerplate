@@ -1,6 +1,6 @@
 # Architecture boundaries
 
-> **Status:** Complete · **Layers:** app, pages, widgets, features, entities, shared, outside layers · **Verified against:** `d6deb01`
+> **Status:** Complete · **Layers:** app, pages, widgets, features, entities, shared, outside layers · **Verified against:** `8df68fb`
 
 ## Purpose
 
@@ -27,7 +27,7 @@ add one level more, the _group_: a folder per helper or primitive, each with its
 Every import that crosses one of these boundaries is written with the `@/` alias for `src/`, so the
 path names what it reaches — `@/entities/user`, `@/shared/api`, `@/shared/ui/button`.
 
-**The rules.** Everything below enforces six rules:
+**The rules.** Everything below enforces seven rules:
 
 1. **The Import Rule.** A module imports only from layers strictly below its own.
 2. **Slice isolation.** Two slices on one layer never import each other. FSD's `@x` notation is the
@@ -45,6 +45,9 @@ path names what it reaches — `@/entities/user`, `@/shared/api`, `@/shared/ui/b
    `shared` segment or group that wraps it.
 6. **One door in from outside.** `src/main.tsx` imports `@/app` and nothing else under `@/`, and
    `e2e/` imports nothing from `src/`.
+7. **Pages own the page landmark and heading.** `<main>` and the `<h1>` belong to a `pages` slice; a
+   route module, a widget, a feature or an entity renders neither, and neither claims the roles
+   (`role="main"`, `role="heading"`) that stand in for them.
 
 **Two engines enforce them.** `npm run arch` runs steiger over `./src`. steiger first maps the tree:
 layers by folder name, and slices, where a folder counts as a slice only if it contains at least one
@@ -70,7 +73,9 @@ only importable `@tanstack/react-router` export; every other name is denied — 
 [Import fences](#import-fences)), sidesteps from one `shared` segment into another, absolute imports
 of a module inside the importer's own slice, re-exports, and the two entry points outside the
 layers. Two more ESLint rules complete the set: `no-restricted-syntax` keeps every barrel a pure
-list of re-exports, and `import-x/order` orders every import block.
+list of re-exports and holds the two boundaries that are about rendering rather than importing — the
+route fallbacks and the page landmarks, both under [Syntax fences](#syntax-fences) — and
+`import-x/order` orders every import block.
 [What each gate catches](#what-each-gate-catches) maps each violation to its gate.
 
 **When they run.** lefthook's `pre-commit` hook runs ESLint over the staged files; the `pre-push`
@@ -116,7 +121,8 @@ same `@/` alias. The imports the checks guard all point downward — `app` → `
 | `I18N_VENDOR_IMPORT_PATHS`, `FORM_VENDOR_IMPORT_PATHS`, `FORM_VENDOR_IMPORT_PATTERNS`, `TRANSPORT_VENDOR_IMPORT_PATHS`, `ERROR_BOUNDARY_VENDOR_IMPORT_PATHS`, `NOTIFICATIONS_VENDOR_IMPORT_PATHS` | outside layers · root config    | One fence per wrapped vendor                                                                                                                                                                             | `eslint.config.js`                                                           |
 | `VALIDATOR_IMPORT_PATTERNS`                                                                                                                                                                       | outside layers · root config    | Concrete validators, banned in `shared/api` and `shared/ui/form` — the two seams that validate through _Standard Schema_, the vendor-neutral validator interface ([HTTP transport](./http-transport.md)) | `eslint.config.js`                                                           |
 | `no-restricted-imports` blocks                                                                                                                                                                    | outside layers · root config    | Twelve blocks, in order, that apply the lists by path                                                                                                                                                    | `eslint.config.js`                                                           |
-| `no-restricted-syntax`                                                                                                                                                                            | outside layers · root config    | Keeps every `src/**/index.ts` a list of imports and re-exports                                                                                                                                           | `eslint.config.js`                                                           |
+| `PAGE_LANDMARK_RESTRICTIONS`, `ROUTE_FALLBACK_RESTRICTIONS`, `INLINE_ROUTE_OPTIONS_MESSAGE`                                                                                                       | outside layers · root config    | The `no-restricted-syntax` selectors that keep `<main>` and `<h1>` in `pages`, and route fallbacks at the router default                                                                                 | `eslint.config.js`                                                           |
+| `no-restricted-syntax`                                                                                                                                                                            | outside layers · root config    | Three blocks: the barrel rule over `src/**/index.ts`, the route-fallback fence over `src/app/routes/**`, the page-landmark fence over route modules, `widgets`, `features` and `entities`                | `eslint.config.js`                                                           |
 | `import-x/order`, `import-x/internal-regex`                                                                                                                                                       | outside layers · root config    | Groups and alphabetizes imports, with `@/…` as the internal group                                                                                                                                        | `eslint.config.js`                                                           |
 | `import-x/resolver-next`                                                                                                                                                                          | outside layers · root config    | Teaches `import-x` `.ts`/`.tsx` and the `@/` mapping; without it every path-based `import-x` rule skips `src/` in silence                                                                                | `eslint.config.js`                                                           |
 | `import-x/no-restricted-paths`                                                                                                                                                                    | outside layers · root config    | Keeps the devDependency-backed `@/shared/testing` out of the production graph; test files are exempt                                                                                                     | `eslint.config.js`                                                           |
@@ -149,14 +155,14 @@ public APIs those scripts protect, the fences, and the naming and import convent
 
 ### Layers
 
-| Layer      | Path           | Holds                                                                                                                                                                                                                                                                                     | May import                                                          | Today                                                               |
-| ---------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `app`      | `src/app`      | The composition root, as segments: `entrypoint`, `router`, `routes`, `styles`; and `index.ts`, the layer's public API                                                                                                                                                                     | Every layer below                                                   | Four segments                                                       |
-| `pages`    | `src/pages`    | One slice per screen, assembled from lower layers; a page takes props and callbacks and reads no route state                                                                                                                                                                              | `widgets`, `features`, `entities`, `shared`                         | `home`, `not-found`, `resolving-session`, `sign-in`, `user-profile` |
-| `widgets`  | `src/widgets`  | Self-contained page blocks composed from features and entities and shown on more than one screen                                                                                                                                                                                          | `features`, `entities`, `shared`                                    | `app-header`                                                        |
-| `features` | `src/features` | One slice per user action that changes state: its UI, its validation schema where it has one, and the hook that drives it                                                                                                                                                                 | `entities`, `shared`                                                | `sign-in`, `sign-out`, `switch-locale`, `update-user-name`          |
-| `entities` | `src/entities` | One slice per business noun: frontend-owned models and ports in `model/`; DTOs, wire schemas, mappers, HTTP calls and query option factories in `api/`                                                                                                                                    | `shared`                                                            | `session`, `user`                                                   |
-| `shared`   | `src/shared`   | Business-free building blocks, as segments: `api`, `config`, `i18n`, `notifications`, `observability`, `testing`, `theme`, and the grouped `lib` (`cn`, `format-duration`, `single-flight`) and `ui` (`button`, `error-boundary`, `form`, `input`, `label`, beside the loose `theme.css`) | Nothing above `shared`; another segment only through its public API | Nine segments                                                       |
+| Layer      | Path           | Holds                                                                                                                                                                                                                                                                                     | May import                                                          | Today                                                                                               |
+| ---------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `app`      | `src/app`      | The composition root, as segments: `entrypoint`, `router`, `routes`, `styles`; and `index.ts`, the layer's public API                                                                                                                                                                     | Every layer below                                                   | Four segments                                                                                       |
+| `pages`    | `src/pages`    | One slice per screen, assembled from lower layers; a page takes props and callbacks and reads no route state                                                                                                                                                                              | `widgets`, `features`, `entities`, `shared`                         | `home`, `not-found`, `resolving-session`, `route-error`, `route-pending`, `sign-in`, `user-profile` |
+| `widgets`  | `src/widgets`  | Self-contained page blocks composed from features and entities and shown on more than one screen                                                                                                                                                                                          | `features`, `entities`, `shared`                                    | `app-header`                                                                                        |
+| `features` | `src/features` | One slice per user action that changes state: its UI, its validation schema where it has one, and the hook that drives it                                                                                                                                                                 | `entities`, `shared`                                                | `sign-in`, `sign-out`, `switch-locale`, `update-user-name`                                          |
+| `entities` | `src/entities` | One slice per business noun: frontend-owned models and ports in `model/`; DTOs, wire schemas, mappers, HTTP calls and query option factories in `api/`                                                                                                                                    | `shared`                                                            | `session`, `user`                                                                                   |
+| `shared`   | `src/shared`   | Business-free building blocks, as segments: `api`, `config`, `i18n`, `notifications`, `observability`, `testing`, `theme`, and the grouped `lib` (`cn`, `format-duration`, `single-flight`) and `ui` (`button`, `error-boundary`, `form`, `input`, `label`, beside the loose `theme.css`) | Nothing above `shared`; another segment only through its public API | Nine segments                                                                                       |
 
 Three things sit outside every layer: `src/main.tsx`, which mounts `<App />` inside `StrictMode` and
 which steiger does not analyse; `e2e/`, which observes the built app through a browser; and root
@@ -178,6 +184,8 @@ else under `@/` may be imported across a boundary.
 | `@/pages/home`                 | `pages`      | `HomePage`                                                                                                                                                                                                                                                                                                  | None                                                                                                                                                                                                                                                                            | Worked example; [Internationalization](./internationalization.md)                                                                                                                          |
 | `@/pages/not-found`            | `pages`      | `NotFoundPage`                                                                                                                                                                                                                                                                                              | None                                                                                                                                                                                                                                                                            | [Routing](./routing.md)                                                                                                                                                                    |
 | `@/pages/resolving-session`    | `pages`      | `ResolvingSessionPage`                                                                                                                                                                                                                                                                                      | None                                                                                                                                                                                                                                                                            | [Authenticated route guard](./route-guard.md)                                                                                                                                              |
+| `@/pages/route-error`          | `pages`      | `RouteErrorPage`                                                                                                                                                                                                                                                                                            | None                                                                                                                                                                                                                                                                            | [Routing](./routing.md); [Error handling and reporting](./error-handling.md)                                                                                                               |
+| `@/pages/route-pending`        | `pages`      | `RoutePendingPage`                                                                                                                                                                                                                                                                                          | None                                                                                                                                                                                                                                                                            | [Routing](./routing.md)                                                                                                                                                                    |
 | `@/pages/sign-in`              | `pages`      | `SignInPage`                                                                                                                                                                                                                                                                                                | None                                                                                                                                                                                                                                                                            | [Sign-in](./sign-in.md)                                                                                                                                                                    |
 | `@/pages/user-profile`         | `pages`      | `UserProfilePage`                                                                                                                                                                                                                                                                                           | None                                                                                                                                                                                                                                                                            | [User profile (read path)](./user-profile.md)                                                                                                                                              |
 | `@/widgets/app-header`         | `widgets`    | `AppHeader`                                                                                                                                                                                                                                                                                                 | None                                                                                                                                                                                                                                                                            | [App shell](./app-shell.md)                                                                                                                                                                |
@@ -231,7 +239,10 @@ Every row was reproduced against this commit.
 | Bare `shared/lib` or `shared/ui` segment, or a file inside a group | `@/shared/ui`, `@/shared/lib/cn/cn`                                                             | Only the file inside a group, imported from another layer | Group patterns                                                                                                                     |
 | Vendor outside its seam                                            | `axios` imported in `entities/user`                                                             | Passes                                                    | Vendor fence                                                                                                                       |
 | Constructor outside the composition root                           | `createHttpClient` from `@/shared/api` in a page                                                | Passes                                                    | Construction ban                                                                                                                   |
-| Declaration in a barrel                                            | `export const PROBE = 1;` in an `index.ts`                                                      | Passes                                                    | `no-restricted-syntax`                                                                                                             |
+| Declaration in a barrel                                            | `export const PROBE = 1;` in an `index.ts`                                                      | Passes                                                    | Barrel rule                                                                                                                        |
+| A route module choosing its own error screen                       | `errorComponent: RouteErrorPage` in `src/app/routes/index.tsx`                                  | Passes                                                    | Route-fallback fence                                                                                                               |
+| Route options spread in, or passed as one object                   | `createFileRoute('/')({ ...baseOptions })` in a route module                                    | Passes                                                    | Route-fallback fence                                                                                                               |
+| `<main>` or `<h1>` outside a page                                  | `<h1>` in `src/widgets/app-header/ui/app-header.tsx`                                            | Passes                                                    | Page-landmark fence                                                                                                                |
 | Segment named for its contents                                     | `src/features/sign-in/hooks/` or `src/features/sign-in/types.ts`                                | `fsd/segments-by-purpose`                                 | Passes                                                                                                                             |
 | The importer's own slice barrel                                    | `features/sign-in` imports `@/features/sign-in`                                                 | Passes                                                    | Passes                                                                                                                             |
 | Vendor through a dynamic `import()`                                | `await import('axios')` in a page                                                               | Passes                                                    | Passes                                                                                                                             |
@@ -319,8 +330,11 @@ modules beside them, apart from three test carve-outs listed in
 | `@/**` except `@/app`; `./*/**`; `../**`                                                                                                                                                           | Entry fence              | `src/main.tsx`                                                                                   | None                                                            | [Composition root](./composition-root.md)                                                                                       |
 | `@/**`, `**/src/**`                                                                                                                                                                                | Suite fence              | `e2e/**/*.ts`, `playwright.config.ts`                                                            | None                                                            | [End-to-end testing](./e2e-testing.md)                                                                                          |
 | Anything but import and re-export declarations (`no-restricted-syntax`)                                                                                                                            | Barrel rule              | Every `src/**/index.ts`                                                                          | None                                                            | Every public API — this doc                                                                                                     |
+| `errorComponent` set to anything but the literal `false`; route options spread into, or passed whole to, a curried route creator (`no-restricted-syntax`)                                          | Route-fallback fence     | `src/app/routes/**/*.{ts,tsx}`                                                                   | `src/app/routes/**/*.test.{ts,tsx}`                             | `app/router` — [Routing](./routing.md), [Error handling and reporting](./error-handling.md)                                     |
+| `<main>`, `<h1>`, `role="main"`, `role="heading"` (`no-restricted-syntax`)                                                                                                                         | Page-landmark fence      | `src/app/routes/**/*.{ts,tsx}`; `src/{widgets,features,entities}/**/*.tsx`                       | Those two trees' test files                                     | `pages` — [Routing](./routing.md)                                                                                               |
 
-`app/entrypoint`, `src/app/index.ts` and `src/main.test.ts` fall under only the first block, so
+`app/entrypoint`, `src/app/index.ts` and `src/main.test.ts` fall under only the first
+`no-restricted-imports` block, so
 their one vendor fence is `react-error-boundary` and their only patterns are the two group patterns.
 `vitest.setup.ts`, `scripts/` and every root configuration file except `playwright.config.ts` fall
 under no block at all. Both gaps are listed under [Known limitations](#known-limitations).
@@ -359,6 +373,49 @@ others: a different rule name cannot collide with the `no-restricted-imports` op
 Fourth, an `ignores` removes files from its own block only, so they take the options of the last
 other block that matches them: `src/shared/ui/form/form.test.tsx` matches blocks 1 and 2 and gets
 block 2, where `@tanstack/react-form` values are banned and validators are not.
+
+#### Syntax fences
+
+Three blocks reach for `no-restricted-syntax` instead: they judge what a file _writes_, not what it
+imports. An esquery selector matches nodes in the file's syntax tree, so these fences see a JSX
+element or an object property that no import fence could. They obey the same last-match-wins rule —
+each block restates every selector its files need — and their selectors live in the module-level
+constants `PAGE_LANDMARK_RESTRICTIONS` and `ROUTE_FALLBACK_RESTRICTIONS`, the second of which shares
+one message through `INLINE_ROUTE_OPTIONS_MESSAGE`.
+
+- **The barrel rule** covers `src/**/index.ts`: a barrel holds import and re-export declarations and
+  nothing else (rule 4 above).
+- **The route-fallback fence** covers `src/app/routes/**/*.{ts,tsx}`, with that tree's
+  `*.test.{ts,tsx}` ignored, and pins the router's fallback policy from the route side. Its first
+  selector,
+  `Property:matches([key.name='errorComponent'], [key.value='errorComponent']):not([value.type='Literal'][value.raw='false'])`,
+  rejects an `errorComponent` set to anything but the literal `false` — the property is matched
+  wherever it appears in the file, not only inside the route creator call. Every route therefore
+  renders the router's `defaultErrorComponent`, and the one sanctioned local value is
+  `errorComponent: false` in `src/app/routes/__root.tsx`, which lets a root-layout crash leave the
+  router altogether ([Error handling and reporting](./error-handling.md)). Its other two selectors,
+  `CallExpression[callee.callee.name=/^create(Lazy)?(File|Root)Route(WithContext)?$/] > ObjectExpression > SpreadElement`
+  and the same head with `[arguments.0.type!='ObjectExpression']`, require the options of a route
+  creator to be an object literal written out in the route file: neither `{ ...routeDefaults }` nor
+  `createFileRoute('/')(routeOptions)` passes. That is what keeps the first selector meaningful — a
+  spread or a variable would carry an `errorComponent` past it — and it is what both selectors say:
+  `Spell route options out in the route file so the route fences can check them.`
+- **The page-landmark fence** carries rule 7. It rejects
+  `JSXOpeningElement[name.name=/^(main|h1)$/]` and a `role` attribute whose value is `main` or
+  `heading`, written either as a string (`role="main"`) or as a literal in braces
+  (`role={'heading'}`). `PAGE_LANDMARK_RESTRICTIONS` is spread into the route block above and into a
+  block over `src/{widgets,features,entities}/**/*.tsx`, with those trees' `*.test.tsx` ignored. The
+  lower-layer glob is `.tsx` only, which costs nothing: JSX does not compile in a `.ts` file. `pages`
+  is in neither glob, because it is the layer that owns both; `shared/ui` is left out deliberately
+  (see [Design decisions](#design-decisions--trade-offs)), and so is `app/entrypoint`, whose
+  `AppCrashFallback` is the screen rendered when the router itself is gone.
+
+One page is a named exception to rule 7's first half. `pages/route-pending` — the transient screen
+the router shows while a slow navigation loads — renders `<main>` with a `status` region inside it
+and deliberately no `<h1>`: a heading here would be one more unnamed `level: 1` for every test that
+waits for a real page heading to resolve against, the race described in
+[Unit and component testing](./unit-testing.md#design-decisions--trade-offs). Nothing lints the page
+side of the rule either way; see [Conventions nothing lints](#conventions-nothing-lints).
 
 ### File naming
 
@@ -442,17 +499,17 @@ import '../styles/index.css';
 
 ### Conventions nothing lints
 
-| Convention                                                                                                                                                                                              | How to check                                                                       | Owner                                               |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------- |
-| Configuration is read at the composition seam — `app/entrypoint/app.tsx` and `app/routes/**` — and passed down as props; `entities/session/model/session-token-source.ts` is the one reader below `app` | `grep -rn "@/shared/config" src`                                                   | [Configuration and environment](./configuration.md) |
-| `console` is called only inside `shared/observability`                                                                                                                                                  | `grep -rn "console\." src --include='*.ts' --include='*.tsx' --exclude='*.test.*'` | [Error handling and reporting](./error-handling.md) |
-| A barrel exports its slice's contract only; an entity never exports a DTO type, its schema, a mapper, a path builder or a query-key object                                                              | Review                                                                             | [User profile (read path)](./user-profile.md)       |
-| A private screen's route module sits under `src/app/routes/_authenticated/`                                                                                                                             | Review                                                                             | [Authenticated route guard](./route-guard.md)       |
-| A page renders exactly one `<main>` and one `<h1>`                                                                                                                                                      | Review                                                                             | [Routing](./routing.md)                             |
-| File and folder names are kebab-case                                                                                                                                                                    | `find src e2e scripts -name '*[A-Z_$]*' -not -path 'src/app/routes/*'`             | This doc                                            |
-| Inside a slice, modules import each other by relative path, never through the slice's own barrel                                                                                                        | Review                                                                             | This doc                                            |
-| A stylesheet import comes last in its import block                                                                                                                                                      | Review                                                                             | This doc                                            |
-| A layer directory is created in the same commit as its first slice                                                                                                                                      | Review                                                                             | This doc                                            |
+| Convention                                                                                                                                                                                              | How to check                                                                                                                             | Owner                                               |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| Configuration is read at the composition seam — `app/entrypoint/app.tsx` and `app/routes/**` — and passed down as props; `entities/session/model/session-token-source.ts` is the one reader below `app` | `grep -rn "@/shared/config" src`                                                                                                         | [Configuration and environment](./configuration.md) |
+| `console` is called only inside the `shared/observability` and `shared/notifications` safety decorators                                                                                                 | `grep -rn "console\." src --include='*.ts' --include='*.tsx' --exclude='*.test.*'`                                                       | [Error handling and reporting](./error-handling.md) |
+| A barrel exports its slice's contract only; an entity never exports a DTO type, its schema, a mapper, a path builder or a query-key object                                                              | Review                                                                                                                                   | [User profile (read path)](./user-profile.md)       |
+| A private screen's route module sits under `src/app/routes/_authenticated/`                                                                                                                             | Review                                                                                                                                   | [Authenticated route guard](./route-guard.md)       |
+| A page renders exactly one `<main>` and one `<h1>`, `pages/route-pending` excepted — it renders `<main>` with a `status` inside and no `<h1>`                                                           | Review. The [page-landmark fence](#syntax-fences) bars only the other side: a route module, widget, feature or entity may render neither | [Routing](./routing.md)                             |
+| File and folder names are kebab-case                                                                                                                                                                    | `find src e2e scripts -name '*[A-Z_$]*' -not -path 'src/app/routes/*'`                                                                   | This doc                                            |
+| Inside a slice, modules import each other by relative path, never through the slice's own barrel                                                                                                        | Review                                                                                                                                   | This doc                                            |
+| A stylesheet import comes last in its import block                                                                                                                                                      | Review                                                                                                                                   | This doc                                            |
+| A layer directory is created in the same commit as its first slice                                                                                                                                      | Review                                                                                                                                   | This doc                                            |
 
 ## Configuration
 
@@ -502,6 +559,9 @@ code between slices, keep `npx steiger ./src --watch` open in a second terminal.
 | `This slice is missing a public API.`, `This segment is missing a public API.`, `This top-level folder in shared/<segment> is missing a public API.`                                                                           | `fsd/public-api`             | Write the `index.ts` yourself. `steiger ./src --fix` would add an empty `index.js` instead                                                                                                                                                             |
 | `'<specifier>' import is restricted from being used. <fence message>`, `'<name>' import from '<specifier>' is restricted. <fence message>`, `'<specifier>' import is restricted from being used by a pattern. <fence message>` | `no-restricted-imports`      | The fence message names the fix, such as `Construct the transport only in the app layer. Reach it with useHttpClient().`                                                                                                                               |
 | `A public API barrel re-exports, it does not declare.` or `A public API barrel may contain only import and re-export declarations — no export default, no statements.`                                                         | `no-restricted-syntax`       | Move the code into a module of its own and re-export it from the barrel                                                                                                                                                                                |
+| `Pages own <main> and <h1>. Render them only from a page.` or `Pages own the main landmark and the page heading. Render them only from a page.`                                                                                | `no-restricted-syntax`       | Move the landmark and the heading up into the `pages` slice that renders this block                                                                                                                                                                    |
+| ``Only `errorComponent: false` (let the parent route catch) is allowed here.``                                                                                                                                                 | `no-restricted-syntax`       | Delete the option and let the router default render, or write `errorComponent: false` to hand the failure to the parent route                                                                                                                          |
+| `Spell route options out in the route file so the route fences can check them.`                                                                                                                                                | `no-restricted-syntax`       | Write the options as an object literal in the route module, rather than spreading them in or passing a prepared object                                                                                                                                 |
 
 steiger 0.6.0 labels some diagnostics ⚠ rather than ✘ when a run reports several, because its
 severity lookup mishandles repeated file paths. Read every line as an error: every rule here is
@@ -945,6 +1005,22 @@ rendered graph, not the diff. The graph follows JavaScript and TypeScript import
   ban on `zod` would admit `zod/mini`: the validator fence is the regex
   `^(zod|valibot|arktype|yup|joi|superstruct)(/|$)`, and TanStack Form's sibling packages are fenced
   by `^@tanstack/(form-core|react-store)` beside the `@tanstack/react-form` path.
+- **The route-fallback fence keeps one policy for every route.** `ROUTER_FALLBACK_DEFAULTS` in
+  `src/app/router/router-fallback-defaults.ts` decides what a failing or slow route looks like, and
+  a route module that set its own `errorComponent` would fork that decision in a file no one reads
+  again. Banning the option is stricter than reviewing it and costs nothing today: the one route
+  that must opt out, `__root.tsx`, does so with the literal the fence admits. The ban on spreading
+  or passing route options exists only to keep that check honest — a selector reads the file, not
+  the program, so `createFileRoute('/')({ ...routeDefaults })` would carry any option past it.
+- **The page-landmark fence bans rather than counts, and leaves `shared/ui` out.** A screen has one
+  `<main>` and one `<h1>`; the layer that knows it is a screen is `pages`. A widget or a feature
+  composed onto two screens cannot know whether its heading is the first, so the fence bans the
+  elements outright below `pages` instead of trying to count them per rendered tree, which no
+  static rule can do. `shared/ui` is deliberately outside the fence: a status-screen primitive that
+  owns the landmark and the heading — the shape `RouteErrorPage`, `NotFoundPage` and
+  `AppCrashFallback` already repeat — is a reasonable next group there, and a fence over `shared/ui`
+  would have to be lifted the day it lands. The cost is the blind spot recorded under
+  [Known limitations](#known-limitations).
 - **Flat config replaces, so every block restates its lists.** Most of those lists are module-level
   constants spread into each block, though the group patterns, the slice public-API pattern and the
   `app/{routes,router}` construction bans are copy-pasted rather than shared (see
@@ -981,13 +1057,16 @@ Almost no test covers the boundary configuration itself. Vitest collects only
 "nothing tests the flat config". The one exception is `scripts/verify-import-fence.mjs`, gate 10,
 which lints a pair of throwaway probes to prove the `@/shared/testing` fence and the `import-x`
 resolver it rests on are both live; block ordering for `no-restricted-imports` is still untested,
-and so is the `parseResponse` fence, which was proven once by hand when it landed. The rules are
+and so is the `parseResponse` fence, which was proven once by hand when it landed — as were the
+route-fallback and page-landmark fences ([Syntax fences](#syntax-fences)). The rules are
 otherwise verified by running the gates — every push runs them through `npm run audit` — and by
 tests that make one boundary executable:
 
-- `src/pages/home/ui/home-page.test.tsx` and
-  `src/pages/resolving-session/ui/resolving-session-page.test.tsx` render their pages with no
-  router, proof that a page below `app` reads no route state.
+- `src/pages/home/ui/home-page.test.tsx`,
+  `src/pages/resolving-session/ui/resolving-session-page.test.tsx` and
+  `src/pages/route-pending/ui/route-pending-page.test.tsx` render their pages with no router, proof
+  that a page below `app` reads no route state. The last one also pins the named exception to
+  rule 7: a `main` landmark holding a `status`, and no heading at all.
 - `src/pages/user-profile/ui/user-profile-view.test.tsx` renders the profile view with no
   `QueryClientProvider`, no `HttpClientProvider` and no router.
 
@@ -1016,6 +1095,11 @@ To see a gate bite before trusting it, break it on purpose and revert:
 - Add `import { parseResponse } from '@/shared/api';` to a module under `src/features`:
   `npm run lint` reports `@typescript-eslint/no-restricted-imports` with
   `parseResponse serves the transport and its test doubles.`
+- Add `errorComponent: () => null,` to the route options in `src/app/routes/index.tsx`:
+  `npm run lint` reports
+  ``Only `errorComponent: false` (let the parent route catch) is allowed here.``
+- Add an `<h1>` to `src/widgets/app-header/ui/app-header.tsx`: `npm run lint` reports
+  `Pages own <main> and <h1>. Render them only from a page.`
 
 ## Known limitations
 
@@ -1054,10 +1138,26 @@ To see a gate bite before trusting it, break it on purpose and revert:
 - **Side-effect imports pass the barrel rule.** `no-restricted-syntax` admits every import
   declaration, so `import './styles/index.css';` in an `index.ts` is not reported; keeping side
   effects out of barrels is a convention.
+- **The route-fallback fence sees only the curried route creators.** Both option selectors key on
+  `callee.callee.name`, so they match the two-call form — `createFileRoute('…')({ … })`,
+  `createLazyFileRoute('…')({ … })`, `createRootRouteWithContext<…>()({ … })` — and not an
+  uncurried `createRootRoute({ … })`, which could spread its options in unreported. The app uses
+  neither an uncurried creator nor `createLazyFileRoute`, so the hole is theoretical today; a route
+  written in the uncurried form would open it. The `errorComponent` selector is unaffected, since it
+  matches the property anywhere in a route file.
+- **The page-landmark fence reads the file, not the rendered tree.** A `shared/ui` component that
+  renders `<main>` or `<h1>` carries it into whatever route module, widget, feature or entity
+  composes it, and nothing reports that: `shared/ui` is outside the fence by design. A computed role
+  escapes it too — the selector matches `role="main"` and `role={'heading'}`, not
+  `role={landmarkRole}`. Both are review responsibilities, as is the page side of the rule: nothing
+  checks that a page renders a `<main>` and an `<h1>` at all.
 - **Almost nothing tests the flat config.** A block appended below the carve-outs, or a vendor list
   left out of one block, silently disables a fence for those files; only a probe import reveals it.
   `verify:import-fence` automates exactly one such probe — the `@/shared/testing` fence and its
-  resolver — and leaves every `no-restricted-imports` block unproven.
+  resolver — and leaves every `no-restricted-imports` block unproven. No probe covers the three
+  `no-restricted-syntax` blocks either: the route-fallback and page-landmark fences were each shown
+  to bite against a deliberately bad file when they landed, and that file was deleted, so nothing
+  re-runs the check.
 - **File names are not linted.** Kebab-case names, test placement and `*-variants.ts` hold by review
   and by the `find` check under [Conventions nothing lints](#conventions-nothing-lints).
 - **Nothing keeps the dependency graph current.** No gate regenerates or compares

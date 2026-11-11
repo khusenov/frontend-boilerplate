@@ -1,6 +1,6 @@
 # Forms
 
-> **Status:** Complete · **Layers:** features, shared, outside layers · **Verified against:** `b28e2bb`
+> **Status:** Complete · **Layers:** features, shared, outside layers · **Verified against:** `8df68fb`
 
 ## Purpose
 
@@ -92,8 +92,9 @@ each prop, and [Sign-in](./sign-in.md) and
   `Form` catches it and calls `onSubmitError` when one is passed, and otherwise drops it. It never
   becomes an unhandled rejection.
 - _A field is bound to a non-string value._ `TextField` throws a `TypeError` naming the field
-  during render. Inside a route that error is caught by TanStack Router, not by the app's error
-  boundary — see [Known limitations](#known-limitations).
+  during render. Inside a route that error is caught by the failing route's own boundary, which
+  replaces the screen with `RouteErrorPage` and leaves the app shell standing, rather than by the
+  app's error boundary — see [Known limitations](#known-limitations).
 
 ## Architecture
 
@@ -688,13 +689,15 @@ Commands:
 - **Server errors are not mapped onto fields.** Nothing in `src/` calls `setErrorMap`, so an
   `HttpError` from a submit never marks a field invalid; failures surface only through the slice's
   outcome slot.
-- **A render error thrown by a field does not reach the app's error boundary.** No route
-  declares an `errorComponent`, and `createAppRouter` sets no `defaultErrorComponent` or
-  `disableGlobalCatchBoundary`, so the `CatchBoundary` that TanStack Router's `Matches` renders
-  around the matched route tree catches a `TextField` `TypeError` first. The router's built-in
-  `ErrorComponent` ("Something went wrong!") replaces the route's content; `AppCrashFallback` is
-  not shown, and because nothing sets `defaultOnCatch` either, `reportError` never receives the
-  error. See [Error handling and reporting](./error-handling.md).
+- **A render error thrown by a field is contained, not reported.** `createAppRouter` spreads
+  `ROUTER_FALLBACK_DEFAULTS`, whose `defaultErrorComponent` is `RouteErrorFallback`, so a
+  `TextField` `TypeError` is caught by the failing route's own boundary: the translated
+  `RouteErrorPage` replaces the route's content inside `RootLayout`'s `<Outlet />`, below
+  `AppHeader`, and offers a scoped `Try again` beside a `Back to home` link. `RouteErrorPage` takes
+  no `error` prop, so the thrown message never reaches the screen, and `AppCrashFallback` is not
+  shown — the shell survives the crash. What the boundary does not do is report it: nothing sets
+  `defaultOnCatch`, so `reportError` never receives the error. Route-level catches are contained
+  but not yet reported. See [Error handling and reporting](./error-handling.md).
 - **Revealed messages keep their language until the form validates again.** A locale change
   rebuilds the schema (the memo is keyed on `t`) and `useForm` hands the new validators to the form
   on the next render, but TanStack Form's `update` does not re-run validation, so messages already

@@ -1,6 +1,6 @@
 # Unit and component testing
 
-> **Status:** Complete · **Layers:** app, pages, widgets, features, entities, shared, outside layers · **Verified against:** `82072e5`
+> **Status:** Complete · **Layers:** app, pages, widgets, features, entities, shared, outside layers · **Verified against:** `8df68fb`
 
 ## Purpose
 
@@ -156,7 +156,8 @@ the rule set as a whole.
 | `createAuthenticatedTransport` test                            | `app/entrypoint`            | Node environment and MSW: the two-client composition end to end, with a real Web Lock                                                                                          | `src/app/entrypoint/create-authenticated-transport.test.ts`                                                                                    |
 | `LocaleSwitcher` test                                          | `features/switch-locale`    | One control per supported locale under its endonym, the pressed state following the active locale, and the `lang` tag on each button                                           | `src/features/switch-locale/ui/locale-switcher.test.tsx`                                                                                       |
 | `AppHeader` test                                               | `widgets/app-header`        | The `banner` landmark naming the app, and the switcher reachable `within` it — composition, not co-presence                                                                    | `src/widgets/app-header/ui/app-header.test.tsx`                                                                                                |
-| `createAppRouter` test                                         | `app/router`                | The real route tree over a memory history; asserts the routing policy; the `@ts-expect-error` link gate                                                                        | `src/app/router/create-app-router.test.tsx`                                                                                                    |
+| `createAppRouter` test                                         | `app/router`                | The real route tree over a memory history; the routing policy, a failed route contained inside the app shell, the `@ts-expect-error` link gate                                 | `src/app/router/create-app-router.test.tsx`                                                                                                    |
+| `ROUTER_FALLBACK_DEFAULTS` test                                | `app/router`                | A minimal route tree driven by the production fallback policy: the error screen, the scoped retry's catch count, the pending screen, not-found pass-through, escalation        | `src/app/router/router-fallback-defaults.test.tsx`                                                                                             |
 | `HomePage` test                                                | `pages/home · ui`           | A router-free, provider-free component test: the proof that a page reads no route state                                                                                        | `src/pages/home/ui/home-page.test.tsx`                                                                                                         |
 | `SignInForm` test                                              | `features/sign-in · ui`     | `renderWithProviders` with a `SessionStarterProvider` wrapper; validation, outcomes and a keyboard-only sign-in                                                                | `src/features/sign-in/ui/sign-in-form.test.tsx`                                                                                                |
 | `useSignOut` test                                              | `features/sign-out · model` | `renderHookWithProviders` with one wrapper: the caller is notified `onSettled`, so even a rejecting port resolves                                                              | `src/features/sign-out/model/use-sign-out.test.tsx`                                                                                            |
@@ -542,10 +543,86 @@ fence is still live in both directions. That gate is not decoration: the rule ne
 resolver that understands `.ts`/`.tsx` and the `@/` mapping, and without one it resolves nothing and
 passes silently.
 
-**The four router tests do not use it.** `src/app/router/**` and `src/app/routes/**` build a
+**The five router tests do not use it.** `src/app/router/**` and `src/app/routes/**` build a
 `createMemoryHistory` router alongside their providers, and only `app` may import
 `@tanstack/react-router`, so their harness would have to live in `app` and compose on top of this
-one. They keep their hand-built stacks for now.
+one. They keep their hand-built stacks for now. They do take the collaborator factories from the
+same segment — `createHttpClientStub` and `parseStubResponse` in the two `_authenticated` route
+tests, `createTestQueryClient` in `router-fallback-defaults.test.tsx` — since those are independent
+of how the tree is rendered.
+
+### Test router-wide policy on a minimal real router
+
+Some behaviour belongs to the router rather than to any one screen: when a pending screen appears,
+what replaces a route whose `loader` threw, what a retry does, which throws travel on to a
+`notFoundComponent`, and what escapes the router altogether.
+`src/app/router/router-fallback-defaults.test.tsx` is the reference for testing that class of
+policy, in nineteen cases. It mounts no part of the app's own route tree. Instead it builds a
+**minimal real router** from throwaway routes — one that loads, one whose component throws, one that
+suspends on a `useSuspenseQuery`, a nested section with its own layout, and routes that throw
+`notFound({ throw: true })` from a render, a `loader` and a `beforeLoad` — and spreads the
+production policy over it:
+
+```tsx
+const router = createRouter({
+  routeTree: createTestRouteTree(rootLayout),
+  ...ROUTER_FALLBACK_DEFAULTS,
+  defaultErrorComponent: errorScreen,
+  defaultOnCatch: recordRouteCatch,
+  history: createMemoryHistory({ initialEntries: [initialPath] }),
+});
+
+render(
+  <ErrorBoundary FallbackComponent={AppCrashStandIn} onError={recordAppCrash}>
+    <QueryClientProvider client={createTestQueryClient()}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>
+  </ErrorBoundary>,
+);
+```
+
+`errorScreen` defaults to `ROUTER_FALLBACK_DEFAULTS.defaultErrorComponent` and `rootLayout` to a
+bare `Outlet`; only the two escalation cases pass anything else. Four decisions make this router a
+fair stand-in for the app's:
+
+- **The policy is spread in, not copied.** `...ROUTER_FALLBACK_DEFAULTS` means every case exercises
+  the same object `createAppRouter` spreads, so changing a value in `router-fallback-defaults.ts`
+  changes what the suite proves. Re-declaring the five options in the test would let the two drift
+  apart in silence; the first case pins the object itself with `toEqual`.
+- **The test root mirrors `__root.tsx`.** Its `createRootRoute` call carries
+  `errorComponent: false`, the same opt-out the real root route takes, so a crash in the root layout
+  leaves the router here exactly as it does in the app.
+- **A `defaultOnCatch` spy counts catches.** The shipped policy leaves `defaultOnCatch` unset; the
+  test supplies `recordRouteCatch`, which lets a case assert _how often_ a failure was caught rather
+  than only that the error screen appeared. That is what pins the scoped retry: one click on
+  `Try again` over an already-failed route must leave the spy at exactly two calls — the original
+  failure plus the one new catch the click adds — on each of the five retry paths the file drives
+  that way. A plain `router.invalidate()` totals two to five instead, so a single click adds
+  anywhere between one and four catches depending on the route shape, and the assertion would not
+  hold. `sync` is the option that bounds the count; `filter` changes no catch count at all, and
+  earns its place by keeping the ancestor layout routes mounted and visible — which is what the
+  `/section/*` cases assert with `toBeVisible()`.
+- **A stand-in for the app's root `ErrorBoundary` wraps the whole tree.** `AppCrashStandIn` and the
+  `recordAppCrash` spy make escalation observable: a crashing error screen and a crashing root
+  layout must both land there, and every not-found case asserts that nothing did. The error-screen
+  case is driven at `/loaded`, a direct child of the test root, which is why it escalates at all: a
+  fallback crash climbs to the nearest ancestor route that still has a boundary, and a root carrying
+  `errorComponent: false` has none. Under a non-root layout route the same crash would be caught
+  there instead, so the case would need a different route to stay honest.
+
+The supporting techniques are worth copying as a set, because each answers a way this kind of test
+passes for the wrong reason:
+
+| Technique                                                                                                           | Why the file needs it                                                                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `vi.spyOn(console, 'error')` and `vi.spyOn(console, 'warn')` in `beforeEach`, `vi.restoreAllMocks()` in `afterEach` | Every caught route error is logged twice — React 19's default caught-error log and TanStack's development warning — and a green run buried in output reads like a regression. Restoring puts the real consoles back for the next file |
+| `mockReset()` on each fixture in `beforeEach`                                                                       | The fixtures queue one-off outcomes with `mockRejectedValueOnce` and `mockReturnValueOnce`. Vitest's `clearMocks` default clears recorded calls but keeps implementations, so an unconsumed `…Once` would answer the next test        |
+| `waitForRouterToSettle()`, a fixed wait before every catch-count assertion                                          | A count is only meaningful once the router has stopped working. Asserting the moment the error screen regains focus would pass against a retry that catches again a tick later                                                        |
+| `waitFor` for the not-found assertions, rather than `findByText`                                                    | `CatchNotFound` resets when the router status turns `idle`, so the node `findByText` resolved with can already be detached when the expectation runs. `waitFor` re-queries instead of holding a stale node                            |
+| `toBeVisible()`, not `toBeInTheDocument()`, for the section layout during a retry                                   | React keeps a suspended subtree mounted and hides it with `display: none`, so `toBeInTheDocument()` would pass on a layout the visitor cannot see — the opposite of the claim the case makes                                          |
+
+The pending cases use no fake timers either: `createHeldLoad()` returns a promise and its `resolve`,
+so the test decides when a navigation finishes without leaving real time behind.
 
 ### Drive real HTTP through MSW
 
@@ -835,15 +912,29 @@ the gate lists any file the new pattern swallowed by accident.
   `getByText('child content')`; and a test that renders a guarded route names the heading it waits
   for, because `ResolvingSessionPage` — the guard's pending screen — has an `<h1>` of its own, and
   an unnamed `findByRole('heading', { level: 1 })` would resolve against it the moment it paints.
+  That race is the reason `RoutePendingPage` — the pending screen every route now falls back to —
+  renders no `<h1>` at all, only a `<main>` around an `<output>`: a heading there would spread the
+  hazard from one guarded route to every test that waits for a real page heading.
+  `src/pages/route-pending/ui/route-pending-page.test.tsx` pins the absence with
+  `expect(screen.queryByRole('heading')).not.toBeInTheDocument()`, so the exception cannot be
+  undone by accident.
 - **A page below `app` is tested without a router.** `home-page.test.tsx` renders `HomePage` with
   no router, deliberately: it is the executable proof that a page reads no route state, so keep it
-  that way. `src/pages/resolving-session/ui/resolving-session-page.test.tsx` is the same kind of
-  test. Two page slices have no co-located test, for different reasons. `pages/not-found` renders a
-  `Link`, which needs a `RouterProvider` ancestor, and a test under `src/pages/` could not import
-  one — lint allows only `Link` from `@tanstack/react-router` below `app` — so it is covered through
-  the real route tree by `create-app-router.test.tsx` and end to end by `e2e/app-shell.spec.ts`.
-  `pages/sign-in` is a
-  heading around `SignInForm`, whose behaviour is tested in its own slice, and
+  that way. `src/pages/resolving-session/ui/resolving-session-page.test.tsx` and
+  `src/pages/route-pending/ui/route-pending-page.test.tsx` are the same kind of test. Three page
+  slices have no co-located test, for two reasons. `pages/not-found` and `pages/route-error` each
+  render a `Link`, which needs a `RouterProvider` ancestor, and a test under `src/pages/` could not
+  import one — lint allows only `Link` from `@tanstack/react-router` below `app` — so both are
+  covered from `src/app/router/`, where a router may be built: `NotFoundPage` by
+  `create-app-router.test.tsx` and end to end by `e2e/app-shell.spec.ts`, `RouteErrorPage` by
+  `router-fallback-defaults.test.tsx` — its heading, the focus move, the withheld message, the home
+  link and the retry — and by `create-app-router.test.tsx`, which drives it through the real route
+  tree with a `SessionResolver` double that rejects. Read that as the general rule rather than two
+  exceptions: a page that imports `Link` can only be exercised where a live router can be mounted,
+  and the 90% per-file threshold does not care where the coverage came from — it counts every line
+  the whole run executed, not only the lines a co-located test executed, so moving a page's tests up
+  into `src/app/router/` costs the page nothing but the convenience of proximity. `pages/sign-in` is
+  a heading around `SignInForm`, whose behaviour is tested in its own slice, and
   `src/app/routes/sign-in.test.tsx` renders the page through the real route tree — its heading, a
   rejected sign-in, and `onSignedIn` navigating home; a co-located test would stand up the same
   providers to assert nothing those suites do not.
@@ -880,14 +971,17 @@ the gate lists any file the new pattern swallowed by accident.
   `scripts/**/*.mjs` is linted with the type-aware rules (`recommendedTypeChecked` with
   `projectService`), so a JSON-based gate fails `@typescript-eslint/no-unsafe-argument` and takes
   the lint gate down with it.
-- **Routing policy a constant cannot explain is asserted.** `create-app-router.test.tsx` asserts
-  `defaultPreload: 'intent'`, `defaultPreloadStaleTime: 0`, `defaultPendingMs: 300`,
-  `defaultPendingMinMs: 300` and `scrollRestoration: true`, so deleting one of those lines fails a
-  test instead of silently restoring a vendor default. `defaultPreloadStaleTime: 0` stops the
-  router keeping its own 30-second cache of loader results beside TanStack Query's; the two 300 ms
-  values set how long a pending guarded route stays blank before `ResolvingSessionPage` appears and
-  how long that page then holds, where the vendor defaults of 1000 ms and 500 ms would leave a cold
-  load of a guarded route blank for up to a second. [Routing](./routing.md) owns the policy itself.
+- **Routing policy a constant cannot explain is asserted.** The fallback half of the policy is
+  pinned once, by value: `router-fallback-defaults.test.tsx` asserts `ROUTER_FALLBACK_DEFAULTS` with
+  `toEqual`, and `create-app-router.test.tsx` asserts `router.options` against the same object with
+  `toMatchObject`, so the factory cannot quietly stop spreading it. Beside that it asserts
+  `defaultPreload: 'intent'`, `defaultPreloadStaleTime: 0`, `scrollRestoration: true` and
+  `errorComponent` being `false` on the root route, so deleting one of those lines fails a test
+  instead of silently restoring a vendor default. `defaultPreloadStaleTime: 0` stops the router
+  keeping its own 30-second cache of loader results beside TanStack Query's; the two 300 ms values
+  set how long a pending route stays blank before its pending screen appears and how long that
+  screen then holds, where the vendor defaults of 1000 ms and 500 ms would leave a cold load blank
+  for up to a second. [Routing](./routing.md) owns the policy itself.
 - **Disabled and focused tests cannot be committed.** `vitest/no-focused-tests` is an error, and
   `vitest/no-disabled-tests`, a warning in the recommended config, is fatal because `npm run lint`
   runs with `--max-warnings 0`. The lefthook `pre-commit` lint job passes the same flag for staged
@@ -897,10 +991,10 @@ the gate lists any file the new pattern swallowed by accident.
 
 Only `src/shared/testing` is covered by tests of its own — `create-http-client-stub.test.ts`,
 `parse-stub-response.test.ts` and `render-with-providers.test.tsx`, nineteen cases between them.
-For the rest of the harness the suite is the test. With the user wire-contract change applied, that
-suite is **85 test files and 562 tests**; `npm run test:coverage` reports 100% statements, branches,
+For the rest of the harness the suite is the test. With the route fallback defaults in place, that
+suite is **87 test files and 584 tests**; `npm run test:coverage` reports 100% statements, branches,
 functions and lines, and `npm run verify:coverage-scope` then prints
-`Coverage scope verified: 158 source files measured.` The 90% per-file thresholds are the floor the
+`Coverage scope verified: 164 source files measured.` The 90% per-file thresholds are the floor the
 gate enforces, not a description of where the suite stands.
 
 Each setup responsibility is load-bearing for specific files:

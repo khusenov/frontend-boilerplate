@@ -1,6 +1,6 @@
 # User profile (read path)
 
-> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `d6deb01`
+> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `8df68fb`
 
 ## Purpose
 
@@ -985,8 +985,12 @@ runs the whole Vitest suite, and `npm run test:coverage` adds the 90% per-file t
   `unavailable`, so someone else's profile (`403`), a missing user (`404`), a response that fails
   `userDtoSchema`, a network failure and a refused dot-segment id all show
   `This profile could not be loaded.`, with no retry action.
-  The route declares no `errorComponent` or `notFoundComponent`, and nothing on this screen
-  branches on `HttpError.kind`.
+  The route declares no `errorComponent` or `notFoundComponent` of its own, and nothing on this
+  screen branches on `HttpError.kind`. The boundary every route now inherits from
+  `ROUTER_FALLBACK_DEFAULTS` — `RouteErrorFallback` rendering `RouteErrorPage`, with its scoped
+  `Try again` — is off this path: `useUserProfile` renders the failure inline rather than throwing,
+  and the `loader` only `void`s a `prefetchQuery`, which never rejects. Nothing crosses that
+  boundary, so nothing offers the retry.
 - **A failed background refetch hides a loaded profile.** `useUserProfile` tests `isError` before
   it returns `data`, and TanStack Query v5 keeps `data` alongside `error` when a refetch fails. A
   failing refetch — on window focus or reconnect once the 30-second `staleTime` has passed —

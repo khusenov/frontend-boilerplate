@@ -4,6 +4,15 @@
     "description": "The page you requested does not exist.",
     "backToHome": "Back to home"
   },
+  "routeError": {
+    "title": "This page could not be displayed",
+    "description": "An unexpected error interrupted this page. Try again, or go back to the home page.",
+    "retry": "Try again",
+    "backToHome": "Back to home"
+  },
+  "routePending": {
+    "loading": "Loading…"
+  },
   "user": {
     "email": "Email",
     "status": "Status",

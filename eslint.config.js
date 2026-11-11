@@ -163,6 +163,40 @@ const VALIDATOR_IMPORT_PATTERNS = [
   },
 ];
 
+const PAGE_LANDMARK_RESTRICTIONS = [
+  {
+    selector: 'JSXOpeningElement[name.name=/^(main|h1)$/]',
+    message: 'Pages own <main> and <h1>. Render them only from a page.',
+  },
+  {
+    selector:
+      "JSXAttribute[name.name='role']:matches([value.value=/^(main|heading)$/], [value.expression.value=/^(main|heading)$/])",
+    message: 'Pages own the main landmark and the page heading. Render them only from a page.',
+  },
+];
+
+const INLINE_ROUTE_OPTIONS_MESSAGE =
+  'Spell route options out in the route file so the route fences can check them.';
+
+const ROUTE_FALLBACK_RESTRICTIONS = [
+  {
+    selector:
+      "Property:matches([key.name='errorComponent'], [key.value='errorComponent']):not([value.type='Literal'][value.raw='false'])",
+    message:
+      'Route errors render through the router default, RouteErrorFallback, which passes a render-time notFound() on and scopes the retry to the failed route. Only `errorComponent: false` (let the parent route catch) is allowed here.',
+  },
+  {
+    selector:
+      'CallExpression[callee.callee.name=/^create(Lazy)?(File|Root)Route(WithContext)?$/] > ObjectExpression > SpreadElement',
+    message: INLINE_ROUTE_OPTIONS_MESSAGE,
+  },
+  {
+    selector:
+      "CallExpression[callee.callee.name=/^create(Lazy)?(File|Root)Route(WithContext)?$/][arguments.0.type!='ObjectExpression']",
+    message: INLINE_ROUTE_OPTIONS_MESSAGE,
+  },
+];
+
 export default tseslint.config(
   {
     ignores: [
@@ -677,6 +711,24 @@ export default tseslint.config(
           ],
         },
       ],
+    },
+  },
+  {
+    files: ['src/app/routes/**/*.{ts,tsx}'],
+    ignores: ['src/app/routes/**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        ...ROUTE_FALLBACK_RESTRICTIONS,
+        ...PAGE_LANDMARK_RESTRICTIONS,
+      ],
+    },
+  },
+  {
+    files: ['src/{widgets,features,entities}/**/*.tsx'],
+    ignores: ['src/{widgets,features,entities}/**/*.test.tsx'],
+    rules: {
+      'no-restricted-syntax': ['error', ...PAGE_LANDMARK_RESTRICTIONS],
     },
   },
   prettier,

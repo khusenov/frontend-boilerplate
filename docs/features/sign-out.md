@@ -1,6 +1,6 @@
 # Sign-out
 
-> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `33ee487`
+> **Status:** Complete · **Layers:** app, pages, features, entities, shared, outside layers · **Verified against:** `8df68fb`
 
 ## Purpose
 
@@ -529,8 +529,17 @@ below). The runner and conventions are described in
   `HttpError` is not retryable either, so the query fails at once, `useUserProfile` reports
   `unavailable`, and the `userProfile.unavailable` alert can appear for the instant before
   `/sign-in` renders. The same failure reaches `queryErrorHandlers.onQueryError`, so a sign-out from
-  the profile can report one query error to the error reporter. The structural fix is a route-level
-  `errorComponent` plus a 401-to-redirect rule; neither exists today.
+  the profile can report one query error to the error reporter. Half the structural fix has landed:
+  `ROUTER_FALLBACK_DEFAULTS` gives every route `RouteErrorFallback` as its `defaultErrorComponent`,
+  so a thrown route error now renders the translated `RouteErrorPage` inside `RootLayout`'s
+  `<Outlet />` — a scoped `Try again`, a `Back to home` link, the header still standing, and no
+  thrown message on screen — but it never reaches this flash, because `useUserProfile` renders the
+  failure inline instead of throwing, and those route-level catches are contained rather than
+  reported (`defaultOnCatch` is unset). The other half — sending a `401` route error to `/sign-in` —
+  is still deferred, with a concrete shape: it needs the error-envelope mapping to classify the
+  error, and the transport leaves the server's `{ error: { code, message, requestId } }` body
+  unparsed, so today nothing can tell a `401` apart; it would then add a second branch in
+  `RouteErrorFallback` beside the `isNotFound(error)` pass-through.
 - **The disabled button drops focus to `<body>`.** Disabling the focused control for the duration of
   the request moves focus out of it, so neither `aria-busy="true"` nor the swapped
   `signOut.inProgress` label is announced to a screen-reader user, and the keyboard focus ring is

@@ -1,6 +1,6 @@
 # Design system
 
-> **Status:** Complete · **Layers:** app, pages, widgets, features, shared, outside layers · **Verified against:** `d442a06`
+> **Status:** Complete · **Layers:** app, pages, widgets, features, shared, outside layers · **Verified against:** `8df68fb`
 
 ## Purpose
 
@@ -44,7 +44,12 @@ and components that emit class strings at render time.
    beside it. It renders a `<button type="button">` with those classes and three styling
    hooks: `data-slot="button"`, `data-variant` and `data-size`. With `asChild`, it renders Radix's
    `Slot.Root` instead, which merges the classes and hooks into its single child element, so a link
-   stays a link. `Input` and `Label` work the same way with a fixed class list and no variants.
+   stays a link; that branch never reaches the `<button>` element, so it applies no `type` attribute
+   at all — the `type = 'button'` default lives only in the `<button>` branch. `RouteErrorPage`
+   (`src/pages/route-error/ui/route-error-page.tsx`) is the branch's one runtime consumer: its
+   `<Button asChild variant="outline">` wraps a `<Link to="/">`, and the "Back to home" control
+   renders as an `<a href="/">` carrying the outline variant's classes and the three data hooks.
+   `Input` and `Label` work the same way with a fixed class list and no variants.
 4. **The browser resolves tokens when it paints.** Because the theme block is `inline`, each token
    utility compiles to a direct variable reference — the build emits
    `.bg-primary{background-color:var(--primary)}` — so an element paints with whichever token set
@@ -124,6 +129,7 @@ code; the same value covers `src/main.tsx` and `e2e/`, which belong to no layer 
 | Group import patterns                       | `outside layers`              | Ban a bare `@/shared/ui` or `@/shared/lib` import and any import of a file inside a group                                                                                                                                                   | `eslint.config.js`                                                          |
 | `AppCrashFallback`                          | `app/entrypoint`              | Consumer: the crash screen's retry `Button`, which is why `Button` ships in the eager bundle (see [Error handling and reporting](./error-handling.md))                                                                                      | `src/app/entrypoint/app-crash-fallback.tsx`                                 |
 | `HomePage`                                  | `pages/home · ui`             | Consumer: the home screen's `Button` and token text colours                                                                                                                                                                                 | `src/pages/home/ui/home-page.tsx`                                           |
+| `RouteErrorPage`                            | `pages/route-error · ui`      | Consumer: the contained route error screen's retry `Button` and its `asChild` "Back to home" link — the kit's only `asChild` caller (see [Routing](./routing.md))                                                                           | `src/pages/route-error/ui/route-error-page.tsx`                             |
 | `AppHeader`                                 | `widgets/app-header · ui`     | Consumer at one remove: the app-shell banner `__root.tsx` mounts above the `<Outlet />`, composing `LocaleSwitcher` and so putting the kit's `Button` on every route; it imports no primitive itself (see [App shell](./app-shell.md))      | `src/widgets/app-header/ui/app-header.tsx`                                  |
 | `LocaleSwitcher`                            | `features/switch-locale · ui` | Consumer: one `size="sm"` `Button` per supported locale — the kit's only caller of a non-default size — with `variant` switched between `default` (active) and `outline` (inactive) (see [Internationalization](./internationalization.md)) | `src/features/switch-locale/ui/locale-switcher.tsx`                         |
 | `SignOutButtonView`                         | `features/sign-out · ui`      | Consumer: the profile screen's sign-out control, fixed to `variant="outline"`; internal to the slice, which exports `SignOutButton`                                                                                                         | `src/features/sign-out/ui/sign-out-button-view.tsx`                         |
@@ -144,9 +150,13 @@ component to render on every screen. Each route then adds its own:
 | `/users/$userId`   | authenticated            | `SignOutButtonView` renders a `Button` with `variant="outline"` above the profile content, and the name form renders the same components once the profile has loaded                |
 | anything unmatched | public                   | `NotFoundPage`, the root route's `notFoundComponent`, renders no primitive of its own, so the header's locale `Button`s are the only kit components on the screen                   |
 
-Outside the route tree, `AppCrashFallback` renders a `Button` when the root error boundary catches a
-crash — in place of the whole tree, header included, because the boundary in
-`src/app/entrypoint/app.tsx` wraps the router.
+Outside the route tree, two fallback screens render the kit. `AppCrashFallback` renders a `Button`
+when the root error boundary catches a crash — in place of the whole tree, header included, because
+the boundary in `src/app/entrypoint/app.tsx` wraps the router. `RouteErrorPage` — the screen behind
+`RouteErrorFallback`, which `ROUTER_FALLBACK_DEFAULTS` installs as the router's
+`defaultErrorComponent` — renders two: a retry `Button` and, through `asChild`, a "Back to home"
+link. It takes the place of a failed route's content only, so the header's locale `Button`s survive
+beside it (see [Routing](./routing.md)).
 
 Four group barrels are the whole programmatic contract:
 
@@ -277,12 +287,17 @@ the theme, in tool configuration and in the component defaults:
 - To give a link the look of a button, wrap it in `<Button asChild>`: the element stays a link, with
   its role, `href` and keyboard behaviour, and takes the button's classes. Put extra classes on
   `Button`, not on the child — `Slot` joins the child's `className` after its own without resolving
-  conflicts.
+  conflicts. `RouteErrorPage` is the shipped example; nothing sets `type` on the resulting anchor,
+  because the `asChild` branch never renders a `<button>`.
 
 `NotFoundPage` (`src/pages/not-found/ui/not-found-page.tsx`) renders no class at all today. Rebuilt
 with the kit, as below, its link keeps the role and name that `e2e/app-shell.spec.ts` looks up —
 `getByRole('link', { name: 'Back to home' })`. `Link` is the one `@tanstack/react-router` export a
-module below `app` may import (see [Routing](./routing.md)).
+module below `app` may import (see [Routing](./routing.md)). The shape is no longer hypothetical:
+`src/pages/route-error/ui/route-error-page.tsx` ships it, and
+`src/app/router/router-fallback-defaults.test.tsx` asserts that its home control resolves to
+`findByRole('link', { name: 'Back to home' })` with `href="/"` — the proof that `Slot.Root` styled
+an anchor rather than replacing it with a button.
 
 ```tsx
 import { Link } from '@tanstack/react-router';
@@ -706,7 +721,10 @@ and `pressed` state, `src/widgets/app-header/ui/app-header.test.tsx` looks one o
 `banner` role, `src/app/entrypoint/app.test.tsx` clicks the header's `Русский` button on a mounted
 app and waits for the language to change, and `e2e/user-profile.spec.ts` ("keeps the form operable
 by keyboard alone") tabs from an `Input` to the save `Button` and presses Enter in Chromium, over
-the production build. See [Unit and component testing](./unit-testing.md) and
+the production build. `src/app/router/router-fallback-defaults.test.tsx` drives `RouteErrorPage` on a
+real router: it clicks the retry `Button` by role and name and reads the home control as a `link`
+with `href="/"`, which is the only assertion anywhere that `asChild` survives composition rather than
+just unit rendering. See [Unit and component testing](./unit-testing.md) and
 [End-to-end testing](./e2e-testing.md) for the harnesses.
 
 The 90% per-file coverage thresholds in `vite.config.ts` apply to `button.tsx`,
@@ -734,31 +752,34 @@ Commands:
   switcher, its translated labels and a Playwright spec are the next step. No component test renders
   under `.dark` either — the primitives' `dark:` variants are exercised by the stylesheet, not by an
   assertion.
-- **Most of `Button`'s API still has no runtime caller.** The six call sites — `HomePage`,
-  `AppCrashFallback`, `LocaleSwitcher`, `SignOutButtonView`, and `SubmitButton` as rendered by
-  `SignInFormView` and `UpdateUserNameFormView` — reach two of the six variants (`default`, and
-  `outline` from `SignOutButtonView` and from `LocaleSwitcher`'s inactive locales) and two of the
-  eight sizes (`default`, and `sm` from `LocaleSwitcher`), so no runtime path renders `destructive`,
-  `secondary`, `ghost` or `link`, nor the six remaining sizes — `xs`, `lg`, `icon`, `icon-xs`,
-  `icon-sm` and `icon-lg`. Tests render only `secondary` among them (`button.test.tsx`,
-  `submit-button.test.tsx`) and no size but the default. `asChild` has no runtime caller either
-  (`SubmitButtonProps` omits it) and only `button.test.tsx` exercises it, and `buttonVariants` is
-  imported nowhere outside its group. Their classes still ship: the strings in the eager
-  `button-*.js` chunk, the utilities in `index.css`.
+- **Most of `Button`'s API still has no runtime caller.** There are seven `<Button>` call sites in
+  non-test source — `HomePage`, `AppCrashFallback`, `LocaleSwitcher`, `SignOutButtonView`,
+  `SubmitButton` (rendered by `SignInFormView` and `UpdateUserNameFormView`) and two in
+  `RouteErrorPage`, its retry control and its `asChild` home link. Between them they reach two of the
+  six variants (`default`, and `outline` from `SignOutButtonView`, `LocaleSwitcher`'s inactive
+  locales and `RouteErrorPage`'s home link) and two of the eight sizes (`default`, and `sm` from
+  `LocaleSwitcher`), so no runtime path renders `destructive`, `secondary`, `ghost` or `link`, nor
+  the six remaining sizes — `xs`, `lg`, `icon`, `icon-xs`, `icon-sm` and `icon-lg`. Tests render only
+  `secondary` among them (`button.test.tsx`, `submit-button.test.tsx`) and no size but the default.
+  `asChild` finally has a runtime caller in `RouteErrorPage`, and exactly one: `SubmitButtonProps`
+  still omits the prop, and no other screen passes it. `buttonVariants` is imported nowhere outside
+  its group. The unused classes still ship: the strings in the eager `button-*.js` chunk, the
+  utilities in `index.css`.
 - **The declared icon library is not installed.** `components.json` names `lucide` as its
   `iconLibrary`, but `lucide-react` is in neither `package.json` nor `package-lock.json`, so a
   registry component that imports its icons does not compile until the package is added. The
   `[&_svg]` rules in `buttonVariants` and the `icon`, `icon-xs`, `icon-sm` and `icon-lg` sizes have
   no icon to style today.
 - **Focus is faint on borderless buttons and on invalid inputs.** Only `Input` and the `outline`
-  variant have a border, so on `default` — the variant every shipped call site but
-  `SignOutButtonView` renders, `LocaleSwitcher` included for the active locale — and on
-  `destructive`, `secondary`, `ghost` and `link`, `focus-visible:border-ring` colours a zero-width
-  border. The visible indicator there is the 3px `ring-ring/50` halo: about 2.3:1 against the white
-  `--background` and 7.7:1 against the `default` fill, by the same computation that gives `--ring`
-  its 7.4:1. `59a4d2c` calls the 1px border the compliant indicator and the halo decorative; on
-  these variants the halo is the only one. `SignOutButtonView` and `LocaleSwitcher`'s inactive
-  locales are the exceptions among the shipped buttons: the `outline` variant carries `border`, so
+  variant have a border, so on `default` — which every shipped call site renders except
+  `SignOutButtonView` and `RouteErrorPage`'s home link, `LocaleSwitcher` included for the active
+  locale and `RouteErrorPage` for its retry control — and on `destructive`, `secondary`, `ghost` and
+  `link`, `focus-visible:border-ring` colours a zero-width border. The visible indicator there is the
+  3px `ring-ring/50` halo: about 2.3:1 against the white `--background` and 7.7:1 against the
+  `default` fill, by the same computation that gives `--ring` its 7.4:1. `59a4d2c` calls the 1px
+  border the compliant indicator and the halo decorative; on these variants the halo is the only one.
+  `SignOutButtonView`, `LocaleSwitcher`'s inactive locales and `RouteErrorPage`'s home link are the
+  exceptions among the shipped buttons: the `outline` variant carries `border`, so
   `focus-visible:border-ring` has a real 1px border to colour. On an `Input` with `aria-invalid`,
   the `aria-invalid:border-destructive` rule comes after `focus-visible:border-ring` in the
   stylesheet with equal specificity, so focus leaves the border destructive and adds only a
@@ -773,6 +794,23 @@ Commands:
   or `<Button>` is not. `scripts/a11y-rules.mjs` regenerates `.oxlintrc.json` from scratch, so a
   `settings` block added by hand would be dropped by the next `npm run lint:a11y:fix`. See
   [Quality gates](./quality-gates.md).
+- **The focused-heading pattern lives outside the kit, in two copies.** A screen that replaces the
+  page content after a failure moves keyboard focus to its own `<h1>`, so the next Tab starts from
+  the new heading rather than from wherever the destroyed subtree left the caret. The markup is an
+  `<h1 tabIndex={-1}>` held by a `useRef` and focused from a mount effect, carrying
+  `focus:outline-2 focus:outline-offset-2 focus:outline-ring` — the only `focus:outline-*` treatment
+  anywhere under `src/`, distinct from the base layer's `outline-ring/50` default and from the
+  primitives' `focus-visible:` ring. It exists twice, with a byte-identical class string and only the
+  heading text differing, in `AppCrashFallback` (`src/app/entrypoint/app-crash-fallback.tsx`, an
+  English literal: its boundary in `app.tsx` wraps `AppProviders`, so no `I18nProvider` stands above
+  it) and `RouteErrorPage` (`src/pages/route-error/ui/route-error-page.tsx`, which renders inside the
+  router and so translates through `t('routeError.title')`). No primitive owns it: neither `Button`,
+  `Input` nor `Label` has anything to say about a landmark heading. The duplication is a recorded
+  decision, not an oversight — a shared `shared/ui/status-screen` primitive is a deliberate
+  follow-up, deferred because the kit's rule is to land a primitive with its first consumer and two
+  consumers of an unextracted pattern are still cheaper than a premature seam (see
+  [Add a primitive](#add-a-primitive)). A third copy is the trigger to extract it, the same
+  threshold the pending-state triple is held to.
 - **Nothing guards appearance.** Tests assert roles, attributes and a handful of class names. There
   is no visual-regression check — Playwright captures screenshots only on failure — and no component
   workshop rendering the variants side by side, so a token or class change that alters how a screen

@@ -1,6 +1,6 @@
 # Internationalization
 
-> **Status:** Complete · **Layers:** app, pages, widgets, features, entities, shared, outside layers · **Verified against:** `d6deb01`
+> **Status:** Complete · **Layers:** app, pages, widgets, features, entities, shared, outside layers · **Verified against:** `8df68fb`
 
 ## Purpose
 
@@ -57,10 +57,11 @@ and `home`.
    suspends it (hands React a promise, so the nearest `Suspense` boundary shows its fallback) and
    asks i18next to load the namespace. The backend calls `loadLocaleNamespace('ru', 'home')`, which
    looks the file up in a build-time `import.meta.glob` map and `import()`s its code-split chunk;
-   when the chunk arrives the component renders in Russian. For route components the nearest
-   boundary is TanStack Router's own root `Suspense`, whose fallback is the root route's
-   `pendingComponent` — none is set, so it renders nothing. The boundary in `AppProviders` covers
-   anything that suspends outside the route tree.
+   when the chunk arrives the component renders in Russian. For a route component the nearest
+   boundary is its own match's `Suspense`, whose fallback is the router's `defaultPendingComponent`,
+   `RoutePendingPage` — itself a translated screen, rendering `t('routePending.loading')` out of the
+   eagerly bundled `common` namespace, so the fallback never suspends waiting for its own copy. The
+   boundary in `AppProviders` covers anything that suspends outside the route tree.
 5. **A locale change re-renders subscribers.** `useLocale().setLocale(next)` calls
    `i18n.changeLanguage(next)`. Shell copy switches synchronously because `common` is bundled;
    components re-render on i18next's `languageChanged` event, `DocumentLocaleSync` rewrites
@@ -156,10 +157,15 @@ home page renders; `/` is the only route that reaches for a second namespace, `h
 | `/sign-in`       | `public`        | `src/app/routes/sign-in.tsx` renders `SignInPage` on the `signIn` keys, including the validation messages `features/sign-in` resolves                                               |
 | `/users/$userId` | `authenticated` | `src/app/routes/_authenticated/users.$userId.tsx` renders `UserProfilePage` on the `user` and `userProfile` keys, plus the `signOut` keys `features/sign-out` renders on its button |
 
-Two more render points serve translated copy without a path of their own: the root route's
+Four more render points serve translated copy without a path of their own. The root route's
 `notFoundComponent` (`src/app/routes/__root.tsx`) renders `NotFoundPage` on the `notFound` keys, and
 the `_authenticated` layout route's `pendingComponent` (`src/app/routes/_authenticated.tsx`) renders
-`ResolvingSessionPage` on the `session` keys while the guard resolves. [Routing](./routing.md) owns
+`ResolvingSessionPage` on the `session` keys while the guard resolves. The other two are router-wide
+defaults, set once in `ROUTER_FALLBACK_DEFAULTS` (`src/app/router/router-fallback-defaults.ts`) and
+therefore reachable from every non-root match: `defaultErrorComponent` is `RouteErrorFallback`, which
+renders `RouteErrorPage` on the `routeError` keys when a route's render, `beforeLoad` or `loader`
+throws, and `defaultPendingComponent` is `RoutePendingPage`, which renders `routePending.loading`
+while a match is loading or suspended. [Routing](./routing.md) owns
 the route tree itself. One control appears on every one of those paths: the root route's
 `RootLayout` renders `AppHeader`, whose `LocaleSwitcher` is how a visitor changes language. It
 renders no translated copy of its own — its labels are the endonyms in `LOCALES`.
@@ -195,10 +201,39 @@ does not compile and reaching an unclamped value takes a deliberate cast.
 [Update user name](./update-user-name.md), [User profile](./user-profile.md),
 [Authenticated route guard](./route-guard.md), [Routing](./routing.md) and [Forms](./forms.md).
 
-| Namespace          | Bundled for | Loaded lazily for | Top-level key groups and their consumers                                                                                                                                                                                                                                                                                                                                                        |
-| ------------------ | ----------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `common` (default) | `en`, `ru`  | none              | `notFound` (`pages/not-found`), `session` (`pages/resolving-session`), `user` (`pages/user-profile`, and `entities/user` for `user.statuses`), `userProfile` (`pages/user-profile`), `signIn` (`pages/sign-in`, `features/sign-in`), `signOut` (`features/sign-out`), `updateUserName` (`features/update-user-name`), `notifications` (`shared/notifications`), `validation` (`shared/ui/form`) |
-| `home`             | `en`        | `ru`              | `environment`, `elapsedLabel`, `addOneSecond`, `secondsAdded` (`pages/home`)                                                                                                                                                                                                                                                                                                                    |
+| Namespace          | Bundled for | Loaded lazily for | Top-level key groups and their consumers                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------ | ----------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `common` (default) | `en`, `ru`  | none              | `notFound` (`pages/not-found`), `routeError` (`pages/route-error`), `routePending` (`pages/route-pending`), `session` (`pages/resolving-session`), `user` (`pages/user-profile`, and `entities/user` for `user.statuses`), `userProfile` (`pages/user-profile`), `signIn` (`pages/sign-in`, `features/sign-in`), `signOut` (`features/sign-out`), `updateUserName` (`features/update-user-name`), `notifications` (`shared/notifications`), `validation` (`shared/ui/form`) |
+| `home`             | `en`        | `ru`              | `environment`, `elapsedLabel`, `addOneSecond`, `secondsAdded` (`pages/home`)                                                                                                                                                                                                                                                                                                                                                                                                |
+
+`routeError` and `routePending` are the two newest families, and they sit directly after `notFound`
+in both `en/common.json` and `ru/common.json`. `RouteErrorPage` renders the first four,
+`RoutePendingPage` the fifth:
+
+| Key                      | `en/common.json`                                                                     | `ru/common.json`                                                                               |
+| ------------------------ | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `routeError.title`       | `This page could not be displayed`                                                   | `Не удалось отобразить страницу`                                                               |
+| `routeError.description` | `An unexpected error interrupted this page. Try again, or go back to the home page.` | `Непредвиденная ошибка прервала работу страницы. Попробуйте ещё раз или вернитесь на главную.` |
+| `routeError.retry`       | `Try again`                                                                          | `Попробовать ещё раз`                                                                          |
+| `routeError.backToHome`  | `Back to home`                                                                       | `На главную`                                                                                   |
+| `routePending.loading`   | `Loading…`                                                                           | `Загрузка…`                                                                                    |
+
+`routeError.backToHome` repeats `notFound.backToHome` word for word in both locales, and stays a
+separate key on purpose: the families are per screen, so either screen's copy can be reworded without
+dragging the other with it.
+
+Three properties of the segment are what made adding them two JSON edits and nothing more. Keys are
+typed from English: `src/shared/i18n/i18next.d.ts` declares `common: typeof enCommon`, so the key
+union is derived from `en/common.json` itself and `t('routeError.title')` type-checked the moment the
+key was written — no declaration to extend, and a typo fails `npm run typecheck`. Both locales bundle
+`common` eagerly (`BUNDLED_RESOURCES` in `src/shared/i18n/bundled-resources.ts` holds `en.common` and
+`ru.common` inline), so neither screen suspends waiting for its copy — which is not a nicety for
+`RoutePendingPage`, because that screen _is_ the router's Suspense fallback, and a fallback that
+suspends has nothing left to fall back to. And Russian parity is enforced by test rather than by
+review: the `translates every english key family in russian` case in
+`src/shared/i18n/lazy-locale-loader.test.ts` walks every flattened English key family and asserts the
+Russian file has it, so omitting the `ru` block — or one key inside it — fails `npm test`, not just
+code review.
 
 **`@/features/switch-locale`** exports `LocaleSwitcher`, which takes no props: it reads the active
 locale from `useLocale()` and the choices from `SUPPORTED_LOCALES` and `LOCALES`. It renders one
@@ -400,8 +435,11 @@ it is part of the initial download for every visitor, once per supported locale.
 namespace keeps a screen's copy out of the initial download for every locale except English, at the
 cost of one request and one suspension the first time that screen renders in such a locale. Today
 every slice except `pages/home` keys its copy into `common`. Copy that must render before anything
-can load — the not-found page, the session-resolving screen, the form seam's fallback message —
-belongs in `common` regardless.
+can load — the not-found page, the session-resolving screen, the route error and route pending
+screens, the form seam's fallback message — belongs in `common` regardless. `pages/route-pending` is
+the strongest case of the rule: it is the fallback the router shows _while_ something else loads, so
+a namespace it had to wait for would leave the visitor with a blank screen at exactly the moment the
+fallback exists to fill.
 
 ### Add a namespace
 
@@ -766,7 +804,13 @@ when adding the next slice on either layer.
   single-rule disable comment both fails to silence the second rule and cannot be padded.
 - **The crash fallback is the one piece of copy outside `shared/i18n`.** `AppCrashFallback`
   hardcodes English because it renders above `AppProviders`, the component that constructs the i18n
-  instance: if i18n is what failed, there is nothing left to translate a message with. See
+  instance: if i18n is what failed, there is nothing left to translate a message with. Nothing below
+  it can be trusted at that point, so the screen depends on no provider, no namespace and no
+  instance. Its reach is wider than a bootstrap failure — see
+  [Known limitations](#known-limitations) — but the reasoning is unchanged: a fallback that needs the
+  thing that broke is not a fallback. Route-level failures are a different case and _are_ translated,
+  because by then `AppProviders` has run and `common` is in memory in both locales; they render
+  `RouteErrorPage` on the `routeError` keys. See
   [Error handling and reporting](./error-handling.md). Nothing lints for string literals in JSX, so
   the rule that no component below `app` holds one is kept by review.
 
@@ -835,9 +879,21 @@ copy — see [End-to-end testing](./e2e-testing.md).
 - **A failed lazy namespace degrades silently and for the rest of the visit.** The screen falls back
   to English copy, nothing subscribes to i18next's `failedLoading` event, so the `ErrorReporter`
   never hears of it, and i18next does not retry the namespace until the next full page load.
-- **Two screens are English in every locale.** `AppCrashFallback`, by design (above), and TanStack
-  Router's built-in error component — "Something went wrong!" with a "Show Error" toggle — which
-  renders for an uncaught route error because no route sets `errorComponent`. See
+- **One screen is English in every locale, and it now covers more than bootstrap.**
+  `AppCrashFallback` (`src/app/entrypoint/app-crash-fallback.tsx`) hardcodes "Something went wrong"
+  and "The application could not start. Trying again may fix it.", by design (above): it renders
+  above `AppProviders`, so it must work when i18n itself is what failed. TanStack Router's own
+  English panel is gone — `ROUTER_FALLBACK_DEFAULTS` sets `defaultErrorComponent`, so a failing
+  non-root match renders the translated `RouteErrorPage` instead. But the untranslated screen's reach
+  grew in the same change. The root route now sets `errorComponent: false`
+  (`src/app/routes/__root.tsx`) and the policy sets `disableGlobalCatchBoundary: true`, so a crash in
+  the app shell (`RootLayout`) falls past the router to the root `ErrorBoundary` in
+  `src/app/entrypoint/app.tsx` — where `AppCrashFallback` renders. A crash of the route error
+  screen lands there too whenever no ancestor route boundary catches it first, which today means
+  any top-level route, the root having none; below `_authenticated`, which inherits a boundary, the
+  screen's own crash is caught there and the visitor keeps translated copy. A Russian visitor can
+  therefore meet English copy well after the app started and i18n is working fine, and the second
+  sentence ("could not start") will be inaccurate in those cases. See
   [Error handling and reporting](./error-handling.md).
 - **Nothing end to end runs a non-English locale, and language persistence has no journey test.**
   `playwright.config.ts` pins `locale: 'en-US'`, and no spec uses `?lng=`, activates a switcher

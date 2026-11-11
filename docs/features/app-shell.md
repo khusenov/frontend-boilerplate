@@ -1,6 +1,6 @@
 # App shell
 
-> **Status:** Complete · **Layers:** app, widgets, features, shared, outside layers · **Verified against:** `65a99bc`
+> **Status:** Complete · **Layers:** app, widgets, features, shared, outside layers · **Verified against:** `8df68fb`
 
 ## Purpose
 
@@ -34,11 +34,16 @@ one place that constructs concretes, reads configuration and wires things togeth
    else from the provider tree: `LocaleSwitcher` reads i18n through context, and `AppHeader` reads
    no context at all.
 2. **The root layout mounts the shell.** `src/app/routes/__root.tsx` declares the root route with
-   `createRootRouteWithContext<AppRouterContext>()({ component: RootLayout, notFoundComponent: NotFoundPage })`.
+   `createRootRouteWithContext<AppRouterContext>()({ component: RootLayout, errorComponent: false, notFoundComponent: NotFoundPage })`.
    `RootLayout` renders `<AppHeader appName={appConfig.name} />`, then `<Outlet />`, then
    `TanStackRouterDevtools`. The root route is the ancestor of every route in the generated tree, so
    the banner is rendered once and stays mounted: navigation swaps what the outlet renders beneath
-   it, never the header itself.
+   it, never the header itself. Every _match_ below the root — the router's word for one active
+   route in the tree — carries its own error boundary, and every match including the root carries its
+   own `Suspense` boundary, which is why a route that fails or is slow now changes only what the
+   outlet holds (steps 9 and 10);
+   `errorComponent: false` is the root opting out of that, and it decides what a crash of the shell
+   itself does (step 11).
 3. **The widget composes, and decides nothing.** `AppHeader` takes a single prop,
    `readonly appName: string`, and renders a `<header>` containing a `<span>` with that name and
    `<LocaleSwitcher />`. It holds no state, calls no hook and reads no configuration; its whole job
@@ -69,6 +74,40 @@ one place that constructs concretes, reads configuration and wires things togeth
    string. Its only text is the application name, which is configuration, and the locale labels,
    which are endonyms rather than translations. A namespace that fails to load leaves the screen in
    fallback copy but cannot leave the shell half-translated or blank of labels.
+9. **The failure path the shell survives: a route below it fails.** The router-wide policy in
+   `src/app/router/router-fallback-defaults.ts` (`ROUTER_FALLBACK_DEFAULTS`, spread into
+   `createRouter` by `createAppRouter`) sets `defaultErrorComponent: RouteErrorFallback`, so every
+   non-root match has an error boundary of its own and the innermost one catches. A render, a
+   `beforeLoad` or a `loader` that throws therefore renders `RouteErrorPage` — its translated
+   heading, a `Try again` button and a `Back to home` link — inside `RootLayout`'s `<Outlet />`.
+   `AppHeader` is a sibling of that outlet, not a descendant of the failed match, so the banner
+   stays on screen and the locale switcher keeps working while the page below it is a failure
+   screen. These route-level catches are contained but not reported: the router's `defaultOnCatch`
+   is unset, so nothing reaches the `ErrorReporter` ([Error handling and reporting](./error-handling.md)).
+10. **The slow path: a route below it loads or suspends.** The same policy sets
+    `defaultPendingComponent: RoutePendingPage`, which renders a `Loading…` `<output>` (implicit
+    `status` role) in the outlet, again below the banner. It appears on a navigation whose
+    `beforeLoad`, `loader` or code chunk outlasts `defaultPendingMs` (300 ms) and, once shown, is
+    held for at least `defaultPendingMinMs` (300 ms) so a load finishing just after the delay does
+    not flash. It goes up at once when a component inside a route suspends — React 19 throttles the
+    reveal of the resolved content, so in practice that fallback is on screen for roughly 300 ms —
+    and at once on a retry of a route that has load work; a route with nothing to load re-renders
+    immediately, with no pending screen at all. The concrete case is switching to Russian on `/`:
+    `bundled-resources.ts` bundles `ru/common` but not `ru/home`, and `HomePage` reads the `home`
+    namespace through a suspending `useTranslation('home')`, so the outlet shows `Loading…` while
+    the namespace is fetched and the banner never blanks.
+11. **The failure path that still takes the shell with it: `RootLayout` crashes.** The root route
+    sets `errorComponent: false`, so it has no route-level error screen to fall into and the error
+    leaves `RouterProvider` entirely. It lands in the top-level `ErrorBoundary` in
+    `src/app/entrypoint/app.tsx`, where `AppCrashFallback` replaces the whole page and
+    `handleRenderError` — `createRenderErrorHandler(reportError)` — reports it as
+    `{ source: 'render' }`. A crash of the route error screen itself climbs to the nearest ancestor
+    route that still has a boundary, and the root has none — so from `/`, `/sign-in` or
+    `_authenticated`, all direct children of the root, it ends in the same place on the first hop.
+    Only below `_authenticated`, which inherits a boundary of its own, is such a crash caught
+    instead: the shell survives and `RouteErrorPage` renders again in the outlet, unreported.
+    Before `disableGlobalCatchBoundary: true` removed it, both were swallowed by TanStack Router's
+    global panel: unstyled, English-only, without the header, and unreported.
 
 ## Architecture
 
@@ -90,7 +129,10 @@ everywhere outside `src/shared/i18n` (`I18N_VENDOR_IMPORT_PATHS` in `eslint.conf
 | Component                            | Layer                         | Responsibility                                                                                                                                       | File                                                                         |
 | ------------------------------------ | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | `RootLayout`, `Route`                | `app/routes`                  | Mounts `<AppHeader appName={appConfig.name} />` above `<Outlet />` on the root route, so the shell renders on every route                            | `src/app/routes/__root.tsx`                                                  |
+| `ROUTER_FALLBACK_DEFAULTS`           | `app/router`                  | The fallback policy `createAppRouter` spreads in: `RoutePendingPage` and `RouteErrorFallback` per match, their timings, and no global catch panel    | `src/app/router/router-fallback-defaults.ts`                                 |
+| `RouteErrorFallback`                 | `app/router`                  | The `defaultErrorComponent`: puts `RouteErrorPage` and its scoped retry in the outlet, below the banner, and passes a render-time not-found on       | `src/app/router/route-error-fallback.tsx`                                    |
 | `AppProviders`                       | `app/entrypoint`              | Constructs the i18next instance (`createI18n()`) and publishes it through `I18nProvider`, the only context the shell needs                           | `src/app/entrypoint/app-providers.tsx`                                       |
+| `App`, `AppCrashFallback`            | `app/entrypoint`              | The top-level `ErrorBoundary` a `RootLayout` crash escalates to, and the screen that replaces the shell — reported as `{ source: 'render' }`         | `src/app/entrypoint/app.tsx`, `src/app/entrypoint/app-crash-fallback.tsx`    |
 | `appConfig`                          | `shared/config`               | Holds `name`, the string the root layout hands the widget; the only module that reads `import.meta.env`                                              | `src/shared/config/app-config.ts`                                            |
 | `AppHeader`, `AppHeaderProps`        | `widgets/app-header · ui`     | The `<header>` banner: the application name beside the shell's controls. Presentational — no state, no hooks, no config                              | `src/widgets/app-header/ui/app-header.tsx`                                   |
 | `LocaleSwitcher`                     | `features/switch-locale · ui` | One `Button` per supported locale, labelled with its endonym; calls `setLocale` and reflects the active locale                                       | `src/features/switch-locale/ui/locale-switcher.tsx`                          |
@@ -119,7 +161,9 @@ route in the generated tree (`src/app/router/route-tree.gen.ts`), so it renders 
 A route is `authenticated` when its module sits under `src/app/routes/_authenticated/`
 ([Authenticated route guard](./route-guard.md)). The header is not conditioned on any of this: it is
 a sibling of `<Outlet />`, not of a route's component, so nothing in `src/app/routes/**` can opt out
-of it and nothing needs to opt in.
+of it and nothing needs to opt in. What the outlet holds is not always the route's own component:
+while a route loads it holds `RoutePendingPage`, and when one fails it holds `RouteErrorPage`. The
+banner is above all three.
 
 ### Slice public APIs
 
@@ -160,20 +204,26 @@ barrel rather than importing `@/shared/i18n/registry` keeps the segment's public
 This feature reads no environment variable. `src/shared/config/app-config.ts` is the only module in
 the repo that touches `import.meta.env`, and the sole variable declared in `env.d.ts` and
 `.env.example` — `VITE_API_BASE_URL` — belongs to the transport, not to the shell. What the shell
-does take, it takes as props and as registry constants:
+does take, it takes as props, as registry constants, and as the router-wide fallback policy in
+`src/app/router/router-fallback-defaults.ts`, which decides what replaces the outlet's content —
+and what does not replace the shell — when a route is slow or fails:
 
-| Variable / option               | Default                                                                           | Meaning                                                                                                          |
-| ------------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `appName` prop                  | `appConfig.name`, passed by `RootLayout`                                          | The text in the banner. The widget's only input, and the seam that keeps configuration out of `widgets`          |
-| `appConfig.name`                | `'frontend-boilerplate'`, a literal in `src/shared/config/app-config.ts`          | Not environment-driven: renaming the app is an edit to that file, which also renames the session refresh lock    |
-| `SUPPORTED_LOCALES`             | `['en', 'ru']` (`src/shared/i18n/registry.ts`)                                    | How many buttons the switcher renders, and in what order                                                         |
-| `LOCALES[locale].label`         | `English`, `Русский`                                                              | Each button's accessible name — an endonym, identical in every locale                                            |
-| `variant` on the pressed button | `'default'`                                                                       | The selected state: `bg-primary text-primary-foreground` (see [Design decisions](#design-decisions--trade-offs)) |
-| `variant` on the others         | `'outline'`                                                                       | The unselected state: `border bg-background shadow-xs`                                                           |
-| `size` on every button          | `'sm'` (`h-8 gap-1.5 rounded-md px-3`)                                            | Keeps the row inside the header's `py-4` band                                                                    |
-| i18next detection `order`       | `['querystring', 'localStorage', 'navigator']` (`src/shared/i18n/create-i18n.ts`) | Which button is pressed on first paint, before the visitor touches anything                                      |
-| i18next detection `caches`      | `['localStorage']`, key `app.locale`                                              | Where a click is remembered, so the choice survives a reload                                                     |
-| `lng` query parameter           | absent                                                                            | Overrides the cached choice on a full page load; the pre-shell way to change language                            |
+| Variable / option               | Default                                                                           | Meaning                                                                                                           |
+| ------------------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `appName` prop                  | `appConfig.name`, passed by `RootLayout`                                          | The text in the banner. The widget's only input, and the seam that keeps configuration out of `widgets`           |
+| `appConfig.name`                | `'frontend-boilerplate'`, a literal in `src/shared/config/app-config.ts`          | Not environment-driven: renaming the app is an edit to that file, which also renames the session refresh lock     |
+| `SUPPORTED_LOCALES`             | `['en', 'ru']` (`src/shared/i18n/registry.ts`)                                    | How many buttons the switcher renders, and in what order                                                          |
+| `LOCALES[locale].label`         | `English`, `Русский`                                                              | Each button's accessible name — an endonym, identical in every locale                                             |
+| `variant` on the pressed button | `'default'`                                                                       | The selected state: `bg-primary text-primary-foreground` (see [Design decisions](#design-decisions--trade-offs))  |
+| `variant` on the others         | `'outline'`                                                                       | The unselected state: `border bg-background shadow-xs`                                                            |
+| `size` on every button          | `'sm'` (`h-8 gap-1.5 rounded-md px-3`)                                            | Keeps the row inside the header's `py-4` band                                                                     |
+| `defaultPendingMs`              | `300` (`ROUTER_FALLBACK_DEFAULTS`)                                                | How long a navigation may run before `RoutePendingPage` takes the outlet; the banner is untouched either way      |
+| `defaultPendingMinMs`           | `300` (`ROUTER_FALLBACK_DEFAULTS`)                                                | The minimum hold once the pending screen is up, so a load that finishes just after the delay does not flash       |
+| `disableGlobalCatchBoundary`    | `true` (`ROUTER_FALLBACK_DEFAULTS`)                                               | Removes TanStack Router's global panel, which rendered without the shell; what it caught reaches `App`'s boundary |
+| `errorComponent` (root route)   | `false` (`src/app/routes/__root.tsx`)                                             | The root's opt-out: a `RootLayout` crash leaves the router instead of replacing the shell with a route screen     |
+| i18next detection `order`       | `['querystring', 'localStorage', 'navigator']` (`src/shared/i18n/create-i18n.ts`) | Which button is pressed on first paint, before the visitor touches anything                                       |
+| i18next detection `caches`      | `['localStorage']`, key `app.locale`                                              | Where a click is remembered, so the choice survives a reload                                                      |
+| `lng` query parameter           | absent                                                                            | Overrides the cached choice on a full page load; the pre-shell way to change language                             |
 
 ## Usage & extension
 
@@ -260,9 +310,14 @@ function RootLayout() {
 
 export const Route = createRootRouteWithContext<AppRouterContext>()({
   component: RootLayout,
+  errorComponent: false,
   notFoundComponent: NotFoundPage,
 });
 ```
+
+Keep `errorComponent: false` on the root route and keep the options object inline: ESLint's
+`no-restricted-syntax` over `src/app/routes/**` allows no other `errorComponent` value and rejects a
+spread or a pre-built options object passed to the route creators.
 
 A block only one screen renders belongs in that page's `ui/` segment instead; steiger's
 `fsd/insignificant-slice` is what enforces the difference.
@@ -367,6 +422,24 @@ entry is complete.
   that no page-level or widget-level test can prove the mount — deleting the `<AppHeader />` line
   leaves every slice test green — which is why the promise is pinned one layer up, in
   `src/app/entrypoint/app.test.tsx`.
+- **The chrome is kept by the router's per-match boundaries, not by a boundary hand-rolled between
+  the shell and `<Outlet />`.** The obvious fix for a failing or suspending screen taking the header
+  with it is to wrap `<Outlet />` in `RootLayout` in an `ErrorBoundary` and a `<Suspense>`. The
+  router already draws both around every match, so the change was a policy — `defaultErrorComponent`
+  and `defaultPendingComponent` in `ROUTER_FALLBACK_DEFAULTS` — rather than markup in the layout.
+  The payoff is that each boundary is keyed to its own match, so it resets on navigation and on a
+  retry with the match it belongs to, a nested layout route keeps its own chrome when a child below
+  it fails, and a route can still override the default for itself: `_authenticated` keeps
+  `pendingComponent: ResolvingSessionPage`, because a route option beats a router default.
+- **The root route opts out of that policy with `errorComponent: false`.** A route error screen
+  rendered _for the root_ would replace the shell it is meant to sit inside, and would do it by
+  rendering inside the very layout that just crashed. Opting out lets the error leave
+  `RouterProvider` and reach the top-level `ErrorBoundary` in `src/app/entrypoint/app.tsx`, which is
+  the boundary that already owns "the application could not start": `AppCrashFallback` renders and
+  `handleRenderError` reports `{ source: 'render' }`, so the crash is visible in the error reporter
+  rather than only on screen. The alternative it replaced was not a design at all —
+  `disableGlobalCatchBoundary: true` removed TanStack Router's global panel, which used to catch
+  this case unstyled, in English, without the header, and without reporting anything.
 
 ## Testing
 
@@ -375,6 +448,8 @@ entry is complete.
 | `src/features/switch-locale/ui/locale-switcher.test.tsx` | Component             | Three cases: every supported locale is offered under its own name with the active one `pressed: true` and the other `pressed: false`; clicking `Русский` moves the pressed state to it and off `English`; each button carries the `lang` it names (`en`, `ru`)                                                                  |
 | `src/widgets/app-header/ui/app-header.test.tsx`          | Component             | Two cases: the `banner` contains the application name; the switcher is reachable through the banner — the second uses `within(banner)` so it asserts composition rather than co-presence on the page                                                                                                                            |
 | `src/app/entrypoint/app.test.tsx`                        | Integration (jsdom)   | Two journeys through the real provider tree and router: `renders the application header with the configured name`, and `switches the application language from the app-shell header`, which clicks `Русский` in the header and then finds the home page's Russian copy (`Добавить секунду`) and `documentElement.lang === 'ru'` |
+| `src/app/router/create-app-router.test.tsx`              | Integration (jsdom)   | `contains a route that fails to load inside the app shell` renders the guarded route with a rejecting `SessionResolver` double, then asserts the `banner` still carries `frontend-boilerplate` beside the route error heading and that the page has exactly one `main`                                                          |
+| `src/app/router/router-fallback-defaults.test.tsx`       | Integration (jsdom)   | The fallback policy on a minimal real router. Two of its cases are shell promises: `sends a crash in the root layout straight to the app error boundary` (reported once, caught by no route boundary) and `shows the pending screen when a navigation outlasts the pending delay`                                               |
 | `e2e/app-shell.spec.ts`                                  | End-to-end (Chromium) | Visits an unknown path, follows `Back to home`, and asserts `await expect(page.getByRole('banner')).toBeVisible();` after the client-side navigation — the only check that the shell reaches a real browser at all                                                                                                              |
 
 The two cases in `app.test.tsx` are the ones that actually pin this step's promises: deleting the
@@ -431,14 +506,25 @@ relaxed or stale, then `oxlint --deny-warnings src` runs them. The runners and c
   `<main>`, so keyboard and screen-reader users traverse it before reaching the page. Two buttons do
   not justify a skip link yet; the moment the shell grows navigation, it will need
   `<a href="#main">` as the first focusable element and an `id` on the page's `<main>`.
-- **A suspending screen takes the shell down with it.** The application's only `Suspense` boundary
-  is `<Suspense fallback={null}>` in `src/app/entrypoint/app-providers.tsx`, and it sits _above_
-  `I18nProvider`, the router and therefore the header. `bundled-resources.ts` bundles `ru/common`
-  but not `ru/home`, and `HomePage` reads the `home` namespace through a suspending
-  `useTranslation('home')`, so a switch to Russian on `/` can blank the banner along with the screen
-  until the lazy namespace resolves. The header itself never suspends — `useLocale` passes
-  `useSuspense: false` — it is simply inside someone else's boundary. A boundary placed between the
-  shell and `<Outlet />` would keep the chrome on screen.
+- **A failure below the shell is contained but not reported.** The router's `defaultOnCatch` is
+  unset, so the route boundary that keeps the header on screen tells the `ErrorReporter` nothing: a
+  loader rejection reaches the console only through React's own caught-error log and TanStack's
+  development warning. Wiring `defaultOnCatch` into the same reporter is the next step. Crashes that
+  escape the router are reported as `{ source: 'render' }`: `RootLayout`'s own always, and the route
+  error screen's whenever no ancestor route boundary catches it first — which is every top-level
+  route, the root having none. A fallback crash under `_authenticated` is caught by that route's
+  boundary and is not reported either.
+- **The shell has no boundary of its own, so it cannot survive its own failure.** A crash in
+  `RootLayout`, `AppHeader` or `LocaleSwitcher` is not below any route boundary; it leaves
+  `RouterProvider` and `AppCrashFallback` replaces the page, banner included. A suspension in the
+  shell loses the banner too, but lands more softly: `Matches` wraps the whole match tree — the root
+  match included — in a `Suspense` whose fallback is `renderPending(router, rootRoute)`, so the
+  screen shows `RoutePendingPage` rather than nothing, and `<Suspense fallback={null}>` in
+  `src/app/entrypoint/app-providers.tsx` is never reached (it sits above `RouterProvider` and
+  catches only suspensions raised outside the router, such as `I18nProvider`'s). That path is
+  theoretical today — the header renders no translated string and `useLocale` passes
+  `useSuspense: false`, so nothing in it suspends — but a control that reads a lazily-loaded
+  namespace would make it real.
 - **A session-aware shell is blocked, not deferred by choice.** Moving `SignOutButton` into the
   header and showing it only while a session is live needs a component below `app` to read session
   status, and nothing publishes it: `src/entities/session/index.ts` exports the `SessionObserver`
