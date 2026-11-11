@@ -795,7 +795,7 @@ make `AppProviders` throw.
   so one test cannot leak into the next — the reason the i18n instance is rebuilt before each test.
 - A jsdom gap belongs here only when code that any test may mount runs into it, as the router's
   scroll restoration does with `scrollTo` and `createSystemThemeSource` does with `matchMedia`,
-  which jsdom 30 does not implement at all. Otherwise stub it in the test that needs it with
+  which jsdom 31 does not implement at all. Otherwise stub it in the test that needs it with
   `vi.stubGlobal` and restore it with `vi.unstubAllGlobals()` in `afterEach`, as
   `src/shared/lib/single-flight/single-flight.test.ts` does with `navigator` — and see
   [Known limitations](#known-limitations) for what that call also restores.
@@ -893,7 +893,7 @@ the gate lists any file the new pattern swallowed by accident.
   `localStorage.clear()` throws `ReferenceError: localStorage is not defined`, so without
   `isBrowserEnvironment` every test in the three MSW files would fail before its first assertion.
   `cleanup()` and the two `vi.stubGlobal` calls are harmless in Node and run unguarded.
-- **`matchMedia` is stubbed once, and it is a hard requirement, not cosmetics.** jsdom 30 leaves
+- **`matchMedia` is stubbed once, and it is a hard requirement, not cosmetics.** jsdom 31 leaves
   `window.matchMedia` undefined, and `AppProviders` builds a `SystemThemeSource` from it on its
   first render — so without the stub every test that mounts the composition root would throw rather
   than merely log. The stub reports `matches: false`, i.e. a light system preference, which is why
