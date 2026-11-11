@@ -801,8 +801,8 @@ gate.
   pending run per group and replaces it with a newer one.
 - **Dependabot groups follow peer coupling.** Packages whose peer ranges tie them together arrive in
   one pull request, so CI judges the combination that will actually be installed:
-  `@vitest/coverage-v8` 5.0.0 requires `vitest` at exactly `5.0.0`, `react-dom` 19.3.0 requires
-  `react` `^19.3.0`, and `@tanstack/router-plugin` requires `@tanstack/react-router` `^1.170.36`.
+  `@vitest/coverage-v8` 5.1.0 requires `vitest` at exactly `5.1.0`, `react-dom` 19.3.0 requires
+  `react` `^19.3.0`, and `@tanstack/router-plugin` requires `@tanstack/react-router` `^1.170.46`.
   `minor-and-patch` is the catch-all for everything else, and it excludes the named groups' patterns
   rather than relying on coming last, because Dependabot resolves an overlap by specificity, not by
   order: left to overlap, a wildcard family such as `@tanstack/*` drops out of its own group, and a
@@ -876,7 +876,7 @@ In CI, the `coverage` and `playwright-report` artifacts keep each run's evidence
   installed package, not only the root's (`#checkEngineAndPlatform` in npm's `@npmcli/arborist`), so
   `engines.node` repeats the narrowest range a dependency declares — `jsdom` 30's
   `^22.22.2 || ^24.15.0 || >=26.0.0`, minus the Node 22 line `.nvmrc` does not use.
-  `dependency-cruiser` 18.3.0 (`^22||^24||>=26`) and its dependency `watskeburt` 6.0.0
+  `dependency-cruiser` 18.7.2 (`^22||^24||>=26`) and its dependency `watskeburt` 6.0.0
   (`^22.13||^24||>=26`) sit inside that range. A dependency update that narrows it further fails
   `npm ci` with the dependency's own `EBADENGINE` until the root is edited to match, and because
   `engine-strict` gates installs rather than `npm run`, an already-populated `node_modules` hides a

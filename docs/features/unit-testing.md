@@ -571,7 +571,7 @@ const idSchema = z.object({ id: z.string() });
 const server = setupServer();
 
 beforeAll(() => {
-  server.listen({ onUnhandledRequest: 'error' });
+  server.listen({ onUnhandledFrame: 'error' });
 });
 
 afterEach(() => {
@@ -786,7 +786,7 @@ the gate lists any file the new pattern swallowed by accident.
   (see [Session management](./session-management.md)).
 - **MSW, not a mocked axios adapter.** The transport tests send requests through a real axios
   instance, so interceptors, cancellation, header handling and status mapping are the code that
-  ships, and MSW answers at the network boundary. `onUnhandledRequest: 'error'` turns a request no
+  ships, and MSW answers at the network boundary. `onUnhandledFrame: 'error'` turns a request no
   handler expects into a failure rather than a silent pass-through. MSW is a dev dependency used
   only through `setupServer` from `msw/node`: no browser service worker is installed (`public/`
   holds only `favicon.svg`; `npx msw init public/` would add one if the dev server ever needs mocked
