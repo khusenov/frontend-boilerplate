@@ -19,5 +19,6 @@ function RootLayout() {
 
 export const Route = createRootRouteWithContext<AppRouterContext>()({
   component: RootLayout,
+  errorComponent: false,
   notFoundComponent: NotFoundPage,
 });

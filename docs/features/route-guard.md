@@ -1,6 +1,6 @@
 # Authenticated route guard
 
-> **Status:** Complete · **Layers:** app, pages, entities, shared, outside layers · **Verified against:** `d6deb01`
+> **Status:** Complete · **Layers:** app, pages, entities, shared, outside layers · **Verified against:** `8df68fb`
 
 ## Purpose
 
@@ -38,9 +38,13 @@ first, and starts no `loader` until all of them have finished:
    because the access token lives only in memory — joins the in-flight `POST /auth/refresh`
    (starting it if none is running) and returns the status that refresh leaves in the in-memory
    session store. If the settler rejects, `resolve()` returns `'unknown'` instead of rejecting.
-3. While the verdict is pending, the router waits 300 ms (`defaultPendingMs`), renders the layout's
-   `pendingComponent`, `ResolvingSessionPage` — a heading reading "Checking your session…" — and
-   keeps it on screen for at least 300 ms (`defaultPendingMinMs`). Once the session is settled
+3. While the verdict is pending, the router waits 300 ms (`defaultPendingMs`), renders the pending
+   screen of the match that is holding, and keeps it up for at least 300 ms
+   (`defaultPendingMinMs`). For this layout that screen is its own `pendingComponent`,
+   `ResolvingSessionPage` — a heading reading "Checking your session…". A route option overrides the
+   router-wide default, which is why the guard's screen still wins: every other route falls back to
+   `defaultPendingComponent`, `RoutePendingPage`, set once for the whole router in
+   `ROUTER_FALLBACK_DEFAULTS` (see [Routing](./routing.md)). Once the session is settled
    (`authenticated` or `anonymous`) the verdict comes back at once, so the page does not appear
    again.
 4. On `'authenticated'`, `beforeLoad` returns and the child route's `loader` and component run.
@@ -61,7 +65,24 @@ Two failure paths matter:
   becomes `anonymous`, and every later verdict returns without a request until a sign-in starts a
   new session.
 - **A settler that throws.** `createSessionResolver` catches the rejection and reports `'unknown'`,
-  so the visitor is redirected rather than shown a route error.
+  so the visitor is redirected rather than shown a route error. The fold is total, which is why the
+  paragraph below describes a screen production cannot reach today.
+
+**When a resolver breaks the port's contract.** The production resolver folds every failure into
+`'unknown'` and never rejects, so nothing the guard awaits leaves `beforeLoad` as anything but a
+redirect. A resolver that rejects anyway breaks the contract, and the router then treats that
+rejection exactly as it treats any unexpected throw from a `beforeLoad` or a `loader`: the failing
+match renders the router-wide `defaultErrorComponent`, `RouteErrorFallback`
+(`src/app/router/route-error-fallback.tsx`). Because the root route opts out with
+`errorComponent: false`, the guard's own match is the nearest boundary, so the failure is contained:
+`RouteErrorFallback` renders `RouteErrorPage` inside `RootLayout`'s `<Outlet />`, `AppHeader` stays
+mounted above it, and the visitor gets a translated heading that takes focus ("This page could not
+be displayed"), a `Try again` button whose retry is scoped to the failed match alone, and a
+`Back to home` link. `RouteErrorPage` takes no `error` prop, so no thrown message can reach the
+screen. Because the shipped resolver cannot produce this path, it is exercised in
+`src/app/router/create-app-router.test.tsx` through `contractBreakingSessionResolver`, a
+deliberately contract-breaking `SessionResolver` double whose rejection stands in for any unexpected
+throw inside the router — that double is what makes the guard's error path testable at all.
 
 ## Architecture
 
@@ -82,24 +103,28 @@ The context-and-provider pair mirrors the ones that publish the `SessionStarter`
 every layer below `app`, so no
 route or page can build a resolver of its own (see
 [Architecture boundaries](./architecture-boundaries.md)). Every import points downward:
-`app/routes` → `pages/resolving-session` → `shared/i18n`, and `app/entrypoint` and `app/router` →
-`entities/session` → `shared`.
+`app/routes` → `pages/resolving-session` → `shared/i18n`, `app/router` → `pages/route-error` →
+`shared/i18n` and `shared/ui/button`, and `app/entrypoint` and `app/router` → `entities/session` →
+`shared`.
 
-| Component                                  | Layer                          | Responsibility                                                                                                                                                                                      | File                                                                               |
-| ------------------------------------------ | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `Route` (id `/_authenticated`)             | `app/routes`                   | Pathless layout route: `beforeLoad` asks `context.sessionResolver.resolve()` for a verdict and redirects anything but `'authenticated'` to `/sign-in`; `pendingComponent` is `ResolvingSessionPage` | `src/app/routes/_authenticated.tsx`                                                |
-| `AppRouterContext`                         | `app/router`                   | Router context type; its required `sessionResolver` member is how the guard receives the port                                                                                                       | `src/app/router/app-router-context.ts`                                             |
-| `AppRouterProvider`                        | `app/router`                   | Reads `useSessionResolver()`, `useHttpClient()` and `useQueryClient()` into the router context                                                                                                      | `src/app/router/app-router-provider.tsx`                                           |
-| `createAppRouter`                          | `app/router`                   | Builds the router with the pending and preload policy the guard relies on                                                                                                                           | `src/app/router/create-app-router.ts`                                              |
-| `createAuthenticatedTransport`             | `app/entrypoint`               | Constructs the resolver over the token source the authenticated HTTP client also uses                                                                                                               | `src/app/entrypoint/create-authenticated-transport.ts`                             |
-| `AppProviders`                             | `app/entrypoint`               | Publishes `transport.sessionResolver` through `SessionResolverProvider`                                                                                                                             | `src/app/entrypoint/app-providers.tsx`                                             |
-| `ResolvingSessionPage`                     | `pages/resolving-session · ui` | The pending screen: one `<main>` and one `<h1>` reading `t('session.resolving')`                                                                                                                    | `src/pages/resolving-session/ui/resolving-session-page.tsx`                        |
-| `SessionResolver`, `createSessionResolver` | `entities/session · model`     | The port and its total implementation: delegates to `settle()`, turns a rejection into `'unknown'`                                                                                                  | `src/entities/session/model/session-resolver.ts`                                   |
-| `useSessionResolver`                       | `entities/session · model`     | Returns the provided resolver; throws outside a `SessionResolverProvider`                                                                                                                           | `src/entities/session/model/session-resolver-context.ts`                           |
-| `SessionResolverProvider`                  | `entities/session · model`     | Publishes a `SessionResolver` to its subtree                                                                                                                                                        | `src/entities/session/model/session-resolver-provider.tsx`                         |
-| `SessionTokenSource.settle`                | `entities/session · model`     | The settler the resolver wraps: a settled status without a request, one refresh while `unknown` (owned by [Session management](./session-management.md))                                            | `src/entities/session/model/session-token-source.ts`                               |
-| `session.resolving`                        | `shared/i18n`                  | The pending page's copy, in `en` and `ru`                                                                                                                                                           | `src/shared/i18n/locales/en/common.json`, `src/shared/i18n/locales/ru/common.json` |
-| `restoreSession`                           | `outside layers`               | End-to-end stub that answers every `POST /v1/auth/refresh` with a token                                                                                                                             | `e2e/fixtures/session-stub.ts`                                                     |
+| Component                                  | Layer                          | Responsibility                                                                                                                                                                                                                                             | File                                                                               |
+| ------------------------------------------ | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `Route` (id `/_authenticated`)             | `app/routes`                   | Pathless layout route: `beforeLoad` asks `context.sessionResolver.resolve()` for a verdict and redirects anything but `'authenticated'` to `/sign-in`; its `pendingComponent`, `ResolvingSessionPage`, overrides the router-wide `defaultPendingComponent` | `src/app/routes/_authenticated.tsx`                                                |
+| `AppRouterContext`                         | `app/router`                   | Router context type; its required `sessionResolver` member is how the guard receives the port                                                                                                                                                              | `src/app/router/app-router-context.ts`                                             |
+| `AppRouterProvider`                        | `app/router`                   | Reads `useSessionResolver()`, `useHttpClient()` and `useQueryClient()` into the router context                                                                                                                                                             | `src/app/router/app-router-provider.tsx`                                           |
+| `createAppRouter`                          | `app/router`                   | Builds the router with the preload policy and spreads `ROUTER_FALLBACK_DEFAULTS`                                                                                                                                                                           | `src/app/router/create-app-router.ts`                                              |
+| `ROUTER_FALLBACK_DEFAULTS`                 | `app/router`                   | The router-wide fallback policy the guard's timings come from: `defaultPendingMs`, `defaultPendingMinMs`, `defaultPendingComponent` (`RoutePendingPage`), `defaultErrorComponent`                                                                          | `src/app/router/router-fallback-defaults.ts`                                       |
+| `RouteErrorFallback`                       | `app/router`                   | The `defaultErrorComponent`: re-throws a not-found, otherwise renders `RouteErrorPage` with a retry scoped to the failed match                                                                                                                             | `src/app/router/route-error-fallback.tsx`                                          |
+| `RouteErrorPage`                           | `pages/route-error · ui`       | The screen a resolver that rejects leaves behind: heading, description, `Try again`, `Back to home`; takes `onRetry` and no error                                                                                                                          | `src/pages/route-error/ui/route-error-page.tsx`                                    |
+| `createAuthenticatedTransport`             | `app/entrypoint`               | Constructs the resolver over the token source the authenticated HTTP client also uses                                                                                                                                                                      | `src/app/entrypoint/create-authenticated-transport.ts`                             |
+| `AppProviders`                             | `app/entrypoint`               | Publishes `transport.sessionResolver` through `SessionResolverProvider`                                                                                                                                                                                    | `src/app/entrypoint/app-providers.tsx`                                             |
+| `ResolvingSessionPage`                     | `pages/resolving-session · ui` | The pending screen: one `<main>` and one `<h1>` reading `t('session.resolving')`                                                                                                                                                                           | `src/pages/resolving-session/ui/resolving-session-page.tsx`                        |
+| `SessionResolver`, `createSessionResolver` | `entities/session · model`     | The port and its total implementation: delegates to `settle()`, turns a rejection into `'unknown'`                                                                                                                                                         | `src/entities/session/model/session-resolver.ts`                                   |
+| `useSessionResolver`                       | `entities/session · model`     | Returns the provided resolver; throws outside a `SessionResolverProvider`                                                                                                                                                                                  | `src/entities/session/model/session-resolver-context.ts`                           |
+| `SessionResolverProvider`                  | `entities/session · model`     | Publishes a `SessionResolver` to its subtree                                                                                                                                                                                                               | `src/entities/session/model/session-resolver-provider.tsx`                         |
+| `SessionTokenSource.settle`                | `entities/session · model`     | The settler the resolver wraps: a settled status without a request, one refresh while `unknown` (owned by [Session management](./session-management.md))                                                                                                   | `src/entities/session/model/session-token-source.ts`                               |
+| `session.resolving`                        | `shared/i18n`                  | The pending page's copy, in `en` and `ru`                                                                                                                                                                                                                  | `src/shared/i18n/locales/en/common.json`, `src/shared/i18n/locales/ru/common.json` |
+| `restoreSession`                           | `outside layers`               | End-to-end stub that answers every `POST /v1/auth/refresh` with a token                                                                                                                                                                                    | `e2e/fixtures/session-stub.ts`                                                     |
 
 ## Public surface
 
@@ -169,19 +194,26 @@ client, the `SessionEnder`, the `SessionObserver` and the `SessionStarter` (see
 | ------------------- | ---------------------- | ---------------------- |
 | `session.resolving` | Checking your session… | Проверяем вашу сессию… |
 
+The error screen the guard can leave behind reads the `routeError` family in the same namespace and
+the same two locale files — `title`, `description`, `retry` and `backToHome` — which it shares with
+every other route rather than owning.
+
 ## Configuration
 
 The guard reads no `VITE_*` variable itself. Its behaviour is fixed by the options below, set in
-`src/app/router/create-app-router.ts`, `src/app/routes/_authenticated.tsx` and the composition root;
-the last row is the one variable that decides where its refresh goes.
+`src/app/router/router-fallback-defaults.ts` (spread into the router by
+`src/app/router/create-app-router.ts`), `src/app/routes/_authenticated.tsx` and the composition
+root; the last row is the one variable that decides where its refresh goes.
 
 | Variable / option                                                    | Default                | Meaning                                                                                                                                                                                                                                              |
 | -------------------------------------------------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `defaultPendingMs` (`ROUTER_PENDING_DELAY_MILLISECONDS`)             | `300`                  | How long the router waits on a pending navigation before rendering the guard's `pendingComponent`; on a cold load the screen stays blank until then. TanStack's own default is `1000`                                                                |
-| `defaultPendingMinMs` (`ROUTER_PENDING_HOLD_MILLISECONDS`)           | `300`                  | The shortest time `ResolvingSessionPage` stays up once rendered, so a fast refresh does not flicker. TanStack's own default is `500`                                                                                                                 |
+| `defaultErrorComponent`                                              | `RouteErrorFallback`   | What replaces a match that failed. The guard reaches it only through a resolver that breaks the port's contract; the root route's `errorComponent: false` is what leaves the guard's own match as the nearest boundary                               |
+| `defaultPendingMs` (`ROUTER_PENDING_DELAY_MILLISECONDS`)             | `300`                  | How long the router waits on a pending navigation before rendering that match's pending screen; on a cold load of a guarded route the screen stays blank until then. TanStack's own default is `1000`                                                |
+| `defaultPendingMinMs` (`ROUTER_PENDING_HOLD_MILLISECONDS`)           | `300`                  | The shortest time a pending screen stays up once rendered, so a fast refresh does not flicker. TanStack's own default is `500`                                                                                                                       |
+| `defaultPendingComponent`                                            | `RoutePendingPage`     | The pending screen of every route that sets no `pendingComponent` of its own. The guard sets one, and a route option overrides the default, so the guarded subtree never shows this page                                                             |
 | `defaultPreload`                                                     | `'intent'`             | A `<Link>` preloads its target on hover or focus (after TanStack's default 50 ms `defaultPreloadDelay`) and on touch, and a preload runs `beforeLoad`, so the guard is consulted before the click. No `<Link>` points into the guarded subtree today |
 | `defaultPreloadStaleTime` (`ROUTER_PRELOAD_STALE_TIME_MILLISECONDS`) | `0`                    | How long preloaded loader data counts as fresh; `0` leaves caching to TanStack Query (see [Routing](./routing.md)). It never caches the guard: the router runs `beforeLoad` on every navigation and every preload                                    |
-| `pendingComponent` (route `/_authenticated`)                         | `ResolvingSessionPage` | What the router renders in the layout's place while `beforeLoad` awaits the verdict                                                                                                                                                                  |
+| `pendingComponent` (route `/_authenticated`)                         | `ResolvingSessionPage` | What the router renders in the layout's place while `beforeLoad` awaits the verdict; being a route option, it wins over `defaultPendingComponent`                                                                                                    |
 | `redirect` target (`to`)                                             | `'/sign-in'`           | Where a denied visitor is sent; a path missing from the generated route tree is a type error                                                                                                                                                         |
 | `settler` (option of `createSessionResolver`)                        | `sessionTokenSource`   | What the resolver asks for a status; the composition root passes the token source the authenticated HTTP client also uses                                                                                                                            |
 | `VITE_API_BASE_URL`                                                  | `/v1`                  | Not read by the guard: `appConfig.apiBaseUrl` reaches `createAuthenticatedTransport(baseUrl)`, so it sets where the guard's refresh goes (`POST <base>/auth/refresh`). See [Configuration and environment](./configuration.md)                       |
@@ -286,9 +318,12 @@ const sessionStarter = { signIn: () => Promise.resolve({ status: 'rejected' } as
 ```
 
 Wait on a **named** heading: `ResolvingSessionPage` has an `<h1>` of its own, so an unnamed
-`findByRole('heading', { level: 1 })` resolves against it the instant it paints. Routes outside the
-guard need the resolver stub too, because the context member is required; `sign-in.test.tsx` and
-`create-app-router.test.tsx` pass one that resolves `'anonymous'`.
+`findByRole('heading', { level: 1 })` resolves against it the instant it paints. The router-wide
+`RoutePendingPage` renders no heading at all, which keeps that race off every route outside the
+guard. Routes outside the guard need the resolver stub too, because the context member is required;
+`sign-in.test.tsx` and `create-app-router.test.tsx` pass one that resolves `'anonymous'`, and
+`create-app-router.test.tsx` keeps a second double, `contractBreakingSessionResolver`, whose
+rejection is how its route-error cases reach the failure path the shipped resolver cannot produce.
 
 ### Replace the resolver
 
@@ -300,7 +335,9 @@ implementation is therefore bound on one line, the `sessionResolver` entry that
 `AppRouterContext`. A replacement must:
 
 - **stay total** — resolve to `'unknown'` rather than reject, because a rejection escaping
-  `beforeLoad` as anything but a redirect errors the route instead of turning the visitor away;
+  `beforeLoad` as anything but a redirect errors the route instead of turning the visitor away: the
+  visitor lands on `RouteErrorPage` inside the app shell, with a retry and a way home but no route
+  to `/sign-in`;
 - **settle through the `sessionTokenSource` the authenticated client already uses** — a second
   token-source instance owns a second single-flight (the one shared request concurrent callers
   join), so a guard's refresh and a `401` retry would send two refreshes instead of one;
@@ -343,8 +380,11 @@ implementation is therefore bound on one line, the `sessionResolver` entry that
   is a loud render error, never a silently open guard.
 - **`resolve()` is total.** `createSessionResolver` catches a rejecting settler and returns
   `'unknown'`: the port is an interface anyone may implement, and a rejection escaping `beforeLoad`
-  as anything but a redirect would error the route instead of turning the visitor away. It is the
-  routing-side twin of `renewQuietly` in `src/shared/api/attach-bearer-token.ts`
+  as anything but a redirect would error the route instead of turning the visitor away. Erroring the
+  route is contained now — `RouteErrorFallback` keeps the failure inside `RootLayout` and offers a
+  retry — but it is still the wrong answer to a failed refresh, which is a verdict to act on rather
+  than a page to retry. It is the routing-side twin of `renewQuietly` in
+  `src/shared/api/attach-bearer-token.ts`
   ([HTTP transport](./http-transport.md)), which wraps `renewToken` for the same reason.
 - **A failed resolution is not cached.** `resolve()` asks the settler on every call, and `settle()`
   answers a settled status without a request, so re-asking costs nothing for a live or ended
@@ -371,17 +411,24 @@ implementation is therefore bound on one line, the `sessionResolver` entry that
   lint error, and three cases in `_authenticated.test.tsx` are what fail. The target, by contrast,
   is type-checked against the generated route tree.
 - **Pending timings are 300 ms and 300 ms, and a test asserts them.** `defaultPendingMs` is how long
-  the router waits on a pending match before `ResolvingSessionPage` appears; `defaultPendingMinMs`
-  is how long the page then holds, so a fast refresh does not flicker. TanStack's defaults of
+  the router waits on a pending match before its pending screen appears; `defaultPendingMinMs` is
+  how long that screen then holds, so a fast refresh does not flicker. TanStack's defaults of
   1000 ms and 500 ms would leave a cold load of a guarded route blank for up to a full second, and
-  nothing else would notice — which is why `create-app-router.test.tsx` asserts both values:
-  deleting either line would otherwise pass every gate.
-- **The pending screen is a page slice of its own.** `ResolvingSessionPage` lives in
-  `pages/resolving-session`, takes no props and reads no route state, so
-  `resolving-session-page.test.tsx` renders it with no router — the same executable proof as the
-  home page's test that a page below `app` stays router-free. It reuses the sign-in page's layout
-  utilities, and its one string sits in the `common` namespace, which `BUNDLED_RESOURCES` ships for
-  every locale, so the page never waits on a lazily loaded namespace.
+  nothing else would notice — which is why `router-fallback-defaults.test.tsx` pins both values as
+  literals and `create-app-router.test.tsx` asserts that the factory applies the whole policy
+  object: deleting either line would otherwise pass every gate. The two constants moved out of
+  `create-app-router.ts` into `ROUTER_FALLBACK_DEFAULTS` when every route gained a pending screen;
+  their values, and what they mean for the guard, did not change.
+- **The pending screen is a page slice of its own, and the guard keeps it on purpose.**
+  `ResolvingSessionPage` lives in `pages/resolving-session`, takes no props and reads no route
+  state, so `resolving-session-page.test.tsx` renders it with no router — the same executable proof
+  as the home page's test that a page below `app` stays router-free. It reuses the sign-in page's
+  layout utilities, and its one string sits in the `common` namespace, which `BUNDLED_RESOURCES`
+  ships for every locale, so the page never waits on a lazily loaded namespace. Now that the router
+  has a `defaultPendingComponent`, keeping the route option is a decision rather than a leftover: a
+  route option overrides the default, and the guard's wait is the one worth naming. "Checking your
+  session…" under an `<h1>` tells the visitor what is being checked, where `RoutePendingPage` shows
+  a bare `Loading…` status and deliberately renders no heading.
 - **The guard adds 0.35 kB gzip of eager JavaScript, all of it first-party.** Measured against the
   sign-in commit (`8fe59fc`), eager bytes — everything `index.html` pulls — grew 460.05 → 461.34 kB
   raw and 152.60 → 152.95 kB gzip, and modules transformed went 585 → 591. The router plugin's
@@ -418,7 +465,14 @@ Unit and component tests sit beside the code they cover; the browser suite lives
   no router and no provider (the Vitest setup registers a global English i18n instance; see
   [Unit and component testing](./unit-testing.md)).
 - `src/app/router/create-app-router.test.tsx` — the injected `sessionResolver` lands on the router
-  context, and the pending and preload values are asserted.
+  context, and the factory's routing policy is asserted against `ROUTER_FALLBACK_DEFAULTS`. Two
+  cases drive the guard's error path with `contractBreakingSessionResolver`: a rejecting resolver on
+  the guarded path leaves the failure contained inside the app shell — the `banner` landmark
+  survives and exactly one `main` is rendered — and `Back to home` navigates from the route error
+  screen to the home page.
+- `src/app/router/router-fallback-defaults.test.tsx` — the fallback policy itself over a minimal
+  router: the pinned values, the error screen with its focus move, its retry and its home link, and
+  the pending screen every route outside the guard falls back to.
 - `src/app/router/app-router-provider.test.tsx` — `AppRouterProvider` builds the router once across
   re-renders, with the resolver supplied by a `SessionResolverProvider`.
 - `src/app/entrypoint/app-providers.test.tsx` — `AppProviders` publishes the transport's resolver to
@@ -462,8 +516,19 @@ npm run test:e2e
   `src/app/routes/_authenticated/users.$userId.tsx` answers with `navigate({ to: '/sign-in' })`, so
   that screen leaves by an explicit navigation rather than by re-validation — but a session ended
   any other way, such as a refresh the server answers with a `401`, still leaves the visitor where
-  they are. Re-validating the matched routes on that edge is deferred to the route-level
-  `errorComponent` and 401-redirect step.
+  they are. The route-level error screen that gap was once paired with now exists
+  (`RouteErrorFallback`, reached through `defaultErrorComponent`), but nothing yet turns a `401`
+  into a fresh verdict, so re-validating the matched routes on that edge is deferred to the
+  401-redirect step.
+- **A route error the guard leaves behind is contained but not reported.**
+  `ROUTER_FALLBACK_DEFAULTS` sets no `defaultOnCatch`, so a rejection caught by `RouteErrorFallback`
+  renders the error screen without reaching the `ErrorReporter` the root boundary reports through
+  (see [Error handling and reporting](./error-handling.md)); only a crash of `RootLayout`, or one of
+  the error screen that no ancestor route boundary catches, escalates that far. The guard's own
+  match is such a case, since `_authenticated` hangs off the root and the root has no boundary —
+  but a fallback crash on a screen _below_ the guard is caught by the guard's own match and stays
+  unreported too. Today's total resolver cannot produce such a rejection in production, but a
+  replacement that broke the contract would fail quietly.
 - **There is no back-off while the refresh endpoint is degraded.** Each navigation or intent preload
   into the subtree retries the refresh while the status is `unknown`, as described under Design
   decisions.
